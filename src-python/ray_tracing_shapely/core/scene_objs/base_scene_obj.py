@@ -158,6 +158,10 @@ class BaseSceneObj:
         self._name: Optional[str] = None
         """Optional human-readable name for the object."""
 
+        self._role = None
+        """Optional Role tag (optical_elements.roles.Role) for structural path
+        auditing -- what this object does in a device, independent of name."""
+
         # Check for unknown keys in the json_obj
         if json_obj:
             serializable_defaults = self.__class__.serializable_defaults
@@ -570,6 +574,26 @@ class BaseSceneObj:
             value: The name to set, or None to clear.
         """
         self._name = value
+
+    @property
+    def role(self):
+        """
+        Get the structural Role tag of the object (optical_elements.roles.Role).
+
+        Returns:
+            The Role if set, or None.
+        """
+        return self._role
+
+    @role.setter
+    def role(self, value) -> None:
+        """
+        Set the structural Role tag of the object.
+
+        Args:
+            value: An optical_elements.roles.Role, or None to clear.
+        """
+        self._role = value
 
     def get_display_name(self) -> str:
         """

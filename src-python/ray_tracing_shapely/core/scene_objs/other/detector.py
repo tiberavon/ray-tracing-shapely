@@ -49,6 +49,8 @@ class Detector(LineObjMixin, BaseSceneObj):
         normal (float): The measured normal force through the detector
         shear (float): The measured shear force through the detector
         bin_data (list): The measured data for each bin in the irradiance map
+        hit_records (list): Per-hit records linking incident ray uuids to the
+            bin they crossed. Enables detector-path lineage analysis.
     """
 
     type = 'Detector'
@@ -76,6 +78,8 @@ class Detector(LineObjMixin, BaseSceneObj):
         self.normal = 0.0
         self.shear = 0.0
         self.bin_data: Optional[List[float]] = None
+        # Per-hit lineage records: one dict per ray crossing this detector.
+        self.hit_records: List[Dict[str, Any]] = []
 
     @property
     def length(self) -> float:
@@ -120,6 +124,7 @@ class Detector(LineObjMixin, BaseSceneObj):
         self.power = 0.0
         self.normal = 0.0
         self.shear = 0.0
+        self.hit_records = []
 
         if self.irrad_map:
             bin_num = self.bin_count
@@ -202,24 +207,38 @@ class Detector(LineObjMixin, BaseSceneObj):
         self.normal += sign * sint * total_brightness
         self.shear -= sign * cost * total_brightness
 
+        # Distance from p1 to incident point (along the detector), used both for
+        # the irradiance bin and the lineage hit record.
+        dist_x = incident_point['x'] - self.p1['x']
+        dist_y = incident_point['y'] - self.p1['y']
+        dist = math.sqrt(dist_x * dist_x + dist_y * dist_y)
+        bin_index = int(dist / self.bin_size) if self.bin_size > 0 else None
+
         # Update irradiance map if enabled
         if self.irrad_map and self.bin_data is not None:
-            # Calculate distance from p1 to incident point
-            dist_x = incident_point.x - self.p1['x']
-            dist_y = incident_point.y - self.p1['y']
-            dist = math.sqrt(dist_x * dist_x + dist_y * dist_y)
-
-            # Find which bin this falls into
-            bin_index = int(dist / self.bin_size)
-
             # Make sure index is within bounds
-            if 0 <= bin_index < len(self.bin_data):
+            if bin_index is not None and 0 <= bin_index < len(self.bin_data):
                 self.bin_data[bin_index] += sign * total_brightness
+
+        # Record the incident ray's lineage identity so post-hoc analysis can
+        # link detector bins back to optical paths. The simulator exposes the
+        # incident segment's uuid as 'incident_uuid' on the output geometry
+        # (getattr guards standalone callers such as the __main__ demo).
+        self.hit_records.append({
+            'ray_uuid': getattr(ray, 'incident_uuid', None),
+            'bin_index': bin_index,
+            'position': dist,
+            'incident_point': {'x': incident_point['x'], 'y': incident_point['y']},
+            'brightness_s': ray.brightness_s,
+            'brightness_p': ray.brightness_p,
+            'brightness_total': total_brightness,
+            'sign': sign,
+        })
 
         # Update ray position (ray passes through unchanged)
         # Move ray origin to incident point, keeping same direction
-        ray.p2 = {'x': incident_point.x + ray_dx, 'y': incident_point.y + ray_dy}
-        ray.p1 = {'x': incident_point.x, 'y': incident_point.y}
+        ray.p2 = {'x': incident_point['x'] + ray_dx, 'y': incident_point['y'] + ray_dy}
+        ray.p1 = {'x': incident_point['x'], 'y': incident_point['y']}
 
     def get_irradiance_data(self) -> List[Dict[str, float]]:
         """
@@ -238,6 +257,55 @@ class Detector(LineObjMixin, BaseSceneObj):
                 'irradiance': power / self.bin_size if self.bin_size > 0 else 0
             })
         return result
+
+    def get_hit_records(self) -> List[Dict[str, Any]]:
+        """
+        Get the per-hit lineage records collected during the simulation.
+
+        Each record is a dict with keys: 'ray_uuid', 'bin_index', 'position',
+        'incident_point', 'brightness_s', 'brightness_p', 'brightness_total',
+        and 'sign'. Records are in the order rays crossed the detector.
+
+        Returns:
+            List of hit-record dicts (empty if no ray crossed the detector).
+        """
+        return self.hit_records
+
+    def get_hit_uuids(self) -> List[str]:
+        """
+        Get the unique ray uuids that crossed this detector.
+
+        These are the terminal-side segment uuids reaching the detector; they
+        can be passed as `leaf_uuids` to lineage-analysis functions such as
+        rank_paths_by_energy() to isolate the optical paths that hit it.
+
+        Returns:
+            List of unique ray uuids (order-preserving, None values dropped).
+        """
+        seen: Dict[str, None] = {}
+        for record in self.hit_records:
+            uuid = record['ray_uuid']
+            if uuid is not None and uuid not in seen:
+                seen[uuid] = None
+        return list(seen)
+
+    def get_bin_uuids(self, bin_index: int) -> List[str]:
+        """
+        Get the ray uuids that crossed a specific irradiance bin.
+
+        Args:
+            bin_index: The bin index (as used by bin_data / get_irradiance_data).
+
+        Returns:
+            List of unique ray uuids that hit the given bin (may be empty).
+        """
+        seen: Dict[str, None] = {}
+        for record in self.hit_records:
+            if record['bin_index'] == bin_index:
+                uuid = record['ray_uuid']
+                if uuid is not None and uuid not in seen:
+                    seen[uuid] = None
+        return list(seen)
 
     def export_csv(self) -> str:
         """

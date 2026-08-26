@@ -72,6 +72,12 @@ class BasePrism(Glass):
     _vertex_roles: ClassVar[List[Tuple[str, str]]] = []
     _apex_vertex_index: ClassVar[Optional[int]] = None
 
+    # Classes that support local mesh refinement (15_p7_mesh_refinement_and_convergence.md)
+    # override this to True and give _compute_path() a refinement_spans keyword
+    # parameter. False by default so straight-edge subclasses (nothing to
+    # refine) need no changes at all.
+    _supports_refinement: ClassVar[bool] = False
+
     # Prism-specific type identifier
     type = 'BasePrism'
 
@@ -83,6 +89,7 @@ class BasePrism(Glass):
         rotation: float = 0.0,
         n: float = 1.5,
         anchor: str = 'centroid',
+        refinement_spans: Optional[List[Tuple[float, float, int]]] = None,
         **kwargs: Any
     ) -> None:
         """
@@ -95,6 +102,11 @@ class BasePrism(Glass):
             rotation: Rotation angle in degrees (counterclockwise).
             n: Refractive index.
             anchor: Position reference - 'centroid' or 'apex'.
+            refinement_spans: Local mesh-refinement spans, passed through to
+                _compute_path() only for subclasses with
+                _supports_refinement = True (15_p7_mesh_refinement_and_convergence.md
+                §4.1); ignored otherwise so straight-edge subclasses need no
+                changes.
             **kwargs: Additional arguments passed to parent class.
 
         Raises:
@@ -116,7 +128,10 @@ class BasePrism(Glass):
         self.refIndex = n
 
         # Build geometry - this calls the subclass's _compute_path()
-        self.path = self._compute_path()
+        if self._supports_refinement:
+            self.path = self._compute_path(refinement_spans=refinement_spans)
+        else:
+            self.path = self._compute_path()
 
         # Apply both label layers
         self._apply_functional_labels()
@@ -214,10 +229,17 @@ class BasePrism(Glass):
         Stored in a separate attribute from the cardinal labels in BaseGlass.
         Functional labels describe what an edge does optically (e.g., "Entrance",
         "Hypotenuse", "TIR Surface") and are invariant under rotation.
+
+        Each _edge_roles entry is (short, long) or (short, long, role), where
+        role is an optical_elements.roles.Role tag -- the third element is
+        optional so existing 2-tuple _edge_roles keep working unchanged.
         """
         self._functional_labels: Dict[int, Tuple[str, str]] = {}
-        for i, (short, long) in enumerate(self._edge_roles):
+        self._edge_role_tags: Dict[int, Optional[Any]] = {}
+        for i, entry in enumerate(self._edge_roles):
+            short, long = entry[0], entry[1]
             self._functional_labels[i] = (short, long)
+            self._edge_role_tags[i] = entry[2] if len(entry) > 2 else None
 
     def _apply_vertex_labels(self) -> None:
         """
@@ -240,6 +262,18 @@ class BasePrism(Glass):
             Tuple of (short_label, long_label), or None if not found.
         """
         return self._functional_labels.get(edge_index)
+
+    def get_edge_role(self, edge_index: int) -> Optional[Any]:
+        """
+        Return the Role tag for an edge, if its _edge_roles entry supplied one.
+
+        Args:
+            edge_index: The edge index (0-based).
+
+        Returns:
+            The optical_elements.roles.Role, or None if not tagged.
+        """
+        return self._edge_role_tags.get(edge_index)
 
     def find_edge_by_functional_label(self, short_label: str) -> Optional[int]:
         """

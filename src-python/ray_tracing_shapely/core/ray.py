@@ -15,6 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import math
 import uuid as _uuid_mod
 from typing import Dict, Optional, Any
 
@@ -148,6 +149,25 @@ class Ray:
         self.parent_uuid: Optional[str] = None     # UUID of the parent ray (None for source rays)
         self.interaction_type: str = 'source'      # 'source', 'reflect', 'refract', 'tir'
 
+        # =====================================================================
+        # PYTHON-SPECIFIC FEATURE: Surface Hit Records (Step B, opt-in)
+        # =====================================================================
+        # Geometry of the surface interaction that TERMINATED this segment.
+        # These describe THIS segment's own hit -- never a child's -- and stay
+        # None unless Simulator(record_surface_hits=True) is used. Populated by
+        # the optical object during on_ray_incident and copied onto the incident
+        # segment by the simulator. See dev_doc/roadmap Step B.
+        #
+        # hit_normal is the (unit) surface normal as used by the physics at the
+        # interaction (its geometric orientation from the object); consumers can
+        # infer the incidence side from the ray direction. incident_angle is the
+        # angle of incidence in radians, always in [0, pi/2].
+        # =====================================================================
+        self.hit_surface_uuid: Optional[str] = None   # _uuid of the object hit
+        self.hit_point: Optional[Dict[str, float]] = None    # {'x', 'y'} intersection
+        self.hit_normal: Optional[Dict[str, float]] = None   # {'x', 'y'} unit normal
+        self.incident_angle: Optional[float] = None   # radians, [0, pi/2]
+
     def copy(self) -> 'Ray':
         """
         Create a copy of this ray.
@@ -184,6 +204,10 @@ class Ray:
         # Caller is responsible for setting parent_uuid if this copy is a child ray
         new_ray.parent_uuid = self.parent_uuid
         new_ray.interaction_type = self.interaction_type
+        # PYTHON-SPECIFIC: Surface hit records describe THIS segment's own hit,
+        # not the copy's. A copy is a fresh segment that has not hit anything, so
+        # its hit fields must start None (Ray.__init__ already sets them None; we
+        # leave them None explicitly rather than copying).
         return new_ray
 
     @property
@@ -276,10 +300,14 @@ class Ray:
             lineage_str += f", parent={self.parent_uuid[:8]}..."
         if self.interaction_type != 'source':
             lineage_str += f", {self.interaction_type}"
+        # PYTHON-SPECIFIC: Include surface hit record (Step B) in repr when present
+        hit_str: str = ""
+        if self.incident_angle is not None:
+            hit_str = f", inc_angle={math.degrees(self.incident_angle):.1f}deg"
         return (f"Ray(p1={self.p1}, p2={self.p2}, "
                 f"brightness=({self.brightness_s:.6f}, {self.brightness_p:.6f}), "
                 f"total={self.total_brightness:.6f}, "
-                f"wavelength={self.wavelength}{gap_str}{tir_str}{grazing_str}{source_str}{lineage_str})")
+                f"wavelength={self.wavelength}{gap_str}{tir_str}{grazing_str}{source_str}{lineage_str}{hit_str})")
 
 
 # Example usage and testing

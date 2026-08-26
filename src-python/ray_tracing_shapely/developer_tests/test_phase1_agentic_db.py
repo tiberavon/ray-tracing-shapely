@@ -87,15 +87,15 @@ def run_simulation(scene):
 # =============================================================================
 
 def test_tables_exist():
-    """Test 1: All 5 tables are created."""
+    """Test 1: All 7 tables are created."""
     print("\nTest 1: Tables exist")
     result = query_rays(
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
     )
     assert result['status'] == 'ok', f"Query failed: {result}"
     table_names = [row[0] for row in result['data']['rows']]
-    expected = ['edges', 'glass_objects', 'ray_edge_crossing',
-                'ray_glass_membership', 'rays']
+    expected = ['detector_hits', 'detectors', 'edges', 'glass_objects',
+                'ray_edge_crossing', 'ray_glass_membership', 'rays']
     assert table_names == expected, f"Expected {expected}, got {table_names}"
     print(f"  PASS: Found tables: {table_names}")
     return True
@@ -130,6 +130,13 @@ def test_rays_columns():
         'is_grazing_result__polar', 'caused_grazing__polar',
         'is_grazing_result__transm', 'caused_grazing__transm',
         'source_uuid', 'source_label',
+        # Surface hit records (Step B)
+        'hit_surface_uuid',
+        'hit_point_x', 'hit_point_y',
+        'hit_normal_x', 'hit_normal_y',
+        'incident_angle',
+        # Bidirectional tracing (Step C path auditing, 15_p8)
+        'tree',
     ]
     assert columns == expected_cols, (
         f"Column mismatch.\n  Expected: {expected_cols}\n  Got: {columns}"
@@ -318,7 +325,8 @@ def test_describe_schema():
     assert result['status'] == 'ok', f"describe_schema failed: {result}"
     tables = result['data']['tables']
     expected_tables = {'rays', 'glass_objects', 'edges',
-                       'ray_glass_membership', 'ray_edge_crossing'}
+                       'ray_glass_membership', 'ray_edge_crossing',
+                       'detectors', 'detector_hits'}
     assert set(tables.keys()) == expected_tables, (
         f"Expected tables {expected_tables}, got {set(tables.keys())}"
     )
@@ -336,7 +344,7 @@ def test_describe_schema_column_metadata():
     result = describe_schema()
     assert result['status'] == 'ok'
     rays_cols = result['data']['tables']['rays']['columns']
-    assert len(rays_cols) == 29, f"Expected 29 ray columns, got {len(rays_cols)}"
+    assert len(rays_cols) == 36, f"Expected 36 ray columns, got {len(rays_cols)}"
     for col in rays_cols:
         assert 'name' in col, f"Column missing 'name': {col}"
         assert 'type' in col, f"Column missing 'type': {col}"

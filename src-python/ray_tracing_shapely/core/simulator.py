@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from .scene import Scene
     from .scene_objs.base_scene_obj import BaseSceneObj
     from ..analysis.simulation_result import SimulationResult
+    from ..analysis.bidirectional import BidirectionalResult
 
 
 class Simulator:
@@ -60,7 +61,13 @@ class Simulator:
     MIN_RAY_SEGMENT_LENGTH = 1e-6  # Minimum length to consider valid intersection
     UNDEFINED_BEHAVIOR_THRESHOLD = 10  # Maximum undefined behaviors before warning
 
-    def __init__(self, scene: 'Scene', max_rays: int = 10000, verbose: int = 0) -> None:
+    def __init__(
+        self,
+        scene: 'Scene',
+        max_rays: int = 10000,
+        verbose: int = 0,
+        record_surface_hits: bool = False,
+    ) -> None:
         """
         Initialize the simulator.
 
@@ -71,10 +78,16 @@ class Simulator:
                 0 = silent (no debug output)
                 1 = verbose (show ray processing info)
                 2 = very verbose/debug (show detailed refraction calculations)
+            record_surface_hits (bool): PYTHON-SPECIFIC (Step B). When True, each
+                optical interaction records its hit point, surface normal, and
+                angle of incidence onto the incident ray segment
+                (Ray.hit_point / hit_normal / incident_angle / hit_surface_uuid).
+                Default False keeps large runs free of the per-segment cost.
         """
         self.scene: 'Scene' = scene
         self.max_rays: int = max_rays
         self.verbose: int = verbose
+        self.record_surface_hits: bool = record_surface_hits
         self.pending_rays: List[Ray] = []
         self.processed_ray_count: int = 0
         self.ray_segments: List[Ray] = []
@@ -192,6 +205,206 @@ class Simulator:
     # END PYTHON-SPECIFIC FEATURE
     # =========================================================================
 
+    # =========================================================================
+    # PYTHON-SPECIFIC FEATURE: Bidirectional Tracing (Ray Lineage Step C)
+    # =========================================================================
+
+    def run_bidirectional(
+        self,
+        detector_obj: 'BaseSceneObj',
+        *,
+        acceptance_angle_deg: float = 20.0,
+        origin_samples: int = 25,
+        direction_samples: int = 15,
+        backward_brightness: float = 1.0,
+        connect: bool = True,
+        spatial_tolerance: float = 1e-3,
+        angular_tolerance_deg: float = 1.0,
+        build_graph: bool = True,
+    ) -> 'BidirectionalResult':
+        """Trace forward from the sources and backward from a detector.
+
+        [PYTHON-SPECIFIC FEATURE — Ray Lineage Step C, sub-problems C.1 + C.3]
+
+        Runs the normal forward pass, then a backward pass that emits rays from
+        the detector line into an acceptance cone aimed back along the forward
+        arrival directions, then (if ``connect``) matches the two trees at their
+        shared surfaces by parametric arc-length. Returns a BidirectionalResult.
+
+        Connection matching requires this Simulator to have been built with
+        ``record_surface_hits=True`` (Step B); otherwise ``connections`` is [].
+        The combined-graph energy analysis (C.4) lands in a later sub-step, so
+        ``combined`` on the result is still None.
+
+        Args:
+            detector_obj: The detector to emit backward rays from. Accepts a core
+                Detector or a wrapper exposing ``.detector`` (e.g. LinearSensor).
+            acceptance_angle_deg: Full angular spread of the backward cone.
+            origin_samples: Emission points sampled along the detector line.
+            direction_samples: Directions emitted per origin.
+            backward_brightness: Per-ray total brightness for backward roots.
+            connect: If True, populate ``connections`` via connect_trees.
+            spatial_tolerance: Max along-edge arc-length gap for a connection.
+            angular_tolerance_deg: Max deviation from antiparallel for a connection.
+            build_graph: If True (and connect), build the combined nx.DiGraph
+                (from de-duplicated connections) into ``combined``.
+
+        Returns:
+            BidirectionalResult with both lineages, their raw segments, the full
+            list of surface connections, and (when build_graph) the combined
+            graph. Extract ranked paths with
+            analysis.bidirectional.extract_ranked_paths(result.combined).
+        """
+        from ..analysis.bidirectional import (
+            BidirectionalResult, connect_trees,
+            prune_connections_best_per_forward, build_combined_graph,
+        )
+
+        # Forward pass (Step A/B populate the lineage and detector hit records).
+        forward_segments = self.run()
+        forward_lineage = self.lineage
+
+        detector = getattr(detector_obj, 'detector', detector_obj)
+        detector_name = (getattr(detector_obj, 'name', None)
+                         or getattr(detector, 'name', None))
+
+        backward_lineage, backward_segments = self._run_backward(
+            detector,
+            acceptance_angle_deg=acceptance_angle_deg,
+            origin_samples=origin_samples,
+            direction_samples=direction_samples,
+            backward_brightness=backward_brightness,
+        )
+
+        connections = None
+        combined = None
+        if connect:
+            connections = connect_trees(
+                forward_lineage, backward_lineage, self.scene,
+                spatial_tolerance=spatial_tolerance,
+                angular_tolerance_deg=angular_tolerance_deg,
+            )
+            if build_graph:
+                # The graph (for path search / ranking) uses de-duplicated
+                # connections; the full set stays on the result for topology.
+                combined = build_combined_graph(
+                    forward_lineage, backward_lineage,
+                    prune_connections_best_per_forward(connections),
+                    self.scene,
+                )
+
+        return BidirectionalResult(
+            forward_lineage=forward_lineage,
+            backward_lineage=backward_lineage,
+            forward_segments=forward_segments,
+            backward_segments=backward_segments,
+            detector_name=detector_name,
+            connections=connections,
+            combined=combined,
+        )
+
+    def _run_backward(
+        self,
+        detector: 'BaseSceneObj',
+        *,
+        acceptance_angle_deg: float = 20.0,
+        origin_samples: int = 25,
+        direction_samples: int = 15,
+        backward_brightness: float = 1.0,
+        central_direction: Optional[Tuple[float, float]] = None,
+    ) -> Tuple[RayLineage, List[Ray]]:
+        """Emit rays from the detector and trace them into the scene.
+
+        Runs a self-contained backward pass on a fresh lineage, then restores the
+        forward simulator state so the caller's forward results are untouched.
+        Detector measurement state is snapshotted and restored too, so the Step A
+        forward hit records survive even if a backward ray crosses a detector.
+
+        The backward central emission direction defaults to the mean *reverse*
+        arrival direction of the forward rays that reached the detector (which
+        requires the forward pass to have already run and populated
+        ``self.lineage``); pass ``central_direction`` to override.
+        """
+        from .scene_objs.light_source.backward_detector_source import (
+            BackwardDetectorSource,
+            backward_central_direction,
+        )
+
+        if central_direction is None:
+            central_direction = backward_central_direction(detector, self.lineage)
+
+        source = BackwardDetectorSource(
+            detector,
+            central_direction=central_direction,
+            acceptance_angle_deg=acceptance_angle_deg,
+            origin_samples=origin_samples,
+            direction_samples=direction_samples,
+            brightness=backward_brightness,
+        )
+        backward_rays = source.emit_rays()
+
+        # Snapshot forward simulator state.
+        saved_pending = self.pending_rays
+        saved_segments = self.ray_segments
+        saved_count = self.processed_ray_count
+        saved_lineage = self.lineage
+
+        # Snapshot detector-mutable state so the backward pass cannot corrupt the
+        # forward Step A records (a backward ray may legitimately cross a detector).
+        detector_state = self._snapshot_detector_state()
+
+        try:
+            self.pending_rays = list(backward_rays)
+            self.ray_segments = []
+            self.processed_ray_count = 0
+            self.lineage = RayLineage()
+            self._process_rays()
+            backward_lineage = self.lineage
+            backward_segments = self.ray_segments
+        finally:
+            # Restore forward simulator + detector state.
+            self.pending_rays = saved_pending
+            self.ray_segments = saved_segments
+            self.processed_ray_count = saved_count
+            self.lineage = saved_lineage
+            self._restore_detector_state(detector_state)
+
+        return backward_lineage, backward_segments
+
+    def _snapshot_detector_state(self) -> List[Tuple[Any, Dict[str, Any]]]:
+        """Capture the mutable measurement state of every detector in the scene."""
+        snapshot: List[Tuple[Any, Dict[str, Any]]] = []
+        for obj in self.scene.optical_objs:
+            if not hasattr(obj, 'hit_records'):
+                continue
+            snapshot.append((obj, {
+                'power': getattr(obj, 'power', None),
+                'normal': getattr(obj, 'normal', None),
+                'shear': getattr(obj, 'shear', None),
+                'bin_data': list(obj.bin_data) if getattr(obj, 'bin_data', None) is not None else None,
+                'hit_records': list(obj.hit_records),
+            }))
+        return snapshot
+
+    def _restore_detector_state(
+        self,
+        snapshot: List[Tuple[Any, Dict[str, Any]]],
+    ) -> None:
+        """Restore detector measurement state captured by _snapshot_detector_state."""
+        for obj, state in snapshot:
+            if state['power'] is not None:
+                obj.power = state['power']
+            if state['normal'] is not None:
+                obj.normal = state['normal']
+            if state['shear'] is not None:
+                obj.shear = state['shear']
+            obj.bin_data = state['bin_data']
+            obj.hit_records = state['hit_records']
+
+    # =========================================================================
+    # END PYTHON-SPECIFIC FEATURE
+    # =========================================================================
+
     def _process_rays(self) -> None:
         """
         Process all rays in the pending queue.
@@ -283,6 +496,28 @@ class Simulator:
                     output_ray_geom.brightness_p = ray.brightness_p
                     output_ray_geom.wavelength = ray.wavelength
                     # =====================================================================
+                    # PYTHON-SPECIFIC FEATURE: Ray Lineage - expose incident segment uuid
+                    # =====================================================================
+                    # The incident segment was just appended to ray_segments and
+                    # registered in the lineage tree. Exposing its uuid lets objects
+                    # (e.g. Detector) record which ray hit them, enabling detector-path
+                    # analysis via rank_paths_by_energy(lineage, leaf_uuids=...).
+                    #
+                    # NOTE: use a distinct attribute name (NOT 'uuid'). _dict_to_ray()
+                    # propagates 'uuid', so naming it 'uuid' here would make the
+                    # pass-through continuation child inherit the parent's uuid and
+                    # then set parent_uuid to it -- a self-referential lineage cycle.
+                    output_ray_geom.incident_uuid = ray.uuid
+                    # =====================================================================
+                    # PYTHON-SPECIFIC FEATURE: Surface Hit Records (Step B, opt-in)
+                    # =====================================================================
+                    # Tell the object whether to record hit geometry. Objects that
+                    # compute a normal (Glass, Mirror, IdealMirror, custom surfaces)
+                    # write hit_point/hit_normal/incident_angle/hit_surface_uuid onto
+                    # output_ray_geom when this flag is set; the simulator copies them
+                    # onto the incident segment after on_ray_incident returns.
+                    output_ray_geom.record_surface_hits = self.record_surface_hits
+                    # =====================================================================
                     # PYTHON-SPECIFIC FEATURE: TIR Tracking - propagate tir_count
                     # =====================================================================
                     output_ray_geom.tir_count = getattr(ray, 'tir_count', 0)
@@ -311,6 +546,23 @@ class Simulator:
                         surface_merging_objs,
                         verbose=self.verbose
                     )
+
+                    # =====================================================================
+                    # PYTHON-SPECIFIC FEATURE: Surface Hit Records (Step B, opt-in)
+                    # =====================================================================
+                    # Copy the hit geometry the object wrote onto output_ray_geom back
+                    # onto the incident segment (the same Ray already in ray_segments
+                    # and lineage). Runs regardless of return type so TIR (returns None)
+                    # and refraction (returns dict) are both recorded. No-op unless the
+                    # object populated the fields (i.e. the flag was on and the object
+                    # computes a normal).
+                    if self.record_surface_hits:
+                        incident_segment = self.ray_segments[segment_index]
+                        for _hit_attr in ('hit_surface_uuid', 'hit_point',
+                                          'hit_normal', 'incident_angle'):
+                            if hasattr(output_ray_geom, _hit_attr):
+                                setattr(incident_segment, _hit_attr,
+                                        getattr(output_ray_geom, _hit_attr))
 
                     # Handle different return types and convert back to Ray objects
                     if result is not None:

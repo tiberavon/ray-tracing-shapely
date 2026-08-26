@@ -15,6 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import math
 from typing import Dict, Any, Optional, Union, TYPE_CHECKING
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
@@ -204,6 +205,27 @@ class Mirror(LineObjMixin, BaseFilter):
         #   r'_x = r_x * (m_y² - m_x²) - 2 * r_y * m_x * m_y
         #   r'_y = r_y * (m_x² - m_y²) - 2 * r_x * m_x * m_y
         # where (m_x, m_y) is the mirror direction vector
+
+        # =====================================================================
+        # PYTHON-SPECIFIC FEATURE: Surface Hit Records (Step B, opt-in)
+        # =====================================================================
+        # Record hit geometry onto `ray` (the simulator's output_ray_geom) before
+        # overwriting p1/p2. The mirror normal is perpendicular to its surface
+        # direction (mx, my); the angle of incidence is measured from that normal.
+        # rx, ry = p1 - incident_point (the reversed incident direction), so the
+        # incident direction is (-rx, -ry). CONTRIBUTING.md acos clamp rule applies.
+        if getattr(ray, 'record_surface_hits', False):
+            m_len: float = math.hypot(mx, my)
+            di_len: float = math.hypot(rx, ry)
+            if m_len > 0 and di_len > 0:
+                nx: float = -my / m_len
+                ny: float = mx / m_len
+                # cos(incidence) = |incident_dir . normal|
+                cos_inc: float = abs((-rx * nx - ry * ny) / di_len)
+                ray.hit_surface_uuid = self._uuid
+                ray.hit_point = {'x': incident_point['x'], 'y': incident_point['y']}
+                ray.hit_normal = {'x': nx, 'y': ny}
+                ray.incident_angle = math.acos(max(-1.0, min(1.0, cos_inc)))
 
         # Update ray: start at incident point, direction is reflected
         ray.p1 = {'x': incident_point['x'], 'y': incident_point['y']}

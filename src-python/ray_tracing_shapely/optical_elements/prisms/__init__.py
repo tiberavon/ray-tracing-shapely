@@ -17,15 +17,18 @@ Classes:
 - EquilateralPrism: 60-60-60 dispersing prism
 - RightAnglePrism: 45-90-45 TIR prism
 - RefractometerPrism: Symmetric trapezoid for critical-angle measurements
+- DTIRCPrism: Dielectric TIR concentrator with a curved entrance aperture
 
 Factory Functions:
 - equilateral_prism(): Create an equilateral prism
 - right_angle_prism(): Create a right-angle prism
 - refractometer_prism(): Create a refractometer prism
+- dtirc_prism(): Create a DTIRC prism
 
 Utility Modules:
 - prism_utils: Deviation, dispersion, and geometry calculations
 - tir_utils: Critical angle and refractometer design utilities
+- nonimaging_geometry: isl/rfr/coptpt general 2-D ray-geometry primitives
 ===============================================================================
 """
 
@@ -36,10 +39,18 @@ from .base_prism import BasePrism
 from .equilateral import EquilateralPrism
 from .right_angle import RightAnglePrism
 from .refractometer import RefractometerPrism
+from .dtirc import DTIRCPrism
+from .angle_transformer import build_angle_transformer
+from .rxi import RXIOptic
+from .rr_lens import RRLens
+from .rx_concentrator import RXConcentrator
+from .rxi_direct import RXIOpticDirect
 
 # Import utility modules
 from . import prism_utils
 from . import tir_utils
+from . import nonimaging_geometry
+from . import sms_chain
 
 if TYPE_CHECKING:
     from ....core.scene import Scene
@@ -151,6 +162,47 @@ def refractometer_prism(
     )
 
 
+def dtirc_prism(
+    scene: 'Scene',
+    theta_deg: float,
+    n: float,
+    phi_edge_deg: float = 50.0,
+    size: float = 1.0,
+    wall_segments: int = 16,
+    entrance_arc_segments: int = 8,
+    position: Tuple[float, float] = (0.0, 0.0),
+    rotation: float = 0.0
+) -> DTIRCPrism:
+    """
+    Create a dielectric TIR concentrator (DTIRC) from physics parameters.
+
+    Args:
+        scene: The scene this prism belongs to.
+        theta_deg: Half-acceptance angle in degrees.
+        n: Refractive index of the prism material.
+        phi_edge_deg: Entrance-aperture angular half-width in degrees.
+        size: Scale factor (entrance aperture's radius of curvature).
+        wall_segments: Number of straight segments per sidewall.
+        entrance_arc_segments: Number of straight segments for the entrance.
+        position: Reference point coordinates.
+        rotation: Rotation angle in degrees.
+
+    Returns:
+        A new DTIRCPrism instance.
+    """
+    return DTIRCPrism(
+        scene=scene,
+        theta_deg=theta_deg,
+        n=n,
+        phi_edge_deg=phi_edge_deg,
+        size=size,
+        wall_segments=wall_segments,
+        entrance_arc_segments=entrance_arc_segments,
+        position=position,
+        rotation=rotation
+    )
+
+
 def refractometer_prism_from_critical_ray_path(
     scene: 'Scene',
     n_prism: float,
@@ -194,12 +246,21 @@ __all__ = [
     'EquilateralPrism',
     'RightAnglePrism',
     'RefractometerPrism',
+    'DTIRCPrism',
+    'RXIOptic',
+    'RRLens',
+    'RXConcentrator',
+    'RXIOpticDirect',
     # Factory functions
     'equilateral_prism',
     'right_angle_prism',
     'refractometer_prism',
     'refractometer_prism_from_critical_ray_path',
+    'dtirc_prism',
+    'build_angle_transformer',
     # Utility modules
     'prism_utils',
     'tir_utils',
+    'nonimaging_geometry',
+    'sms_chain',
 ]

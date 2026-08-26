@@ -262,10 +262,11 @@ def test_tool_registry_new_tools():
 
 
 def test_tool_registry_count():
-    """Test 12: Total tool count is 15."""
+    """Test 12: Total tool count is 22 (19 + path_surfaces/audit_bidirectional_paths/
+    path_physical_summary, 15_p8 bidirectional path auditing)."""
     print("\nTest 12: Tool count")
     tools = get_agentic_tools()
-    expected = 15
+    expected = 22
     assert len(tools) == expected, (
         f"Expected {expected} tools, got {len(tools)}: "
         f"{[t['name'] for t in tools]}"

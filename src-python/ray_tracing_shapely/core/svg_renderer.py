@@ -17,6 +17,7 @@ limitations under the License.
 
 import svgwrite
 import math
+import random
 
 
 # Standard wavelengths in nm for color simulation
@@ -192,11 +193,12 @@ class SVGRenderer:
 
     This class creates descriptive SVG output with metadata attributes
     that describe the simulation elements. The SVG is organized into
-    four layers (similar to the JavaScript implementation which is 3 layers (no graphical annotations)):
+    five layers (similar to the JavaScript implementation which is 3 layers (no graphical annotations)):
     - objects: Optical elements (below rays)
-    - graphic annotations: (below rays) 
+    - graphic annotations: (below rays)
     - rays: Light rays
-    - labels: Text annotations (above everything)
+    - labels: Text annotations tied to physical scene objects
+    - diagram annotations: Pedagogical overlays (draw_annotation_*()) -- topmost
 
 
     The SVG includes data attributes on elements for post-processing
@@ -286,9 +288,18 @@ class SVGRenderer:
             transform='scale(1, -1)',
             **{'inkscape:groupmode': 'layer', 'inkscape:label': 'Labels'}
         ))
-        
+        # Topmost layer: pedagogical diagram overlays (point markers, vectors,
+        # angle arcs) added by draw_annotation_*() -- always painted last, so
+        # they stay visible over a dense ray trace. Distinct from
+        # layer_graphic_symb (sub-ray construction lines) and layer_labels
+        # (text tied to physical scene objects); see 16_p3.
+        self.layer_diagram_annotations = self.dwg.add(self.dwg.g(
+            id='layer-diagram-annotations',
+            transform='scale(1, -1)',
+            **{'inkscape:groupmode': 'layer', 'inkscape:label': 'Diagram Annotations'}
+        ))
 
-        self.center_line_pattern = "20, 5, 5, 5" 
+        self.center_line_pattern = "20, 5, 5, 5"
 
     def _normalize_coord(self, value):
         """
@@ -326,7 +337,7 @@ class SVGRenderer:
 
     def draw_ray_segment(self, ray, color='red', opacity=1.0, stroke_width=1.5,
                          extend_to_edge=False, draw_gap_rays=False, show_arrow=False,
-                         arrow_size=None, arrow_position=0.67):
+                         arrow_size=None, arrow_position=0.67, dasharray=None):
         """
         Draw a ray segment with optional direction arrow.
 
@@ -342,6 +353,13 @@ class SVGRenderer:
                 based on stroke_width (default: None)
             arrow_position (float): Position of arrow along ray as fraction 0.0-1.0
                 (default: 0.67, i.e., 2/3 along the ray)
+            dasharray (str or None): SVG stroke-dasharray value (e.g. '4,2' for a
+                4-unit dash / 2-unit gap, in the same coordinate units as the ray
+                itself). None (default) draws a solid line -- unchanged rendering
+                unless overridden. Only applies to the simple-line path
+                (show_arrow=False); ignored when show_arrow=True. A dashed
+                overlay ray lets whatever is drawn underneath show through the
+                gaps, instead of one solid stroke fully occluding another.
         """
         p1 = ray.p1
         p2 = ray.p2
@@ -403,6 +421,8 @@ class SVGRenderer:
                 stroke_width=stroke_width,
                 stroke_opacity=opacity,
             )
+            if dasharray:
+                kwargs['stroke_dasharray'] = dasharray
             if ray_id:
                 kwargs['id'] = ray_id
             line = self.dwg.line(**kwargs)
@@ -697,7 +717,8 @@ class SVGRenderer:
             show_arrow=scene.show_ray_arrows
         )
 
-    def draw_point(self, point, color='black', radius=3, label=None, scene_obj=None):
+    def draw_point(self, point, color='black', radius=3, label=None, scene_obj=None,
+                   label_font_size='8px'):
         """
         Draw a point (circle).
 
@@ -707,6 +728,7 @@ class SVGRenderer:
             radius (float): Circle radius in pixels (default: 3)
             label (str or None): Optional text label to show near point
             scene_obj: Optional scene object for simulation metadata.
+            label_font_size (str): CSS font size for the label (default: '8px').
         """
         point = self._normalize_point(point)
 
@@ -722,8 +744,8 @@ class SVGRenderer:
         self.layer_objects.add(circle)
 
         if label:
-            font_size = '8px'
-            vertical_offset = 8 * 0.35
+            font_size = label_font_size
+            vertical_offset = float(font_size.replace('px', '').replace('pt', '')) * 0.35
 
             text = self.dwg.text(
                 label,
@@ -742,7 +764,7 @@ class SVGRenderer:
             self.layer_labels.add(text)
 
     def draw_line_segment(self, p1, p2, color='gray', stroke_width=2, label=None,
-                          scene_obj=None):
+                          scene_obj=None, label_font_size='8px'):
         """
         Draw a line segment (for optical elements like lenses, mirrors).
 
@@ -753,6 +775,7 @@ class SVGRenderer:
             stroke_width (float): Line width in pixels (default: 2)
             label (str or None): Optional text label
             scene_obj: Optional scene object for simulation metadata.
+            label_font_size (str): CSS font size for the label (default: '8px').
         """
         p1 = self._normalize_point(p1)
         p2 = self._normalize_point(p2)
@@ -773,8 +796,8 @@ class SVGRenderer:
             # Place label at midpoint
             mid_x = self._normalize_coord((p1['x'] + p2['x']) / 2)
             mid_y = self._normalize_coord((p1['y'] + p2['y']) / 2)
-            font_size = '8px'
-            vertical_offset = 8 * 0.35
+            font_size = label_font_size
+            vertical_offset = float(font_size.replace('px', '').replace('pt', '')) * 0.35
 
             text = self.dwg.text(
                 label,
@@ -792,8 +815,266 @@ class SVGRenderer:
                     text['id'] = f'label-line-{obj_uuid}'
             self.layer_labels.add(text)
 
+    # =========================================================================
+    # Diagram annotations (16_p3) -- pedagogical overlays, not physical scene
+    # objects. Always land in layer_diagram_annotations (topmost layer, see
+    # __init__), so they stay visible over a dense ray trace -- unlike
+    # draw_point() above, whose marker is in layer_objects (below rays) and
+    # only its label in layer_labels. size/stroke_width/radius here are in
+    # the SAME scene-coordinate units as the points passed in, not pixels --
+    # choose them relative to your own scene's scale, same convention as
+    # draw_point()'s radius or draw_scene()'s ray_stroke_width. This includes
+    # label_font_size: SVG resolves a "px" font-size inside the current
+    # (viewBox-scaled) user space, not real screen pixels, so it needs the
+    # same per-scene scaling as everything else here. stroke_width and
+    # label_font_size both default to None (resolved to a fraction of the
+    # method's own size/arrowhead_size/radius argument) rather than a fixed
+    # number, precisely because a fixed default can't be right both for a
+    # scene a few units across and one spanning hundreds -- an earlier
+    # version of this code shipped with flat stroke_width=1.0/
+    # label_font_size='8px' defaults and produced lines ~1/3 of the canvas
+    # wide, with labels thrown far off their markers (their position offset
+    # is itself derived from the -- oversized -- font size), on a
+    # 2.9-unit-wide canvas; see 16_p3's implementation notes.
+    # =========================================================================
+
+    def draw_annotation_marker(self, point, label=None, style='cross', color='black',
+                                size=0.05, stroke_width=None, label_offset=None,
+                                label_font_size=None):
+        """
+        Draw a small point-marker diagram annotation (not a physical scene
+        object -- see draw_point() for that).
+
+        Args:
+            point (dict): {'x': .., 'y': ..} in scene coordinates.
+            label (str or None): Optional text drawn near the marker.
+            style (str): 'cross' (two short crossing strokes, the default --
+                reads clearly against a dense ray fan where a filled dot can
+                get lost) or 'circle' (small open circle).
+            color (str): CSS color.
+            size (float): Half-width of the cross / radius of the circle, in
+                the same scene-coordinate units as `point`.
+            stroke_width (float or None): Line width for the 'cross' style /
+                circle outline, same units as `size` (NOT pixels -- a fixed
+                default here would either vanish or swamp `size` depending on
+                the scene's own scale, exactly the failure this had before
+                this parameter defaulted to None; see 16_p3's implementation
+                notes). Defaults to 0.15*size if None, so it scales with
+                `size` automatically instead of needing to be tuned in step
+                with it by hand.
+            label_offset (tuple or None): (dx, dy) from `point`, same units.
+                Defaults to (1.5*size, 1.5*size) if None.
+            label_font_size (str or None): CSS font size for the label, in
+                the same scene-coordinate units as `size` (NOT real screen
+                pixels -- SVG resolves unitless/"px" font-size inside a
+                scaled viewBox, so an "8px" default renders as 8 whole
+                scene units tall on a small scene; see
+                draw_annotation_marker's stroke_width note and 16_p3's
+                implementation notes). Defaults to f"{3*size}px" if None.
+
+        Raises:
+            ValueError: If style is not 'cross' or 'circle'.
+        """
+        point = self._normalize_point(point)
+        px, py = point['x'], point['y']
+        if stroke_width is None:
+            stroke_width = 0.15 * size
+        if label_font_size is None:
+            label_font_size = f"{3 * size}px"
+
+        if style == 'cross':
+            self.layer_diagram_annotations.add(self.dwg.line(
+                start=(px - size, py), end=(px + size, py),
+                stroke=color, stroke_width=stroke_width,
+            ))
+            self.layer_diagram_annotations.add(self.dwg.line(
+                start=(px, py - size), end=(px, py + size),
+                stroke=color, stroke_width=stroke_width,
+            ))
+        elif style == 'circle':
+            self.layer_diagram_annotations.add(self.dwg.circle(
+                center=(px, py), r=size, fill='none',
+                stroke=color, stroke_width=stroke_width,
+            ))
+        else:
+            raise ValueError(f"draw_annotation_marker: unknown style '{style}' "
+                              f"(expected 'cross' or 'circle')")
+
+        if label:
+            dx, dy = label_offset if label_offset is not None else (1.5 * size, 1.5 * size)
+            font_size_num = float(label_font_size.replace('px', '').replace('pt', ''))
+            vertical_offset = font_size_num * 0.35
+            text = self.dwg.text(
+                label,
+                insert=(px + dx, -(py + dy) + vertical_offset),
+                fill=color,
+                font_size=label_font_size,
+                font_family='sans-serif',
+                transform='scale(1, -1)',
+            )
+            self.layer_diagram_annotations.add(text)
+
+    def draw_annotation_vector(self, origin, direction, length, color='#1f77b4',
+                                stroke_width=None, arrowhead_size=0.05, label=None,
+                                label_offset=None, label_font_size=None):
+        """
+        Draw a straight annotation arrow from `origin`, in `direction`
+        (normalized internally -- need not be a unit vector), for `length`
+        scene units, with a triangular arrowhead at the tip.
+
+        Args:
+            origin (dict): {'x': .., 'y': ..}.
+            direction (tuple): (dx, dy), any nonzero magnitude.
+            length (float): Shaft length, scene units.
+            color (str): CSS color for both shaft and arrowhead.
+            stroke_width (float or None): Shaft line width, scene units (NOT
+                pixels). Defaults to 0.15*arrowhead_size if None, so it
+                scales with the arrowhead rather than needing separate
+                tuning -- see draw_annotation_marker's docstring for why a
+                fixed default doesn't work across scenes of very different
+                scale.
+            arrowhead_size (float): Arrowhead triangle size, scene units.
+            label (str or None): Optional text near the tip.
+            label_offset (tuple or None): (dx, dy) from the tip. Defaults to
+                a small offset perpendicular to `direction` if None.
+            label_font_size (str or None): CSS font size for the label, same
+                units caveat as draw_annotation_marker's. Defaults to
+                f"{3*arrowhead_size}px" if None.
+
+        Raises:
+            ValueError: If direction has (numerically) zero magnitude.
+        """
+        origin = self._normalize_point(origin)
+        ox, oy = origin['x'], origin['y']
+        if stroke_width is None:
+            stroke_width = 0.15 * arrowhead_size
+        if label_font_size is None:
+            label_font_size = f"{3 * arrowhead_size}px"
+
+        dmag = math.hypot(direction[0], direction[1])
+        if dmag < 1e-12:
+            raise ValueError("draw_annotation_vector: direction has zero magnitude")
+        ux, uy = direction[0] / dmag, direction[1] / dmag
+        px, py = -uy, ux  # perpendicular unit vector
+
+        tip_x, tip_y = ox + length * ux, oy + length * uy
+
+        self.layer_diagram_annotations.add(self.dwg.line(
+            start=(ox, oy), end=(tip_x, tip_y),
+            stroke=color, stroke_width=stroke_width,
+        ))
+
+        base_x, base_y = tip_x - arrowhead_size * ux, tip_y - arrowhead_size * uy
+        half_w = 0.5 * arrowhead_size
+        arrow_points = [
+            (tip_x, tip_y),
+            (base_x + half_w * px, base_y + half_w * py),
+            (base_x - half_w * px, base_y - half_w * py),
+        ]
+        self.layer_diagram_annotations.add(self.dwg.polygon(points=arrow_points, fill=color))
+
+        if label:
+            if label_offset is not None:
+                dx, dy = label_offset
+            else:
+                dx, dy = 0.3 * arrowhead_size * px, 0.3 * arrowhead_size * py
+            font_size_num = float(label_font_size.replace('px', '').replace('pt', ''))
+            vertical_offset = font_size_num * 0.35
+            text = self.dwg.text(
+                label,
+                insert=(tip_x + dx, -(tip_y + dy) + vertical_offset),
+                fill=color,
+                font_size=label_font_size,
+                font_family='sans-serif',
+                transform='scale(1, -1)',
+            )
+            self.layer_diagram_annotations.add(text)
+
+    def draw_annotation_angle_arc(self, center, angle1, angle2, radius, color='#1f77b4',
+                                   stroke_width=None, label=None, label_font_size=None,
+                                   n_segments=24):
+        """
+        Draw a circular arc from `angle1` to `angle2` (radians, standard
+        math convention, increasing counter-clockwise -- consistent with
+        math.atan2 usage throughout the notebooks this feeds), centered at
+        `center`, with the given `radius` (scene units).
+
+        Implemented as a sampled polyline (n_segments straight segments)
+        rather than a single SVG elliptical-arc ("A") path command: the "A"
+        command only takes two endpoints plus a (large-arc-flag,
+        sweep-flag) pair and derives the center itself from them, which
+        requires solving the flag combination that reproduces OUR already-
+        known `center` -- draw_glass_path()'s own arc segments (lines
+        950-966) sidestep this because their center comes from 3 already-
+        known path points via _calculate_arc_center(), not from an explicit
+        angle pair. Sampling the known circle directly avoids re-deriving
+        that flag-solving for an arbitrary angle1/angle2, at the cost of
+        the arc being a fine polyline rather than a single path primitive
+        -- invisible at n_segments=24 for the angle spans this is meant for.
+
+        Args:
+            center (dict): {'x': .., 'y': ..}.
+            angle1 (float): Start angle, radians.
+            angle2 (float): End angle, radians. Must be >= angle1.
+            radius (float): Arc radius, scene units.
+            color (str): CSS color.
+            stroke_width (float or None): Arc line width, scene units (NOT
+                pixels). Defaults to 0.05*radius if None -- see
+                draw_annotation_marker's docstring for why a fixed default
+                doesn't work across scenes of very different scale.
+            label (str or None): Optional text placed at the arc's angular
+                midpoint, offset slightly outward.
+            label_font_size (str or None): CSS font size for the label, same
+                units caveat as draw_annotation_marker's. Defaults to
+                f"{0.2*radius}px" if None (a smaller fraction of `radius`
+                than stroke_width/marker-size fractions elsewhere, since
+                `radius` itself is typically a "large" quantity here, not a
+                small one like `size`/`arrowhead_size`).
+            n_segments (int): Number of straight segments approximating the
+                arc (default: 24).
+
+        Raises:
+            ValueError: If angle2 < angle1.
+        """
+        if angle2 < angle1:
+            raise ValueError("draw_annotation_angle_arc: angle2 must be >= angle1")
+
+        center = self._normalize_point(center)
+        cx, cy = center['x'], center['y']
+        if stroke_width is None:
+            stroke_width = 0.05 * radius
+        if label_font_size is None:
+            label_font_size = f"{0.2 * radius}px"
+
+        points = []
+        for i in range(n_segments + 1):
+            a = angle1 + (angle2 - angle1) * i / n_segments
+            points.append((cx + radius * math.cos(a), cy + radius * math.sin(a)))
+
+        path_data = "M " + " L ".join(f"{x},{y}" for x, y in points)
+        self.layer_diagram_annotations.add(self.dwg.path(
+            d=path_data, fill='none', stroke=color, stroke_width=stroke_width,
+        ))
+
+        if label:
+            mid_angle = (angle1 + angle2) / 2.0
+            label_radius = radius * 1.2
+            lx = cx + label_radius * math.cos(mid_angle)
+            ly = cy + label_radius * math.sin(mid_angle)
+            font_size_num = float(label_font_size.replace('px', '').replace('pt', ''))
+            vertical_offset = font_size_num * 0.35
+            text = self.dwg.text(
+                label,
+                insert=(lx, -ly + vertical_offset),
+                fill=color,
+                font_size=label_font_size,
+                font_family='sans-serif',
+                transform='scale(1, -1)',
+            )
+            self.layer_diagram_annotations.add(text)
+
     def draw_lens(self, p1, p2, focal_length, color='blue', label=None,
-                  scene_obj=None):
+                  scene_obj=None, label_font_size='8px'):
         """
         Draw an ideal lens with arrows indicating converging/diverging.
 
@@ -804,6 +1085,7 @@ class SVGRenderer:
             color (str): Color for lens (default: 'blue')
             label (str or None): Optional label
             scene_obj: Optional scene object for simulation metadata.
+            label_font_size (str): CSS font size for the label (default: '8px').
         """
         p1 = self._normalize_point(p1)
         p2 = self._normalize_point(p2)
@@ -850,8 +1132,8 @@ class SVGRenderer:
         self.layer_objects.add(center_line)
 
         if label:
-            font_size = '8px'
-            vertical_offset = 8 * 0.35
+            font_size = label_font_size
+            vertical_offset = float(font_size.replace('px', '').replace('pt', '')) * 0.35
 
             text = self.dwg.text(
                 label,
@@ -890,7 +1172,7 @@ class SVGRenderer:
         self.layer_objects.add(polygon)
 
     def draw_glass_path(self, path, fill='cyan', fill_opacity=0.3, stroke='navy',
-                       stroke_width=2, label=None, glass_obj=None):
+                       stroke_width=2, label=None, glass_obj=None, label_font_size='8px'):
         """
         Draw a Glass object with arbitrary path (lines and arcs).
 
@@ -905,6 +1187,7 @@ class SVGRenderer:
             fill_opacity (float): Fill opacity 0.0-1.0 (default: 0.3)
             stroke (str): Stroke color (default: 'navy')
             stroke_width (float): Stroke width in pixels (default: 2)
+            label_font_size (str): CSS font size for the label (default: '8px').
             label (str or None): Optional label at center
             glass_obj: Optional Glass object for simulation metadata
                 (id, inkscape:label, class, data-uuid).
@@ -989,8 +1272,8 @@ class SVGRenderer:
             center_x = self._normalize_coord(sum_x / len(path))
             center_y = self._normalize_coord(sum_y / len(path))
 
-            font_size = '8px'
-            vertical_offset = 8 * 0.35  # Approximate vertical centering
+            font_size = label_font_size
+            vertical_offset = float(font_size.replace('px', '').replace('pt', '')) * 0.35  # Approximate vertical centering
 
             text = self.dwg.text(
                 label,
@@ -1149,8 +1432,12 @@ class SVGRenderer:
         return True
 
     def draw_scene(self, scene, segments=None, draw_rays: bool = True,
-                   draw_objects: bool = True, draw_edge_labels: bool = True,
-                   draw_edge_overlays: bool = True, **ray_kwargs) -> bool:
+                   draw_objects: bool = True, draw_obj_labels: bool = True,
+                   draw_edge_labels: bool = True,
+                   draw_edge_overlays: bool = True, ray_subsample: int = 1,
+                   ray_subsample_seed=None, ray_stroke_width: float = 1.5,
+                   edge_stroke_width: float = 2.0, object_label_font_size: str = '8px',
+                   edge_label_font_size: str = '6px', **ray_kwargs) -> bool:
         """
         Draw all objects and rays from a scene with full metadata.
 
@@ -1162,12 +1449,48 @@ class SVGRenderer:
             segments: List of Ray segments to draw. Required if draw_rays=True.
             draw_rays (bool): Whether to draw ray segments (default: True).
             draw_objects (bool): Whether to draw scene objects (default: True).
+            draw_obj_labels (bool): Whether to draw each object's
+                display-name label (glass/lens/point/line objects).
+                When False, the label is suppressed regardless of whether
+                the object has a get_display_name() (default: True).
             draw_edge_labels (bool): Whether to draw edge labels on glass
                 objects (default: True).
             draw_edge_overlays (bool): Whether to add invisible edge overlay
                 elements for glass objects (default: True).
+            ray_subsample (int): If > 1, draw only a random ~1/ray_subsample
+                fraction of `segments` (e.g. 10 -> ~10% of rays). Lets the
+                physics run at a high ray_density (for accurate detector/
+                power readings) while keeping the rendered SVG small --
+                the two were previously coupled through one ray_density.
+                The subset is chosen randomly (via random.sample), not by a
+                fixed stride, so it isn't visually biased toward one part of
+                a ray fan. Default 1: draw every segment, unchanged behaviour.
+            ray_subsample_seed: Optional seed for the random subsample, for a
+                reproducible picture across re-renders. Default None
+                (a different random subset each call).
+            ray_stroke_width (float): Line width in pixels for ray segments
+                (default: 1.5, matching draw_ray_with_scene_settings's own
+                default -- unchanged rendering unless overridden).
+            edge_stroke_width (float): Line width in pixels for scene object
+                boundaries -- glass polygon edges (draw_glass_path) and
+                line-based objects like mirrors/detectors (draw_line_segment)
+                (default: 2.0, matching both methods' own defaults --
+                unchanged rendering unless overridden). A device built from
+                many short wall segments (e.g. DTIRCPrism's wall_segments)
+                can look cluttered at the default width; thinning this down
+                (e.g. 0.5-1.0) decutters the outline without touching rays.
+            object_label_font_size (str): CSS font size for scene-object
+                display-name labels -- glass/lens/line/point objects
+                (default: '8px', matching each draw_* method's own default).
+            edge_label_font_size (str): CSS font size for glass edge
+                functional labels (draw_glass_edge_labels), only drawn when
+                draw_edge_labels=True (default: '6px', matching that
+                method's own default). A device with many short wall
+                segments (e.g. DTIRCPrism's wall_segments) gets one label
+                per edge -- shrinking this declutters without hiding labels
+                entirely (see draw_edge_labels for that).
             **ray_kwargs: Additional keyword arguments passed to
-                draw_ray_with_scene_settings (e.g. base_color, stroke_width).
+                draw_ray_with_scene_settings (e.g. base_color).
 
         Returns:
             bool: True on success.
@@ -1176,32 +1499,43 @@ class SVGRenderer:
             for obj in scene.objs:
                 # Glass objects: have path with >= 3 points
                 if hasattr(obj, 'path') and hasattr(obj.path, '__len__') and len(obj.path) >= 3:
-                    display_name = getattr(obj, 'get_display_name', lambda: None)()
-                    self.draw_glass_path(obj.path, label=display_name, glass_obj=obj)
+                    display_name = getattr(obj, 'get_display_name', lambda: None)() if draw_obj_labels else None
+                    self.draw_glass_path(obj.path, label=display_name, glass_obj=obj,
+                                         stroke_width=edge_stroke_width,
+                                         label_font_size=object_label_font_size)
                     if draw_edge_overlays:
                         self.draw_glass_edge_overlays(obj)
                     if draw_edge_labels:
-                        self.draw_glass_edge_labels(obj)
+                        self.draw_glass_edge_labels(obj, font_size=edge_label_font_size)
                 # Ideal lenses: have focalLength and p1/p2
                 elif hasattr(obj, 'focalLength') and hasattr(obj, 'p1'):
-                    display_name = getattr(obj, 'get_display_name', lambda: None)()
+                    display_name = getattr(obj, 'get_display_name', lambda: None)() if draw_obj_labels else None
                     self.draw_lens(obj.p1, obj.p2, obj.focalLength,
-                                   label=display_name, scene_obj=obj)
+                                   label=display_name, scene_obj=obj,
+                                   label_font_size=object_label_font_size)
                 # Point sources: have x, y attributes and emit rays
                 elif hasattr(obj, 'x') and hasattr(obj, 'y') and not hasattr(obj, 'p2'):
-                    display_name = getattr(obj, 'get_display_name', lambda: None)()
+                    display_name = getattr(obj, 'get_display_name', lambda: None)() if draw_obj_labels else None
                     self.draw_point({'x': obj.x, 'y': obj.y},
                                     color='orange', radius=4,
-                                    label=display_name, scene_obj=obj)
+                                    label=display_name, scene_obj=obj,
+                                    label_font_size=object_label_font_size)
                 # Line-based objects: have p1, p2 (mirrors, detectors, etc.)
                 elif hasattr(obj, 'p1') and hasattr(obj, 'p2'):
-                    display_name = getattr(obj, 'get_display_name', lambda: None)()
+                    display_name = getattr(obj, 'get_display_name', lambda: None)() if draw_obj_labels else None
                     self.draw_line_segment(obj.p1, obj.p2,
-                                           label=display_name, scene_obj=obj)
+                                           label=display_name, scene_obj=obj,
+                                           stroke_width=edge_stroke_width,
+                                           label_font_size=object_label_font_size)
 
         if draw_rays and segments:
-            for seg in segments:
-                self.draw_ray_with_scene_settings(seg, scene, **ray_kwargs)
+            draw_segments = segments
+            if ray_subsample > 1 and len(segments) > 1:
+                rng = random.Random(ray_subsample_seed)
+                k = max(1, len(segments) // ray_subsample)
+                draw_segments = rng.sample(list(segments), k)
+            for seg in draw_segments:
+                self.draw_ray_with_scene_settings(seg, scene, stroke_width=ray_stroke_width, **ray_kwargs)
 
         return True
 
@@ -1223,19 +1557,38 @@ class SVGRenderer:
         highlight_ray_uuids=None,
         highlight_edge_specs=None,
         highlight_glass_names=None,
+        draw_rays: bool = True,
+        draw_objects: bool = True,
         highlight_color: str = 'yellow',
         highlight_stroke_width: float = 3.0,
         dim_opacity: float = 0.15,
         base_ray_color: str = 'gray',
+        base_stroke_width: float = 1.0,
+        base_dasharray=None,
+        highlight_dasharray=None,
+        ray_stroke_width: float = 1.5,
+        ray_subsample: int = 1,
+        ray_subsample_seed=None,
         edge_highlight_color: str = 'lime',
         edge_highlight_width: float = 4.0,
+        draw_obj_labels: bool = True,
+        draw_edge_labels: bool = True,
+        draw_edge_overlays: bool = True,
+        object_label_font_size: str = '8px',
+        edge_label_font_size: str = '6px',
+        edge_stroke_width: float = 2.0,
+        **ray_kwargs,
     ) -> bool:
         """
         Render a full scene with specific elements highlighted.
 
         Draws in multiple passes so that highlighted elements appear on top.
         Non-highlighted rays are dimmed; highlighted rays, edges, and glass
-        objects are drawn vividly.
+        objects are drawn vividly. Parameter names/defaults are aligned with
+        draw_scene wherever the two methods do the same job, so switching
+        between them only ever means adding/removing the highlight_*
+        arguments -- everything about aesthetics (labels, stroke widths,
+        subsampling) behaves the same way in both.
 
         Args:
             scene: The Scene object.
@@ -1246,12 +1599,87 @@ class SVGRenderer:
                 Matched edges are drawn with a vivid overlay.
             highlight_glass_names: List of glass object names to highlight
                 (drawn with a stronger fill opacity).
+            draw_rays (bool): Whether to draw ray segments at all (default:
+                True, matching draw_scene's default).
+            draw_objects (bool): Whether to draw scene objects at all
+                (default: True, matching draw_scene's default).
             highlight_color (str): CSS color for highlighted rays.
             highlight_stroke_width (float): Stroke width for highlighted rays.
             dim_opacity (float): Opacity for non-highlighted rays.
             base_ray_color (str): Color for non-highlighted rays.
-            edge_highlight_color (str): Color for highlighted edges.
-            edge_highlight_width (float): Stroke width for highlighted edges.
+            base_stroke_width (float): Line width in pixels for non-highlighted
+                rays when highlight_ray_uuids is given (default: 1.0, matching
+                the previous hardcoded value -- unchanged rendering unless
+                overridden). Widen this if a thin base ray gets fully hidden
+                under an overlapping, wider highlighted ray drawn on top of it.
+            base_dasharray (str or None): SVG stroke-dasharray for
+                non-highlighted rays (e.g. '4,2'). None (default) draws solid,
+                unchanged rendering unless overridden.
+            highlight_dasharray (str or None): SVG stroke-dasharray for
+                highlighted rays (e.g. '4,2'). None (default) draws solid.
+                Since highlighted rays are drawn on top (Pass 3), dashing them
+                is usually the more useful direction: a solid base ray shows
+                through the gaps of an overlapping dashed highlighted one,
+                instead of being fully occluded regardless of stroke width.
+            ray_stroke_width (float): Line width in pixels for rays when
+                highlight_ray_uuids is None -- i.e. the same "just draw
+                everything normally" case draw_scene handles (default: 1.5,
+                matching draw_scene's own default). Has no effect once
+                highlight_ray_uuids is given; base_stroke_width /
+                highlight_stroke_width take over for that case instead,
+                since there are two ray populations to style independently.
+            ray_subsample (int): If > 1, draw only a random ~1/ray_subsample
+                fraction of the *non-highlighted* rays (default: 1, matching
+                draw_scene's default -- unchanged rendering unless overridden).
+                Every ray named in highlight_ray_uuids is always drawn in
+                full, never subsampled -- an explicitly requested highlight
+                must never silently vanish because of subsampling.
+            ray_subsample_seed: Optional seed for the random subsample, for a
+                reproducible picture across re-renders (default: None, a
+                different random subset each call -- matches draw_scene).
+            edge_highlight_color (str): Color for edges named in
+                highlight_edge_specs (Pass 4). Has no visible effect unless
+                highlight_edge_specs is also given -- there is nothing to
+                colour otherwise.
+            edge_highlight_width (float): Stroke width for edges named in
+                highlight_edge_specs (Pass 4). Same caveat as
+                edge_highlight_color: a no-op without highlight_edge_specs.
+            draw_obj_labels (bool): Whether to draw each object's
+                display-name label (glass/lens/point/line objects). When
+                False, the label is suppressed regardless of whether the
+                object has a get_display_name() (default: True, matching
+                draw_scene's default -- unchanged rendering unless overridden).
+            draw_edge_labels (bool): Whether to draw per-edge functional
+                labels on glass objects (default: True, matching
+                draw_scene's default).
+            draw_edge_overlays (bool): Whether to add invisible edge overlay
+                elements for glass objects -- draw_glass_edge_overlays draws
+                them with stroke='none' by design (they exist for editor
+                click-targets/metadata, not to be seen), so toggling this has
+                **no visible effect either way**; that is expected, not a bug
+                (default: True, matching draw_scene's default).
+            object_label_font_size (str): CSS font size for scene-object
+                display-name labels (default: '8px', matching each draw_*
+                method's own default).
+            edge_label_font_size (str): CSS font size for glass edge
+                functional labels, only drawn when draw_edge_labels=True
+                (default: '6px', matching draw_glass_edge_labels' own
+                default). A scene with many small/named objects (e.g. a
+                LinearSensor's internal blockers) can turn into unreadable
+                label clutter at the defaults above -- set draw_obj_labels/
+                draw_edge_labels to False, or shrink the font sizes, the same
+                way draw_scene's own callers already do.
+            edge_stroke_width (float): Line width in pixels for scene object
+                boundaries -- glass polygon edges (draw_glass_path) and
+                line-based objects like blockers/detectors (draw_line_segment)
+                (default: 2.0, matching both methods' own defaults --
+                unchanged rendering unless overridden). Does not apply to
+                draw_lens, which hardcodes its own line width (matching
+                draw_scene's identical scope).
+            **ray_kwargs: Additional keyword arguments passed to
+                draw_ray_with_scene_settings (e.g. base_color) when
+                highlight_ray_uuids is None -- matching draw_scene's
+                **ray_kwargs passthrough for that same case.
 
         Returns:
             bool: True on success.
@@ -1262,54 +1690,82 @@ class SVGRenderer:
         highlight_names = set(highlight_glass_names) if highlight_glass_names else set()
 
         # --- Pass 1: Draw all objects ---
-        for obj in scene.objs:
-            if hasattr(obj, 'path') and hasattr(obj.path, '__len__') and len(obj.path) >= 3:
-                name = getattr(obj, 'name', None)
-                is_highlighted = name in highlight_names if name else False
-                fill_opacity = 0.5 if is_highlighted else 0.2
-                self.draw_glass_path(obj.path, fill_opacity=fill_opacity, glass_obj=obj)
-                self.draw_glass_edge_labels(obj)
-                self.draw_glass_edge_overlays(obj)
-            elif hasattr(obj, 'focalLength') and hasattr(obj, 'p1'):
-                display_name = getattr(obj, 'get_display_name', lambda: None)()
-                self.draw_lens(obj.p1, obj.p2, obj.focalLength,
-                               label=display_name, scene_obj=obj)
-            elif hasattr(obj, 'x') and hasattr(obj, 'y') and not hasattr(obj, 'p2'):
-                display_name = getattr(obj, 'get_display_name', lambda: None)()
-                self.draw_point({'x': obj.x, 'y': obj.y},
-                                color='orange', radius=4,
-                                label=display_name, scene_obj=obj)
-            elif hasattr(obj, 'p1') and hasattr(obj, 'p2'):
-                display_name = getattr(obj, 'get_display_name', lambda: None)()
-                self.draw_line_segment(obj.p1, obj.p2,
-                                       label=display_name, scene_obj=obj)
+        if draw_objects:
+            for obj in scene.objs:
+                if hasattr(obj, 'path') and hasattr(obj.path, '__len__') and len(obj.path) >= 3:
+                    name = getattr(obj, 'name', None)
+                    is_highlighted = name in highlight_names if name else False
+                    fill_opacity = 0.5 if is_highlighted else 0.2
+                    display_name = (getattr(obj, 'get_display_name', lambda: None)()
+                                    if draw_obj_labels else None)
+                    self.draw_glass_path(obj.path, fill_opacity=fill_opacity, glass_obj=obj,
+                                        stroke_width=edge_stroke_width,
+                                        label=display_name, label_font_size=object_label_font_size)
+                    if draw_edge_labels:
+                        self.draw_glass_edge_labels(obj, font_size=edge_label_font_size)
+                    if draw_edge_overlays:
+                        self.draw_glass_edge_overlays(obj)
+                elif hasattr(obj, 'focalLength') and hasattr(obj, 'p1'):
+                    display_name = (getattr(obj, 'get_display_name', lambda: None)()
+                                    if draw_obj_labels else None)
+                    self.draw_lens(obj.p1, obj.p2, obj.focalLength,
+                                   label=display_name, scene_obj=obj,
+                                   label_font_size=object_label_font_size)
+                elif hasattr(obj, 'x') and hasattr(obj, 'y') and not hasattr(obj, 'p2'):
+                    display_name = (getattr(obj, 'get_display_name', lambda: None)()
+                                    if draw_obj_labels else None)
+                    self.draw_point({'x': obj.x, 'y': obj.y},
+                                    color='orange', radius=4,
+                                    label=display_name, scene_obj=obj,
+                                    label_font_size=object_label_font_size)
+                elif hasattr(obj, 'p1') and hasattr(obj, 'p2'):
+                    display_name = (getattr(obj, 'get_display_name', lambda: None)()
+                                    if draw_obj_labels else None)
+                    self.draw_line_segment(obj.p1, obj.p2,
+                                           label=display_name, scene_obj=obj,
+                                           label_font_size=object_label_font_size,
+                                           stroke_width=edge_stroke_width)
 
-        # --- Pass 2: Draw non-highlighted rays (dimmed) ---
-        for seg in segments:
-            seg_uuid = getattr(seg, 'uuid', None)
-            if highlight_set and seg_uuid and seg_uuid in highlight_set:
-                continue  # Skip — will be drawn in highlight pass
-            if highlight_set:
-                # Dim non-highlighted rays
-                self.draw_ray_segment(seg, color=base_ray_color,
-                                      opacity=dim_opacity, stroke_width=1.0)
-            else:
-                # No highlights requested — draw all rays normally
-                self.draw_ray_with_scene_settings(seg, scene)
+        if draw_rays and segments:
+            # Subsampling applies only to the non-highlighted population --
+            # an explicitly highlighted ray must never be dropped by it.
+            dim_pool = segments
+            if ray_subsample > 1 and len(segments) > 1:
+                rng = random.Random(ray_subsample_seed)
+                k = max(1, len(segments) // ray_subsample)
+                dim_pool = rng.sample(list(segments), k)
 
-        # --- Pass 3: Draw highlighted rays on top ---
-        if highlight_set:
-            hl_layer = self._ensure_highlight_layer()
-            # Temporarily swap layer_rays to the highlight layer
-            orig_layer = self.layer_rays
-            self.layer_rays = hl_layer
-            for seg in segments:
+            # --- Pass 2: Draw non-highlighted rays (dimmed / subsampled) ---
+            for seg in dim_pool:
                 seg_uuid = getattr(seg, 'uuid', None)
-                if seg_uuid and seg_uuid in highlight_set:
-                    self.draw_ray_segment(seg, color=highlight_color,
-                                          opacity=1.0,
-                                          stroke_width=highlight_stroke_width)
-            self.layer_rays = orig_layer
+                if highlight_set and seg_uuid and seg_uuid in highlight_set:
+                    continue  # Skip — will be drawn in highlight pass
+                if highlight_set:
+                    # Dim non-highlighted rays
+                    self.draw_ray_segment(seg, color=base_ray_color,
+                                          opacity=dim_opacity, stroke_width=base_stroke_width,
+                                          dasharray=base_dasharray)
+                else:
+                    # No highlights requested — draw all rays normally
+                    self.draw_ray_with_scene_settings(seg, scene,
+                                                      stroke_width=ray_stroke_width,
+                                                      **ray_kwargs)
+
+            # --- Pass 3: Draw highlighted rays on top (always the full,
+            # unsampled set -- every explicitly named ray must appear) ---
+            if highlight_set:
+                hl_layer = self._ensure_highlight_layer()
+                # Temporarily swap layer_rays to the highlight layer
+                orig_layer = self.layer_rays
+                self.layer_rays = hl_layer
+                for seg in segments:
+                    seg_uuid = getattr(seg, 'uuid', None)
+                    if seg_uuid and seg_uuid in highlight_set:
+                        self.draw_ray_segment(seg, color=highlight_color,
+                                              opacity=1.0,
+                                              stroke_width=highlight_stroke_width,
+                                              dasharray=highlight_dasharray)
+                self.layer_rays = orig_layer
 
         # --- Pass 4: Draw highlighted edges on top ---
         if highlight_edge_specs:

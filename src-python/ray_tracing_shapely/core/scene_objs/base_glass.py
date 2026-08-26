@@ -555,6 +555,21 @@ class BaseGlass(BaseSceneObj):
         else:
             inc_x, inc_y = incident_point['x'], incident_point['y']
 
+        # =====================================================================
+        # PYTHON-SPECIFIC FEATURE: Surface Hit Records (Step B, opt-in)
+        # =====================================================================
+        # Record the geometry of this interaction onto `ray` (the simulator's
+        # output_ray_geom). Placed before the TIR/refraction branch so both are
+        # captured. The recorded normal is exactly the (normalized) vector the
+        # refraction uses; incident_angle is clamped into [0, pi/2] (abs(cos1),
+        # since cos1's sign flips with inside->outside vs outside->inside).
+        # CONTRIBUTING.md acos clamp rule applies.
+        if getattr(ray, 'record_surface_hits', False):
+            ray.hit_surface_uuid = self._uuid
+            ray.hit_point = {'x': inc_x, 'y': inc_y}
+            ray.hit_normal = {'x': normal_x, 'y': normal_y}
+            ray.incident_angle = math.acos(max(-1.0, min(1.0, abs(cos1))))
+
         # DEBUG: Print all refract calls
         if verbose >= 2:
             print(f"\nDEBUG REFRACT CALL:")

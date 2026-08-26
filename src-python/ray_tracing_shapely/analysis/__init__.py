@@ -82,6 +82,7 @@ from .tool_registry import (
     list_available_tools,
     get_agentic_tools,
     generate_tool_note_for_solveit_notebook,
+    generate_tool_note_for_copilot,
 )
 from .agentic_tools import (
     set_context,
@@ -161,6 +162,7 @@ __all__ = [
     'list_available_tools',
     'get_agentic_tools',
     'generate_tool_note_for_solveit_notebook',
+    'generate_tool_note_for_copilot',
     # Agentic tools -- JSON-serializable wrappers (Python-specific)
     'set_context',
     'set_context_from_result',

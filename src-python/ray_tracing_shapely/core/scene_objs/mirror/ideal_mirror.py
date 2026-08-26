@@ -379,6 +379,29 @@ class IdealMirror(LineObjMixin, BaseFilter):
         Returns:
             None (modifies ray in place)
         """
+        # =====================================================================
+        # PYTHON-SPECIFIC FEATURE: Surface Hit Records (Step B, opt-in)
+        # =====================================================================
+        # Record hit geometry BEFORE ray.p1/p2 are overwritten below. The mirror
+        # normal is perpendicular to its surface direction (p2 - p1); the angle of
+        # incidence is measured from that normal using the ORIGINAL incident
+        # direction (incident_point - ray.p1). CONTRIBUTING.md acos clamp applies.
+        if getattr(ray, 'record_surface_hits', False):
+            mx: float = self.p2['x'] - self.p1['x']
+            my: float = self.p2['y'] - self.p1['y']
+            di_x: float = incident_point['x'] - ray.p1['x']
+            di_y: float = incident_point['y'] - ray.p1['y']
+            m_len: float = math.hypot(mx, my)
+            di_len: float = math.hypot(di_x, di_y)
+            if m_len > 0 and di_len > 0:
+                nx: float = -my / m_len
+                ny: float = mx / m_len
+                cos_inc: float = abs((di_x * nx + di_y * ny) / di_len)
+                ray.hit_surface_uuid = self._uuid
+                ray.hit_point = {'x': incident_point['x'], 'y': incident_point['y']}
+                ray.hit_normal = {'x': nx, 'y': ny}
+                ray.incident_angle = math.acos(max(-1.0, min(1.0, cos_inc)))
+
         # Calculate mirror geometry
         # Convert dict points to Point objects for geometry calculations
         p1_point = geometry.point(self.p1['x'], self.p1['y'])

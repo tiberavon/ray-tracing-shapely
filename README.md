@@ -13,9 +13,10 @@ This library provides a Python implementation for 2D ray tracing simulations, in
 
 - **Core simulation engine** - Ray tracing through optical elements (lenses, prisms, mirrors)
 - **Optical elements** - Glass objects, ideal lenses, spherical lenses, blockers, detectors
+- **Nonimaging optics** - CPC-family concentrators (DTIRC, angle transformer, RXI) and Miñano–Benítez Simultaneous Multiple Surface (SMS) profile construction (RR/RX/RXI), built on a reusable 2-D geometry toolbox (Python-specific)
 - **Light sources** - Point sources, beams, single rays, angle sources
 - **Analysis utilities** - Geometric analysis of glass interfaces and boundaries (Python-specific)
-- **Visualization** - SVG rendering of ray diagrams (Python-specific)
+- **Visualization** - SVG rendering of ray diagrams, with diagram-annotation helpers (point markers, vectors, angle arcs) for pedagogical overlays (Python-specific)
 
 ## Installation
 
@@ -68,6 +69,59 @@ segments = simulator.run()
 
 print(f"Traced {len(segments)} ray segments")
 ```
+
+## Nonimaging Optics (Python-Specific)
+
+The `optical_elements.prisms` module provides CPC-family concentrators and
+Miñano–Benítez Simultaneous Multiple Surface (SMS) design-method
+constructions, grounded directly against Chaves, *Introduction to
+Nonimaging Optics* (2nd ed., CRC Press) and Winston/Miñano/Benítez,
+*Nonimaging Optics* (Elsevier, 2005) -- every class below carries
+equation-level citations in its own docstring.
+
+### Concentrator devices
+
+```python
+from ray_tracing_shapely.optical_elements.prisms import (
+    DTIRCPrism, build_angle_transformer, RXIOptic,
+)
+
+# Dielectric TIR concentrator with a circular-arc entrance aperture
+dtirc = DTIRCPrism(scene, theta_deg=10, n=1.5, size=1.0)
+
+# Air-filled mirror composite transforming acceptance angle theta1 -> theta2
+angle_transformer = build_angle_transformer(scene, theta1_deg=15, theta2_deg=60, exit_width=1.0)
+
+# RXI-style dome (dielectric front surface + mirrored back), a mesh-refinement fixture
+rxi = RXIOptic(scene, n=1.5, size=1.0)
+```
+
+### SMS profile construction (RR / RX / RXI)
+
+Built on a shared alternating "SMS chain" engine
+(`optical_elements.prisms.sms_chain`) that reproduces the book's own
+worked examples exactly:
+
+```python
+from ray_tracing_shapely.optical_elements.prisms import RRLens, RXConcentrator, RXIOpticDirect
+
+# Two-surface RR lens designed so E1->R2 and E2->R1 (the "crossed" condition)
+rr_lens = RRLens(
+    scene, e1=(-1, 2), e2=(1, 2), r1=(-0.5, -2), r2=(0.5, -2),
+    seed_n_angle_deg=303.3, seed_x_angle_deg=42.7, n=1.5, etendue=1.0,
+)
+
+# RX concentrator: refractive top surface + mirror-coated bottom surface
+rx = RXConcentrator(scene, r1=(-0.5, 0), r2=(0.5, 0), theta_deg=2.0, p0=(0, -4), n0=(0, -1))
+
+# RXI built via the book's direct (non-iterative) method
+rxi_direct = RXIOpticDirect(scene, r1=(-1, 0), r2=(1, 0), theta_deg=30.0, n=1.5)
+```
+
+The underlying geometry toolbox (`optical_elements.prisms.nonimaging_geometry`)
+is also available standalone -- `isl`, `rfr`, `coptpt`, `coptsl`, `ccoptpt`,
+`dcoptpt`, `rfnrm`, `rfxnrm`, `hyp` -- for building custom Cartesian-oval
+and hyperbola-based profiles point by point.
 
 ## Analysis Utilities (Python-Specific)
 
@@ -190,8 +244,20 @@ ray_tracing_shapely/
 │       │   ├── simulator.py
 │       │   ├── ray.py             # Ray with TIR, grazing, lineage tracking
 │       │   ├── ray_lineage.py     # Parent-child tree tracker
+│       │   ├── svg_renderer.py    # SVG rendering + diagram annotations
 │       │   ├── geometry/
 │       │   └── scene_objs/
+│       ├── optical_elements/      # Physics-driven optical element constructors
+│       │   └── prisms/
+│       │       ├── base_prism.py          # Dual-labeling base class
+│       │       ├── dtirc.py               # DTIRCPrism
+│       │       ├── angle_transformer.py   # build_angle_transformer
+│       │       ├── rxi.py                 # RXIOptic (Tier 0 dome)
+│       │       ├── nonimaging_geometry.py # isl/rfr/coptpt/coptsl/ccoptpt/dcoptpt/rfnrm/rfxnrm/hyp
+│       │       ├── sms_chain.py           # Shared SMS alternating-chain engine
+│       │       ├── rr_lens.py             # RRLens (SMS)
+│       │       ├── rx_concentrator.py     # RXConcentrator (SMS)
+│       │       └── rxi_direct.py          # RXIOpticDirect (SMS, direct method)
 │       ├── developer_tests/       # Development tests
 │       └── examples/              # Example simulations
 ├── doc/
@@ -222,6 +288,8 @@ This library includes several features not available in the original JavaScript 
 7. **Agentic Tools** - JSON-serializable wrappers for LLM tool-use APIs (Claude, claudette, langchain)
 8. **Simulation Results** - `SimulationResult` dataclass captures segments, scene snapshot, lineage, and metadata for post-hoc analysis
 9. **Export** - CSV and XML export of ray data with filtering by TIR, grazing, wavelength, and source
+10. **Nonimaging Optics Devices** - DTIRC, angle-transformer, and RXI-style CPC-family concentrators, plus Miñano–Benítez SMS profile construction (`RRLens`, `RXConcentrator`, `RXIOpticDirect`) built on a shared alternating-chain engine, validated directly against published worked examples
+11. **Diagram Annotations** - `SVGRenderer` helpers (`draw_annotation_marker`, `draw_annotation_vector`, `draw_annotation_angle_arc`) for labeling points, directions, and angles on rendered ray diagrams, always drawn above the ray trace
 
 ## License
 

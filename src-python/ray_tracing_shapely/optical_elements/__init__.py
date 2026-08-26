@@ -29,13 +29,38 @@ from .prisms import (
     EquilateralPrism,
     RightAnglePrism,
     RefractometerPrism,
+    DTIRCPrism,
+    RXIOptic,
+    RRLens,
+    RXConcentrator,
+    RXIOpticDirect,
     # Factory functions
     equilateral_prism,
     right_angle_prism,
     refractometer_prism,
+    dtirc_prism,
+    build_angle_transformer,
     # Utility modules
     prism_utils,
     tir_utils,
+    nonimaging_geometry,
+    sms_chain,
+)
+
+from .roles import Role, Mechanism
+
+from .sensors import LinearSensor
+
+from .physical_scene import PhysicalScene
+from .physics import (
+    PhysicsContextError,
+    ProjectionModel,
+    CylindricalPerpendicularProjection,
+    PointSourceProjection,
+    LambertianStripProjection,
+    Photoconversion,
+    Photoemission,
+    LIVCurve,
 )
 
 __all__ = [
@@ -45,11 +70,35 @@ __all__ = [
     'EquilateralPrism',
     'RightAnglePrism',
     'RefractometerPrism',
+    'DTIRCPrism',
     # Factory functions
     'equilateral_prism',
     'right_angle_prism',
     'refractometer_prism',
+    'dtirc_prism',
+    'build_angle_transformer',
+    'RXIOptic',
+    'RRLens',
+    'RXConcentrator',
+    'RXIOpticDirect',
     # Utility modules
     'prism_utils',
     'tir_utils',
+    'nonimaging_geometry',
+    'sms_chain',
+    # Roles
+    'Role',
+    'Mechanism',
+    # Sensors
+    'LinearSensor',
+    # Physical scene + photometry
+    'PhysicsContextError',
+    'PhysicalScene',
+    'ProjectionModel',
+    'CylindricalPerpendicularProjection',
+    'PointSourceProjection',
+    'LambertianStripProjection',
+    'Photoconversion',
+    'Photoemission',
+    'LIVCurve',
 ]

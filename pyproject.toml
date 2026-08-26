@@ -32,6 +32,10 @@ dependencies = [
     "sympy>=1.12",
     "numpy>=1.20.0",
     "svgwrite>=1.4.0",
+    # Required for bidirectional ray tracing (Ray Lineage Step C): the combined
+    # forward/backward graph is an attributed nx.DiGraph, and path extraction,
+    # reachability and topological cross-run comparison run on networkx.
+    "networkx>=3.0",
 ]
 
 [project.optional-dependencies]

@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from ..core.ray import Ray
     from ..core.ray_lineage import RayLineage
     from .simulation_result import SimulationResult
+    from .bidirectional import BidirectionalResult
 
 
 # =============================================================================
@@ -132,6 +133,47 @@ def set_context_from_result(
     )
 
 
+def set_bidirectional_context(result: 'BidirectionalResult') -> None:
+    """
+    Register a BidirectionalResult (ray-lineage Step C) for
+    rank_bidirectional_paths().
+
+    Additive to the existing forward context, not a replacement for it: call
+    set_context() or set_context_from_result() first (for scene/segments/
+    lineage/db), then this, for the backward pass + combined graph. If a
+    database connection already exists in context, this also:
+    - creates/populates a `connections` table in it (surface, edge,
+      arc-distance, direction_dot per matched forward/backward pair) so
+      query_rays() can SQL over connection quality -- silently skipped, not
+      an error, if set_context() hasn't been called yet or the result has no
+      connections;
+    - inserts result.backward_segments into the existing `rays` table
+      (tagged tree='backward'; forward rows stay tree='forward') so a whole
+      bidirectional path -- not just its forward half -- is queryable by SQL
+      (dev_doc/roadmap/proposed/15_p8_bidirectional_path_auditing.md item 1).
+
+    Args:
+        result: The BidirectionalResult from Simulator.run_bidirectional().
+    """
+    _CONTEXT['bidirectional'] = result
+
+    db = _CONTEXT.get('db')
+    if db is not None and result.connections:
+        from .agentic_db import populate_connections_table
+
+        scene = _CONTEXT.get('scene')
+        name_by_uuid = (
+            {getattr(o, 'uuid', None): getattr(o, 'name', None) for o in scene.objs}
+            if scene is not None else None
+        )
+        populate_connections_table(db, result.connections, name_by_uuid=name_by_uuid)
+
+    if db is not None:
+        from .agentic_db import populate_backward_rays
+
+        populate_backward_rays(db, result.backward_segments)
+
+
 def get_context() -> Dict[str, Any]:
     """Return a copy of the current context dict (for inspection/debugging)."""
     return dict(_CONTEXT)
@@ -196,6 +238,24 @@ def _require_lineage() -> 'RayLineage':
     return _CONTEXT['lineage']
 
 
+def _require_bidirectional() -> 'BidirectionalResult':
+    """
+    Return the BidirectionalResult from context, or raise RuntimeError.
+
+    Returns:
+        The BidirectionalResult object.
+
+    Raises:
+        RuntimeError: If set_bidirectional_context() has not been called.
+    """
+    if 'bidirectional' not in _CONTEXT or _CONTEXT['bidirectional'] is None:
+        raise RuntimeError(
+            "No bidirectional result available. Call set_bidirectional_context"
+            "(result) with the result of Simulator.run_bidirectional(...) first."
+        )
+    return _CONTEXT['bidirectional']
+
+
 # =============================================================================
 # SQL query tools (Phase 1)
 # =============================================================================
@@ -204,12 +264,17 @@ def query_rays(sql: str) -> Dict[str, Any]:
     """
     Run a read-only SQL query against the simulation database.
 
-    The database contains five tables:
+    The database contains seven tables:
     - rays: One row per ray segment with all properties
     - glass_objects: One row per glass object in the scene
     - edges: One row per edge of each glass object
     - ray_glass_membership: Join table (ray_uuid, glass_uuid) for rays inside glass
     - ray_edge_crossing: Join table for rays crossing glass edges
+    - detectors: One row per Detector object (including a LinearSensor's
+      internal detector)
+    - detector_hits: One row per ray that crossed a detector, joinable to
+      rays.uuid via ray_uuid -- lets you filter rays.* by which detector
+      (and which bin) they hit
 
     Use describe_schema() to see full table definitions.
 
@@ -330,6 +395,436 @@ def check_energy_conservation() -> Dict[str, Any]:
         result = _check_energy(lineage)
         return _ok(result)
     except RuntimeError as e:
+        return _error(str(e))
+
+
+# =============================================================================
+# Detector-path tools (ray-lineage Step A agentic exposure)
+# =============================================================================
+
+def list_detectors() -> Dict[str, Any]:
+    """
+    List all Detector objects in the scene, including a LinearSensor's
+    internal detector (named '<sensor_name>_detector').
+
+    Use this to discover valid detector_name values for
+    rank_detector_paths() without guessing.
+
+    Requires context: call set_context() or set_context_from_result() first.
+
+    Returns:
+        Structured dict with status and a list of detector summaries
+        (name, uuid, p1, p2, length, bin_size, hit_count), or error message.
+    """
+    try:
+        scene, _segments = _require_context()
+        detectors = get_objects_by_type(scene, 'Detector')
+
+        summaries = []
+        for det in detectors:
+            hit_records = det.get_hit_records() if hasattr(det, 'get_hit_records') else []
+            summaries.append({
+                'name': det.name,
+                'uuid': det.uuid,
+                'p1': det.p1,
+                'p2': det.p2,
+                'length': det.length,
+                'bin_size': det.bin_size,
+                'hit_count': len(hit_records),
+            })
+        return _ok(summaries)
+    except RuntimeError as e:
+        return _error(str(e))
+
+
+def rank_detector_paths(detector_name: str, top_n: int = 10) -> Dict[str, Any]:
+    """
+    Rank the optical paths that actually reached a named detector,
+    highest-energy first.
+
+    This is the detector-scoped counterpart to rank_paths_by_energy(): it
+    filters the lineage tree to the rays that crossed the named detector
+    (via Detector.get_hit_uuids()), so the ranking reflects what the
+    detector actually measured -- not every leaf in the scene.
+
+    Requires scene + lineage context: call set_context(scene, segments, lineage)
+    or set_context_from_result() first. Use list_detectors() to discover
+    valid detector_name values.
+
+    Args:
+        detector_name: Name of the Detector (or a LinearSensor's internal
+            detector, named '<sensor_name>_detector') in the scene.
+        top_n: Maximum number of paths to return (default: 10).
+
+    Returns:
+        Structured dict with status and ranked path data, or error message.
+        Each entry has uuid, energy, energy_s, energy_p, path_length,
+        path_types, path_uuids (for use with highlight_custom_rays_svg),
+        and bin_index (the irradiance bin the ray landed in, or None).
+    """
+    try:
+        from .lineage_analysis import rank_paths_by_energy as _rank_paths
+
+        scene, _segments = _require_context()
+        lineage = _require_lineage()
+
+        detector = get_object_by_name(scene, detector_name)
+        if not hasattr(detector, 'get_hit_uuids'):
+            return _error(
+                f"'{detector_name}' is not a Detector (no hit records). "
+                f"Use list_detectors() to see valid names."
+            )
+
+        leaf_uuids = detector.get_hit_uuids()
+
+        # Map each uuid to the bin it landed in (first occurrence), so the
+        # agent can talk about pixel/bin position, not just energy.
+        bin_by_uuid: Dict[str, Optional[int]] = {}
+        for record in detector.get_hit_records():
+            u = record['ray_uuid']
+            if u is not None and u not in bin_by_uuid:
+                bin_by_uuid[u] = record['bin_index']
+
+        raw_results = _rank_paths(lineage, leaf_uuids=leaf_uuids)
+
+        serializable = []
+        for entry in raw_results[:top_n]:
+            serializable.append({
+                'uuid': entry['uuid'],
+                'energy': entry['energy'],
+                'energy_s': entry['energy_s'],
+                'energy_p': entry['energy_p'],
+                'path_length': entry['path_length'],
+                'path_types': entry['path_types'],
+                'path_uuids': [r.uuid for r in entry['path']],
+                'bin_index': bin_by_uuid.get(entry['uuid']),
+            })
+
+        return _ok(serializable)
+    except (ValueError, RuntimeError) as e:
+        return _error(str(e))
+
+
+def paths_by_incidence_angle(
+    min_deg: float,
+    max_deg: float,
+    surface_name: Optional[str] = None,
+    top_n: int = 10,
+) -> Dict[str, Any]:
+    """
+    Rank ray segments whose angle of incidence falls in [min_deg, max_deg],
+    highest-brightness first.
+
+    This surfaces the Step B surface-hit geometry: a segment carries an
+    incident_angle only when the simulation was run with
+    Simulator(record_surface_hits=True) AND the segment struck a surface that
+    computes a normal (glass, mirror). Combine with rank_detector_paths() to
+    answer compound questions like "of the paths that reached the sensor, which
+    hit the entry face above the critical angle?".
+
+    Requires context: call set_context() or set_context_from_result() first.
+
+    Args:
+        min_deg: Lower bound of the incidence-angle window, in DEGREES.
+        max_deg: Upper bound of the incidence-angle window, in DEGREES.
+        surface_name: Optional. Restrict to hits on a named object (glass,
+            mirror, detector). Use list_detectors() / query the glass_objects
+            table to discover names.
+        top_n: Maximum number of segments to return (default: 10).
+
+    Returns:
+        Structured dict with status and a list of segments (each: uuid,
+        interaction_type, incident_angle_deg, incident_angle_rad,
+        hit_surface_uuid, hit_point, brightness_s/p/total), or error message.
+        An empty list means no segment matched -- either the window is empty or
+        the run did not record surface hits.
+    """
+    try:
+        import math
+
+        scene, _segments = _require_context()
+        db = _require_db()
+
+        surface_uuid: Optional[str] = None
+        if surface_name is not None:
+            # Raises ValueError with the list of valid names if unknown.
+            obj = get_object_by_name(scene, surface_name)
+            surface_uuid = getattr(obj, 'uuid', None)
+
+        min_rad = math.radians(min_deg)
+        max_rad = math.radians(max_deg)
+
+        sql = (
+            "SELECT uuid, interaction_type, incident_angle, hit_surface_uuid, "
+            "hit_point_x, hit_point_y, brightness_s, brightness_p, brightness_total "
+            "FROM rays WHERE incident_angle IS NOT NULL "
+            "AND incident_angle >= ? AND incident_angle <= ?"
+        )
+        params: List[Any] = [min_rad, max_rad]
+        if surface_uuid is not None:
+            sql += " AND hit_surface_uuid = ?"
+            params.append(surface_uuid)
+        sql += " ORDER BY brightness_total DESC LIMIT ?"
+        params.append(int(top_n))
+
+        rows = db.execute(sql, params).fetchall()
+
+        results = []
+        for r in rows:
+            results.append({
+                'uuid': r[0],
+                'interaction_type': r[1],
+                'incident_angle_rad': r[2],
+                'incident_angle_deg': math.degrees(r[2]),
+                'hit_surface_uuid': r[3],
+                'hit_point': ({'x': r[4], 'y': r[5]} if r[4] is not None else None),
+                'brightness_s': r[6],
+                'brightness_p': r[7],
+                'brightness_total': r[8],
+            })
+
+        return _ok(results)
+    except (ValueError, RuntimeError) as e:
+        return _error(str(e))
+
+
+# =============================================================================
+# Bidirectional-path tools (ray-lineage Step C agentic exposure, C.5)
+# =============================================================================
+
+def rank_bidirectional_paths(
+    detector_name: Optional[str] = None,
+    top_n: int = 10,
+) -> Dict[str, Any]:
+    """
+    Rank source->detector paths from a bidirectional (Step C) trace, by
+    end-to-end energy.
+
+    Unlike rank_paths_by_energy()/rank_detector_paths() (forward-only
+    ranking by terminal segment brightness), this ranks whole
+    source -> ... -> connection -> ... -> detector paths extracted from the
+    combined forward/backward graph (Simulator.run_bidirectional()), so the
+    ranking reflects light that actually made it from a source to the
+    detector through a matched surface connection, not just how bright a
+    forward ray happened to end up.
+
+    Requires a bidirectional context: call set_bidirectional_context(result)
+    with the BidirectionalResult from Simulator.run_bidirectional() first.
+
+    Args:
+        detector_name: Optional sanity check, not a filter. A
+            BidirectionalResult already belongs to exactly one detector (the
+            one Simulator.run_bidirectional() was called with) -- unlike
+            rank_detector_paths(), which filters a single forward context by
+            any of several detectors. If given, must match
+            BidirectionalResult.detector_name; use list_detectors() first if
+            unsure, or omit to skip the check.
+        top_n: Maximum number of paths to return (default: 10).
+
+    Returns:
+        Structured dict with status and ranked path data, or error message.
+        Each entry: uuid (the path's detector-side terminal segment uuid,
+        the natural per-path identifier here), energy, weight
+        (-log(energy)), path_length, path_types, path_uuids (source
+        ->detector node order, for use with highlight_custom_rays_svg),
+        connection_surface, connection_edge_index, forward_len, backward_len.
+        Empty list if the trace has no source->detector path (e.g. no
+        connections were found).
+    """
+    try:
+        from .bidirectional import extract_ranked_paths
+
+        bidir = _require_bidirectional()
+        if (detector_name is not None and bidir.detector_name is not None
+                and detector_name != bidir.detector_name):
+            return _error(
+                f"This bidirectional result was traced from detector "
+                f"'{bidir.detector_name}', not '{detector_name}'. Re-run "
+                f"Simulator.run_bidirectional() against the detector you "
+                f"want, or omit detector_name to skip this check."
+            )
+        if bidir.combined is None:
+            return _error(
+                "This bidirectional result has no combined graph (traced "
+                "with connect=False or build_graph=False). Re-run "
+                "Simulator.run_bidirectional(detector, connect=True, "
+                "build_graph=True)."
+            )
+
+        raw = extract_ranked_paths(bidir.combined, top_n=top_n)
+
+        serializable = []
+        for entry in raw:
+            path_uuids = entry['path_uuids']
+            serializable.append({
+                'uuid': path_uuids[-1] if path_uuids else None,
+                'energy': entry['energy'],
+                'weight': entry['weight'],
+                'path_length': len(path_uuids),
+                'path_types': entry['path_types'],
+                'path_uuids': path_uuids,
+                'connection_surface': entry['connection_surface'],
+                'connection_edge_index': entry['connection_edge_index'],
+                'forward_len': entry['forward_len'],
+                'backward_len': entry['backward_len'],
+            })
+
+        return _ok(serializable)
+    except RuntimeError as e:
+        return _error(str(e))
+
+
+def path_surfaces_tool(path_uuids: List[str]) -> Dict[str, Any]:
+    """
+    Reduce a bidirectional path to its physical hop sequence -- each node's
+    surface_name/edge_index/arc_position/hit_point plus the interaction_type
+    that actually happened there.
+
+    This is the corrected counterpart to path_uuids/path_types (as returned
+    by rank_bidirectional_paths): a segment's own interaction_type describes
+    what happened at its PARENT's hit_point, not its own, so reading
+    path_types node-by-node pairs each surface with the wrong event. This
+    tool re-derives the correct pairing from the tree structure. Two hops
+    -- immediately either side of the path's surface connection -- come
+    back with interaction_type=None; use path_physical_summary_tool() to
+    reason about that specific location instead.
+
+    Requires a bidirectional context: call set_bidirectional_context(result)
+    first. Get path_uuids from rank_bidirectional_paths().
+
+    Args:
+        path_uuids: The 'path_uuids' list from one rank_bidirectional_paths()
+            entry (source->detector node order).
+
+    Returns:
+        Structured dict with status and a list of per-hop dicts (uuid, tree,
+        surface_name, edge_index, arc_position, hit_point_x, hit_point_y,
+        interaction_type), or error message.
+    """
+    try:
+        from .signature_analysis import path_surfaces as _path_surfaces
+
+        bidir = _require_bidirectional()
+        if bidir.combined is None:
+            return _error(
+                "This bidirectional result has no combined graph (traced "
+                "with connect=False or build_graph=False). Re-run "
+                "Simulator.run_bidirectional(detector, connect=True, "
+                "build_graph=True)."
+            )
+        missing = [u for u in path_uuids if not bidir.combined.has_node(u)]
+        if missing:
+            return _error(f"uuid(s) not found in the combined graph: {missing}")
+
+        hops = _path_surfaces({'path_uuids': path_uuids}, bidir.combined)
+        return _ok(hops)
+    except RuntimeError as e:
+        return _error(str(e))
+
+
+def audit_bidirectional_paths(
+    top_n: int = 20,
+    expected_max_hops: Optional[int] = None,
+    allowed_edges: Optional[List[List[Any]]] = None,
+) -> Dict[str, Any]:
+    """
+    Flag ranked source->detector paths that don't match an expected routing
+    -- e.g. an unintended TIR route that contaminates a measurement (path 17
+    in the Hamamatsu refractometer notebook: a source->detector path via a
+    TIR on the sample's own far edge, outside the prism).
+
+    A path is flagged if it has more hops than expected_max_hops, OR if it
+    touches a (surface_name, edge_index) not covered by allowed_edges.
+    Omitting both just ranks and totals paths without flagging any.
+
+    Requires a bidirectional context: call set_bidirectional_context(result)
+    first.
+
+    Args:
+        top_n: Maximum number of ranked paths to audit (default: 20).
+        expected_max_hops: Optional. Paths with more nodes than this are
+            flagged.
+        allowed_edges: Optional list of [surface_name, edge_index_or_null]
+            pairs (JSON-friendly form of the (str, Optional[int]) tuples
+            audit_paths() takes) -- edge_index=null means "any edge on this
+            surface is allowed". A path touching a (surface_name,
+            edge_index) not covered by this list is flagged. Nodes with no
+            surface_name (the source/detector roots) are never flagged.
+
+    Returns:
+        Structured dict with status and {'total_paths', 'total_energy',
+        'flagged_paths', 'flagged_energy', 'flagged_energy_fraction'}, or
+        error message. flagged_paths entries carry 'flag_reasons'.
+    """
+    try:
+        from .signature_analysis import audit_paths as _audit_paths
+
+        bidir = _require_bidirectional()
+        if bidir.combined is None:
+            return _error(
+                "This bidirectional result has no combined graph (traced "
+                "with connect=False or build_graph=False). Re-run "
+                "Simulator.run_bidirectional(detector, connect=True, "
+                "build_graph=True)."
+            )
+        edges_arg = None
+        if allowed_edges is not None:
+            edges_arg = [(pair[0], pair[1]) for pair in allowed_edges]
+
+        report = _audit_paths(
+            bidir, top_n=top_n,
+            expected_max_hops=expected_max_hops,
+            allowed_edges=edges_arg,
+        )
+        return _ok(report)
+    except RuntimeError as e:
+        return _error(str(e))
+
+
+def path_physical_summary_tool(path_uuids: List[str]) -> Dict[str, Any]:
+    """
+    Reconstruct one bidirectional path's polarization and total geometric
+    length at the detector.
+
+    Uses Connection.connecting_child_uuid (the forward ray's TRUE
+    post-connection continuation) combined with the backward segment's
+    brightness relative to its own root's brightness (a valid transfer
+    function under Fresnel reciprocity, robust to the backward root's
+    arbitrary 50/50 s/p seeding) -- see path_physical_summary()'s docstring
+    for the full reasoning.
+
+    Requires a bidirectional context: call set_bidirectional_context(result)
+    first. Get path_uuids from rank_bidirectional_paths().
+
+    Args:
+        path_uuids: The 'path_uuids' list from one rank_bidirectional_paths()
+            entry (source->detector node order, spanning exactly one surface
+            connection).
+
+    Returns:
+        Structured dict with status and {'total_length',
+        'brightness_s_at_detector', 'brightness_p_at_detector',
+        'degree_of_polarization_at_detector', 'polarization_ratio_at_detector',
+        'adaptive_sampling_warning'}, or error message.
+    """
+    try:
+        from .signature_analysis import path_physical_summary as _path_physical_summary
+
+        bidir = _require_bidirectional()
+        if bidir.combined is None:
+            return _error(
+                "This bidirectional result has no combined graph (traced "
+                "with connect=False or build_graph=False). Re-run "
+                "Simulator.run_bidirectional(detector, connect=True, "
+                "build_graph=True)."
+            )
+        missing = [u for u in path_uuids if not bidir.combined.has_node(u)]
+        if missing:
+            return _error(f"uuid(s) not found in the combined graph: {missing}")
+
+        summary = _path_physical_summary({'path_uuids': path_uuids}, bidir)
+        return _ok(summary)
+    except (RuntimeError, ValueError) as e:
         return _error(str(e))
 
 

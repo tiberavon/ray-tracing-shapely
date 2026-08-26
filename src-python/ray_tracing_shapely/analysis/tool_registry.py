@@ -355,6 +355,27 @@ _REGISTRY: List[Dict[str, str]] = [
     },
     {
         'module': 'analysis.agentic_tools',
+        'name': 'list_detectors',
+        'kind': 'function',
+        'signature': '() -> Dict[str, Any]',
+        'description': 'List all Detector objects in the scene (requires context)',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'rank_detector_paths',
+        'kind': 'function',
+        'signature': '(detector_name, top_n=10) -> Dict[str, Any]',
+        'description': 'Rank optical paths that reached a named detector (requires scene + lineage)',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'paths_by_incidence_angle',
+        'kind': 'function',
+        'signature': '(min_deg, max_deg, surface_name=None, top_n=10) -> Dict[str, Any]',
+        'description': 'Rank ray segments by angle of incidence in a degree window (requires context + record_surface_hits run)',
+    },
+    {
+        'module': 'analysis.agentic_tools',
         'name': 'fresnel_transmittances_tool',
         'kind': 'function',
         'signature': '(n1, n2, theta_i_deg) -> Dict[str, Any]',
@@ -366,6 +387,43 @@ _REGISTRY: List[Dict[str, str]] = [
         'kind': 'function',
         'signature': '(glass_name_high_n, glass_name_low_n, theta_i_deg=None, delta_angle_deg=1.0) -> Dict[str, Any]',
         'description': 'Compute TIR angle, phase shifts, and Fresnel quantities between two named glasses',
+    },
+    # Ray-lineage Step C (bidirectional tracing) agentic exposure, C.5
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'set_bidirectional_context',
+        'kind': 'function',
+        'signature': '(result: BidirectionalResult) -> None',
+        'description': 'Register a BidirectionalResult for rank_bidirectional_paths() (additive to set_context())',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'rank_bidirectional_paths',
+        'kind': 'function',
+        'signature': '(detector_name=None, top_n=10) -> Dict[str, Any]',
+        'description': 'Rank source->detector paths from a bidirectional trace by end-to-end energy (requires set_bidirectional_context)',
+    },
+    # Bidirectional path-auditing (15_p8_bidirectional_path_auditing.md)
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'path_surfaces_tool',
+        'kind': 'function',
+        'signature': '(path_uuids: List[str]) -> Dict[str, Any]',
+        'description': 'Per-hop surface/edge/interaction_type for a bidirectional path, with the parent/child pairing corrected (requires set_bidirectional_context)',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'audit_bidirectional_paths',
+        'kind': 'function',
+        'signature': '(top_n=20, expected_max_hops=None, allowed_edges=None) -> Dict[str, Any]',
+        'description': 'Flag ranked paths exceeding expected_max_hops or touching edges outside allowed_edges (requires set_bidirectional_context)',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'path_physical_summary_tool',
+        'kind': 'function',
+        'signature': '(path_uuids: List[str]) -> Dict[str, Any]',
+        'description': 'Reconstruct a bidirectional path\'s polarization and total length at the detector (requires set_bidirectional_context)',
     },
     # Legacy XML tools (superseded by query_rays, kept for backward compat)
     {
@@ -533,6 +591,13 @@ def get_agentic_tools() -> List[Dict[str, Any]]:
         describe_schema,
         rank_paths_by_energy,
         check_energy_conservation,
+        list_detectors,
+        rank_detector_paths,
+        paths_by_incidence_angle,
+        rank_bidirectional_paths,
+        path_surfaces_tool,
+        audit_bidirectional_paths,
+        path_physical_summary_tool,
         fresnel_transmittances_tool,
         tir_analysis_tool,
         find_rays_inside_glass_xml,
@@ -625,6 +690,187 @@ def get_agentic_tools() -> List[Dict[str, Any]]:
                 'type': 'object',
                 'properties': {},
                 'required': [],
+            },
+        },
+        # --- Detector-path tools (ray-lineage Step A agentic exposure) ---
+        {
+            'name': 'list_detectors',
+            'function': list_detectors,
+            'description': 'List all Detector objects in the scene (name, uuid, geometry, '
+                           'hit_count), including a LinearSensor\'s internal detector '
+                           '(\'<sensor_name>_detector\'). Use this to find detector_name '
+                           'values for rank_detector_paths(). Requires context.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {},
+                'required': [],
+            },
+        },
+        {
+            'name': 'rank_detector_paths',
+            'function': rank_detector_paths,
+            'description': 'Rank the optical paths that actually reached a named detector, '
+                           'highest-energy first -- the detector-scoped counterpart to '
+                           'rank_paths_by_energy(). Returns path_uuids for use with '
+                           'highlight_custom_rays_svg. Requires scene + lineage.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'detector_name': {
+                        'type': 'string',
+                        'description': 'Name of the Detector in the scene (see list_detectors()).',
+                    },
+                    'top_n': {
+                        'type': 'integer',
+                        'description': 'Maximum number of paths to return (highest-energy first).',
+                        'default': 10,
+                    },
+                },
+                'required': ['detector_name'],
+            },
+        },
+        # --- Surface-hit geometry tool (ray-lineage Step B agentic exposure) ---
+        {
+            'name': 'paths_by_incidence_angle',
+            'function': paths_by_incidence_angle,
+            'description': 'Rank ray segments whose angle of incidence falls in a degree '
+                           'window [min_deg, max_deg], highest-brightness first. Surfaces '
+                           'Step B hit geometry -- only populated when the run used '
+                           'record_surface_hits=True. Compose with rank_detector_paths() to '
+                           'ask e.g. "of paths that reached the sensor, which hit the entry '
+                           'face above the critical angle?". Requires context.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'min_deg': {
+                        'type': 'number',
+                        'description': 'Lower bound of the incidence-angle window, in degrees.',
+                    },
+                    'max_deg': {
+                        'type': 'number',
+                        'description': 'Upper bound of the incidence-angle window, in degrees.',
+                    },
+                    'surface_name': {
+                        'type': 'string',
+                        'description': 'Optional. Restrict to hits on a named object (glass, '
+                                       'mirror, detector).',
+                    },
+                    'top_n': {
+                        'type': 'integer',
+                        'description': 'Maximum number of segments to return (highest-brightness first).',
+                        'default': 10,
+                    },
+                },
+                'required': ['min_deg', 'max_deg'],
+            },
+        },
+        # --- Bidirectional-path tool (ray-lineage Step C agentic exposure, C.5) ---
+        {
+            'name': 'rank_bidirectional_paths',
+            'function': rank_bidirectional_paths,
+            'description': 'Rank source->detector paths from a bidirectional (Step C) trace by '
+                           'end-to-end energy through a matched forward/backward surface '
+                           'connection -- distinct from rank_detector_paths(), which only ranks '
+                           'forward-tree terminal brightness. Returns path_uuids for use with '
+                           'highlight_custom_rays_svg. Requires set_bidirectional_context() '
+                           '(from Simulator.run_bidirectional()).',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'detector_name': {
+                        'type': 'string',
+                        'description': 'Optional sanity check against the bidirectional '
+                                       'result\'s own detector -- not a filter (a '
+                                       'BidirectionalResult already belongs to one detector). '
+                                       'See list_detectors().',
+                    },
+                    'top_n': {
+                        'type': 'integer',
+                        'description': 'Maximum number of paths to return (highest-energy first).',
+                        'default': 10,
+                    },
+                },
+                'required': [],
+            },
+        },
+        # --- Bidirectional path-auditing tools (15_p8_bidirectional_path_auditing.md) ---
+        {
+            'name': 'path_surfaces',
+            'function': path_surfaces_tool,
+            'description': 'Reduce a bidirectional path to its physical hop sequence -- '
+                           'surface_name/edge_index/arc_position/hit_point per node, with '
+                           'the interaction_type correctly paired to the hop it actually '
+                           'happened at (fixes the parent/child pairing rank_bidirectional_paths\' '
+                           'path_types is only approximate about). Two hops next to the '
+                           'surface connection come back with interaction_type=None -- use '
+                           'path_physical_summary for that location. Requires '
+                           'set_bidirectional_context(); path_uuids from rank_bidirectional_paths.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'path_uuids': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'description': 'The path_uuids list from one rank_bidirectional_paths() entry.',
+                    },
+                },
+                'required': ['path_uuids'],
+            },
+        },
+        {
+            'name': 'audit_bidirectional_paths',
+            'function': audit_bidirectional_paths,
+            'description': 'Flag ranked source->detector paths that exceed expected_max_hops '
+                           'or touch a (surface_name, edge_index) outside allowed_edges -- '
+                           'finds unintended routes like a stray TIR on an unblocked edge that '
+                           'contaminates a measurement. Requires set_bidirectional_context().',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'top_n': {
+                        'type': 'integer',
+                        'description': 'Maximum number of ranked paths to audit.',
+                        'default': 20,
+                    },
+                    'expected_max_hops': {
+                        'type': 'integer',
+                        'description': 'Optional. Paths with more nodes than this are flagged.',
+                    },
+                    'allowed_edges': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'array',
+                            'items': {},
+                            'description': '[surface_name, edge_index_or_null] pair; '
+                                           'null edge_index means "any edge on this surface".',
+                        },
+                        'description': 'Optional. A path touching a (surface_name, edge_index) '
+                                       'not covered by this list is flagged.',
+                    },
+                },
+                'required': [],
+            },
+        },
+        {
+            'name': 'path_physical_summary',
+            'function': path_physical_summary_tool,
+            'description': 'Reconstruct one bidirectional path\'s polarization '
+                           '(brightness_s/brightness_p, degree of polarization, '
+                           'polarization_ratio) and total geometric length at the detector, '
+                           'using the forward ray\'s true post-connection continuation and '
+                           'Fresnel-reciprocal backward transfer functions. Requires '
+                           'set_bidirectional_context(); path_uuids from rank_bidirectional_paths.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'path_uuids': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'description': 'The path_uuids list from one rank_bidirectional_paths() '
+                                       'entry, spanning exactly one surface connection.',
+                    },
+                },
+                'required': ['path_uuids'],
             },
         },
         {
@@ -886,13 +1132,40 @@ def get_agentic_tools() -> List[Dict[str, Any]]:
 def generate_tool_note_for_solveit_notebook(tool_list:List[Dict[str, Any]]= None):
     """
     Generate a markdown text which is supposed to be copied in a note in a solve.it notebook.
-    This is a little helper function for solve.it.com env, which is a jupyter notebook style 
+    This is a little helper function for solve.it.com env, which is a jupyter notebook style
     environment for agent assisted exploratory programming.
-       
+
     Returns:
-        A string with the formatting that is used by solve.it.com. 
+        A string with the formatting that is used by solve.it.com.
     """
     if tool_list is None:
         tool_list = get_agentic_tools()
     names = [t['name'] for t in tool_list]
     return f"### optical tools:\ntools from ray_tracing_shapely that you can use: &`[{', '.join(names)}]`"
+
+
+def generate_tool_note_for_copilot(tool_list: List[Dict[str, Any]] = None) -> str:
+    """
+    Generate a prompt fragment to paste into GitHub Copilot Agent chat.
+
+    Announces available ray-tracing MCP tools and sets agent expectations.
+    Print the output of this function in a notebook cell, then copy-paste it
+    as the first message in a Copilot Agent chat session before asking
+    questions about the simulation.
+
+    Args:
+        tool_list: Optional list of tool dicts (from get_agentic_tools()).
+            Defaults to the full agentic tool set.
+
+    Returns:
+        A markdown string ready to paste into Copilot Agent chat.
+    """
+    if tool_list is None:
+        tool_list = get_agentic_tools()
+    names = ', '.join(f'`{t["name"]}`' for t in tool_list)
+    return (
+        f"**ray_tracing_shapely MCP tools available:** {names}\n\n"
+        "The simulation context is set. Use these tools to explore the simulation. "
+        "Start with `describe_schema()` if you need to understand the database layout, "
+        "or `query_rays(sql=...)` for direct SQL queries against the ray data."
+    )

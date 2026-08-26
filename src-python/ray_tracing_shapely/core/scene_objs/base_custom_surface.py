@@ -212,6 +212,39 @@ class BaseCustomSurface(BaseSceneObj):
         # Normalize to -pi/2 to pi/2
         incident_angle = (incident_angle + 3 * math.pi) % (2 * math.pi) - math.pi
 
+        # =====================================================================
+        # PYTHON-SPECIFIC FEATURE: Surface Hit Records (Step B, opt-in)
+        # =====================================================================
+        # Record hit geometry onto `ray` (the simulator's output_ray_geom) before
+        # it is modified below. Uses the geometric normal passed in and the
+        # incident ray direction; the recorded incident_angle is measured from the
+        # normal, clamped into [0, pi/2] (CONTRIBUTING.md acos clamp rule).
+        if getattr(ray, 'record_surface_hits', False):
+            if hasattr(normal, 'x'):
+                nrm_x, nrm_y = normal.x, normal.y
+            else:
+                nrm_x, nrm_y = normal['x'], normal['y']
+            if hasattr(ray.p2, 'x'):
+                di_x = ray.p2.x - ray.p1.x
+                di_y = ray.p2.y - ray.p1.y
+            else:
+                di_x = ray.p2['x'] - ray.p1['x']
+                di_y = ray.p2['y'] - ray.p1['y']
+            if hasattr(incident_point, 'x'):
+                hp_x, hp_y = incident_point.x, incident_point.y
+            else:
+                hp_x, hp_y = incident_point['x'], incident_point['y']
+            n_len = math.hypot(nrm_x, nrm_y)
+            di_len = math.hypot(di_x, di_y)
+            if n_len > 0 and di_len > 0:
+                unx = nrm_x / n_len
+                uny = nrm_y / n_len
+                cos_inc = abs((di_x * unx + di_y * uny) / di_len)
+                ray.hit_surface_uuid = self._uuid
+                ray.hit_point = {'x': hp_x, 'y': hp_y}
+                ray.hit_normal = {'x': unx, 'y': uny}
+                ray.incident_angle = math.acos(max(-1.0, min(1.0, cos_inc)))
+
         # Store original ray properties
         original_brightness_s = ray.brightness_s
         original_brightness_p = ray.brightness_p
