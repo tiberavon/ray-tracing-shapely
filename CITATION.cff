@@ -7,7 +7,7 @@ message: >-
 type: software
 authors:
   - name: ray-tracing-shapely authors and contributors
-repository-code: "https://github.com/tiberavon/ray_tracing_shapely"
+repository-code: "https://github.com/tiberavon/ray-tracing-shapely"
 abstract: >-
   A 2D ray tracer built on Shapely, with ray-path analysis, nonimaging
   optical design, 3D verification and photobiological safety layers, and an
