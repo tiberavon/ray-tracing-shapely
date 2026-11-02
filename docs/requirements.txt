@@ -1,0 +1,8 @@
+sphinx>=8
+myst-parser>=4
+furo
+sphinx-design
+# the package itself, for autodoc
+-e ../src-python/ray_tracing_shapely
+pint
+transitions

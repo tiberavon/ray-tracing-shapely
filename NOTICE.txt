@@ -1,2 +1,60 @@
-This is a Python translation of the original JavaScript code from https://github.com/ricktu288/ray-optics. 
-Translated by the author of ray-tracing-shapely and contributors in 2026.
+ray-tracing-shapely
+Copyright 2026 ray-tracing-shapely authors and contributors
+
+This product includes software developed by the ray-tracing-shapely
+authors and contributors, licensed under the Apache License 2.0.
+
+PORTIONS OF THIS DISTRIBUTION ARE A TRANSLATION of the Ray Optics
+Simulation project:
+
+    Ray Optics Simulation
+    Copyright 2024 The Ray Optics Simulation authors and contributors
+    https://github.com/ricktu288/ray-optics
+    doi:10.5281/zenodo.6386611
+    Licensed under the Apache License, Version 2.0
+
+35 of this distribution's 145
+source files are translations of that work, each carrying both
+copyright notices in its own header. The remaining 110 were
+written for this project and carry only this project's notice.
+
+The translated files are:
+
+    ray_tracing_shapely/__init__.py
+    ray_tracing_shapely/core/__init__.py
+    ray_tracing_shapely/core/constants.py
+    ray_tracing_shapely/core/equation.py
+    ray_tracing_shapely/core/geometry.py
+    ray_tracing_shapely/core/ray.py
+    ray_tracing_shapely/core/scene.py
+    ray_tracing_shapely/core/scene_objs/__init__.py
+    ray_tracing_shapely/core/scene_objs/base_custom_surface.py
+    ray_tracing_shapely/core/scene_objs/base_filter.py
+    ray_tracing_shapely/core/scene_objs/base_glass.py
+    ray_tracing_shapely/core/scene_objs/base_grin_glass.py
+    ray_tracing_shapely/core/scene_objs/base_scene_obj.py
+    ray_tracing_shapely/core/scene_objs/blocker/__init__.py
+    ray_tracing_shapely/core/scene_objs/blocker/blocker.py
+    ray_tracing_shapely/core/scene_objs/circle_obj_mixin.py
+    ray_tracing_shapely/core/scene_objs/glass/__init__.py
+    ray_tracing_shapely/core/scene_objs/glass/glass.py
+    ray_tracing_shapely/core/scene_objs/glass/ideal_lens.py
+    ray_tracing_shapely/core/scene_objs/glass/spherical_lens.py
+    ray_tracing_shapely/core/scene_objs/light_source/__init__.py
+    ray_tracing_shapely/core/scene_objs/light_source/angle_source.py
+    ray_tracing_shapely/core/scene_objs/light_source/beam.py
+    ray_tracing_shapely/core/scene_objs/light_source/point_source.py
+    ray_tracing_shapely/core/scene_objs/light_source/single_ray.py
+    ray_tracing_shapely/core/scene_objs/line_obj_mixin.py
+    ray_tracing_shapely/core/scene_objs/mirror/__init__.py
+    ray_tracing_shapely/core/scene_objs/mirror/ideal_mirror.py
+    ray_tracing_shapely/core/scene_objs/mirror/mirror.py
+    ray_tracing_shapely/core/scene_objs/other/__init__.py
+    ray_tracing_shapely/core/scene_objs/other/detector.py
+    ray_tracing_shapely/core/scene_objs/param_curve_obj_mixin.py
+    ray_tracing_shapely/core/simulator.py
+    ray_tracing_shapely/core/svg_renderer.py
+    ray_tracing_shapely/examples/collimation_demo/demo.py
+
+This list is generated from the file headers by
+dev_doc/tools/attribution.py; the headers are authoritative.

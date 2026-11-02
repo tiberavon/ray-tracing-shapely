@@ -1,0 +1,111 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ray-tracing-shapely"
+version = "0.2.0"
+description = "Python ray tracing library using Shapely for computational geometry"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "ray-tracing-shapely authors and contributors", email = "micheleben@gmail.com"}
+]
+keywords = ["ray-tracing", "optics", "simulation", "shapely", "physics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+dependencies = [
+    "shapely>=2.0.0",
+    "sympy>=1.12",
+    "numpy>=1.20.0",
+    "svgwrite>=1.4.0",
+    # Required for bidirectional ray tracing (Ray Lineage Step C): the combined
+    # forward/backward graph is an attributed nx.DiGraph, and path extraction,
+    # reachability and topological cross-run comparison run on networkx.
+    "networkx>=3.0",
+]
+
+[project.optional-dependencies]
+# Each extra names a future satellite. Declaring the boundary
+# here, before it is cut, makes it testable: CI installs bare core and imports
+# every core module, which fails if anything in core reaches into a layer above.
+
+# The radiometric layer: PhysicalScene, the projection models, photoconversion,
+# and the unit registry they share. Kept out of core because the core is a
+# geometry hot loop whose coordinates are plain floats (concept KC1).
+radiometry = [
+    "pint>=0.24",
+]
+
+# Photobiological safety: both standards, and the observable classification
+# flow over them. Depends on radiometry for its dimensional checks -- see
+# concept KC4; duplicating that check here instead is what C-UNITS-02
+# exists to prevent.
+#
+# transitions is pinned bare (no [diagrams] extra, which pulls in pygraphviz,
+# a C extension painful to build on Windows) plus the pure-Python graphviz
+# bindings, which shell out to the `dot` executable instead. The `dot` binary
+# is a separate per-machine OS-level install, not pip.
+eye-safety = [
+    "ray-tracing-shapely[radiometry]",
+    "transitions>=0.9",
+    "graphviz>=0.20",
+]
+
+# The agentic surface. The tools themselves need nothing extra; only the
+# kernel-embedded MCP server does.
+agentic = [
+    "mcp",
+]
+
+# Running the example and sweep notebooks.
+notebook = [
+    "jupyterlab",
+    "papermill",
+]
+
+all = [
+    "ray-tracing-shapely[radiometry,eye-safety,agentic,notebook]",
+]
+
+dev = [
+    "ray-tracing-shapely[all]",
+    "pytest>=7.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/tiberavon/ray-tracing-shapely"
+Repository = "https://github.com/tiberavon/ray-tracing-shapely"
+Documentation = "https://github.com/tiberavon/ray-tracing-shapely#readme"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ray_tracing_shapely", "ray_tracing_shapely.*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true

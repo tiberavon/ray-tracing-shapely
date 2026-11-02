@@ -8,36 +8,82 @@ working on this codebase.
 
 ### Install from source (editable)
 
+This is a monorepo publishing several independent distributions.
+`src-python/<distribution>/` holds one `pyproject.toml` each, sibling to the others,
+none special-cased at the repo root. Install the ones you need:
+
 ```bash
 git clone https://github.com/micheleben/ray_tracing_shapely.git
 cd ray_tracing_shapely
-pip install -e ".[dev]"
+pip install -e "src-python/ray_tracing_shapely[dev]"        # core — start here
+pip install -e "src-python/ray_tracing_shapely_optiland[dev]"  # 3D verification, planning stage
+pip install -e "src-python/optiland_sms[dev]"                  # Optiland SMS plugin, planning stage
 ```
 
 ### Run the tests
 
+Each distribution's tests run from inside its own directory (they are independent
+packages, not a single unified test tree):
+
 ```bash
-pytest developer_tests/
+cd src-python/ray_tracing_shapely && pytest ray_tracing_shapely/developer_tests/
+cd src-python/ray_tracing_shapely_optiland && pytest
+cd src-python/optiland_sms && pytest
 ```
+
+### Notebook hygiene (run this once per machine)
+
+Saving a notebook writes whichever kernel is locally attached into its metadata
+(`kernelspec.display_name`/`name`, `language_info.version`) — since every machine
+registers its Jupyter kernel under a locally chosen name, this produces a diff on
+every commit that touches purely which machine last saved the file, not its content.
+`nbstripout` is set up to strip this (plus execution counts and per-cell execution
+timestamps, which are the same problem) at commit time, while preserving actual cell
+outputs. Run this once on every machine/clone that will commit notebooks — it is
+local git configuration, not something that travels with the repository on its own:
+
+```bash
+pip install nbstripout
+nbstripout --install --attributes .gitattributes
+git config filter.nbstripout.clean "nbstripout --keep-output"
+git config filter.nbstripout.extrakeys "metadata.kernelspec metadata.language_info.version"
+```
+
+`.gitattributes` (committed) tells git which files go through the filter; the four
+lines above configure *what the filter does* on this machine, and are not themselves
+stored in the repository — `nbstripout --status` shows the active configuration if
+you want to confirm a machine is set up correctly.
 
 ## Project Layout
 
 ```
-src-python/ray_tracing_shapely/
-    core/               # Simulation engine (scene, rays, objects, renderer)
-    analysis/           # Python-specific analysis utilities
-        glass_geometry.py          # Edge descriptions, interfaces, boundaries
-        ray_geometry_queries.py    # Spatial queries (rays vs. geometry)
-        saving.py                  # CSV/XML export, ray filtering, statistics
-        simulation_result.py       # SimulationResult container
-        lineage_analysis.py        # Post-hoc ray tree analysis
-        fresnel_utils.py           # Standalone Fresnel equation utilities
-        agentic_tools.py           # JSON-serializable wrappers for LLM APIs
-        tool_registry.py           # Tool discovery registry
-    optical_elements/   # Prism design helpers
-    examples/           # Example simulations
-    developer_tests/    # Development tests
-doc/roadmap/            # Design documents and implementation roadmaps
+src-python/
+    ray_tracing_shapely/                    # core distribution
+        pyproject.toml
+        ray_tracing_shapely/
+            core/               # Simulation engine (scene, rays, objects, renderer)
+            analysis/           # Python-specific analysis utilities
+                glass_geometry.py          # Edge descriptions, interfaces, boundaries
+                ray_geometry_queries.py    # Spatial queries (rays vs. geometry)
+                saving.py                  # CSV/XML export, ray filtering, statistics
+                simulation_result.py       # SimulationResult container
+                lineage_analysis.py        # Post-hoc ray tree analysis
+                fresnel_utils.py           # Standalone Fresnel equation utilities
+                agentic_tools.py           # JSON-serializable wrappers for LLM APIs
+                tool_registry.py           # Tool discovery registry
+            optical_elements/   # Prism design helpers
+            examples/           # Example simulations
+            developer_tests/    # Development tests
+    ray_tracing_shapely_optiland/           # 3D verification satellite (planning stage)
+        pyproject.toml
+        ray_tracing_shapely_optiland/
+        tests/
+    optiland_sms/                           # Optiland entry-point plugin (planning stage)
+        pyproject.toml
+        optiland_sms/
+        tests/
+dev_doc/architecture/       # Current-state component/port/contract catalogue
+dev_doc/concepts/           # Why the code has the shape it has
 ```
 
 ## Coding Conventions

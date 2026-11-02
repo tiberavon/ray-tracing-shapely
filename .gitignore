@@ -151,3 +151,9 @@ Thumbs.db
 
 # Project-specific output files
 
+
+# Sphinx build artefacts and build-time copies of dev_doc/ (one source: dev_doc/)
+docs/_build/
+docs/explanation/concepts/
+docs/reference/architecture/
+docs/reference/api/
