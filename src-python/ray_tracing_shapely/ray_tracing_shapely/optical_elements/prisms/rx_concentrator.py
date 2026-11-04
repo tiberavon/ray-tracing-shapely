@@ -46,17 +46,19 @@ See dev_doc/architecture/components/nonimaging_design.md
 from __future__ import annotations
 
 import math
-from typing import ClassVar, List, Optional, Tuple
+from typing import ClassVar, List, Optional, Tuple, TYPE_CHECKING
 
 from .base_prism import BasePrism
 from .nonimaging_geometry import Point, rfr, rfxnrm
 from .sms_chain import (
     SMSPoint,
     build_sms_chain,
-    reflect,
     seed_arc,
     sms_chain_step,
 )
+
+if TYPE_CHECKING:
+    from ...core.scene import Scene
 
 
 def _nrm(v: Point) -> Point:
@@ -185,7 +187,8 @@ class RXConcentrator(BasePrism):
         n1 = rfxnrm(t, s1)
 
         w1 = (p1[0] + wavefront_offset * s1[0], p1[1] + wavefront_offset * s1[1])
-        v1 = (math.cos(theta), math.sin(theta))
+        v1 = (math.cos(theta), math.sin(theta))  # noqa: F841 -- completes the w1/v1 pair beside w2/v2; only the w2 bundle
+        # is traced, the w1 side entering through the path length S
         w2 = (-w1[0], w1[1])
         v2 = (math.cos(-theta), math.sin(-theta))
 

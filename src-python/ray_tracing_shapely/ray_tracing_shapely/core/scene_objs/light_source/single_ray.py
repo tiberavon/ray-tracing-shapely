@@ -16,7 +16,6 @@ limitations under the License.
 """
 
 import math
-from typing import Dict, Any, Optional
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":

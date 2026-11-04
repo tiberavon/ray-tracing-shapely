@@ -26,10 +26,9 @@ to the source emission angle. They don't know about scene geometry at all
 
 from __future__ import annotations
 import math
-from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..core.ray import Ray
     from ..core.ray_lineage import RayLineage
 
 

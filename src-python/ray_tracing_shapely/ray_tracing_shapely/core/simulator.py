@@ -734,7 +734,8 @@ class Simulator:
         # The nearest intersection is the primary one
         nearest_obj = all_intersections[0]['obj']
         nearest_point = all_intersections[0]['point']
-        nearest_distance_squared = all_intersections[0]['distance_squared']
+        nearest_distance_squared = all_intersections[0]['distance_squared']  # noqa: F841 -- third of the nearest_* triple; kept so the shape of an
+        # intersection record is readable beside nearest_obj and nearest_point
 
         # Check for surface merging: find all objects at nearly the same distance
         threshold_squared = self.MIN_RAY_SEGMENT_LENGTH ** 2
@@ -1148,10 +1149,10 @@ if __name__ == "__main__":
     scene = Scene()
     simulator = Simulator(scene, max_rays=100)
     ray_segments = simulator.run()
-    print(f"  Scene with no objects")
+    print("  Scene with no objects")
     print(f"  Ray segments: {len(ray_segments)}")
     print(f"  Processed rays: {simulator.processed_ray_count}")
-    print(f"  Expected: 0 segments (no light sources)")
+    print("  Expected: 0 segments (no light sources)")
 
     # Test 2: Single ray with no obstacles
     print("\nTest 2: Single ray, no obstacles")
@@ -1164,11 +1165,11 @@ if __name__ == "__main__":
 
     simulator2 = Simulator(scene2, max_rays=100)
     ray_segments2 = simulator2.run()
-    print(f"  Light source at (0, 0) pointing right")
+    print("  Light source at (0, 0) pointing right")
     print(f"  Ray segments: {len(ray_segments2)}")
     print(f"  Processed rays: {simulator2.processed_ray_count}")
     print(f"  First ray: {ray_segments2[0].p1} -> {ray_segments2[0].p2}")
-    print(f"  Expected: 1 segment extending to infinity")
+    print("  Expected: 1 segment extending to infinity")
 
     # Test 3: Ray hitting a mirror
     # Geometry: 45° ray (direction 1,1) hits vertical mirror at x=50,y=50
@@ -1189,8 +1190,8 @@ if __name__ == "__main__":
 
     simulator3 = Simulator(scene3, max_rays=100)
     ray_segments3 = simulator3.run()
-    print(f"  Light source at (0, 0) at 45° angle")
-    print(f"  Vertical mirror at x=50")
+    print("  Light source at (0, 0) at 45° angle")
+    print("  Vertical mirror at x=50")
     print(f"  Ray segments: {len(ray_segments3)}")
     print(f"  Processed rays: {simulator3.processed_ray_count}")
     if len(ray_segments3) >= 2:
@@ -1200,7 +1201,7 @@ if __name__ == "__main__":
         dx = ray_segments3[1].p2['x'] - ray_segments3[1].p1['x']
         dy = ray_segments3[1].p2['y'] - ray_segments3[1].p1['y']
         print(f"  Reflected direction ratio dy/dx = {dy/dx:.2f} (expected: -1.0 for 135°)")
-    print(f"  Expected: 2 segments (incident + reflected)")
+    print("  Expected: 2 segments (incident + reflected)")
 
     # Test 4: Ray absorption
     # Note:The ray segment traveling to the absorber should show full brightness (the light was bright until it hit the absorber)
@@ -1220,14 +1221,14 @@ if __name__ == "__main__":
 
     simulator4 = Simulator(scene4, max_rays=100)
     ray_segments4 = simulator4.run()
-    print(f"  Light source at (0, 0) pointing right")
-    print(f"  Absorber at x=50")
+    print("  Light source at (0, 0) pointing right")
+    print("  Absorber at x=50")
     print(f"  Ray segments: {len(ray_segments4)}")
     print(f"  Processed rays: {simulator4.processed_ray_count}")
     if len(ray_segments4) >= 1:
         print(f"  Ray: ({ray_segments4[0].p1['x']:.1f}, {ray_segments4[0].p1['y']:.1f}) -> ({ray_segments4[0].p2['x']:.1f}, {ray_segments4[0].p2['y']:.1f})")
         print(f"  Incident brightness: {ray_segments4[0].total_brightness:.2f} (before absorption)")
-    print(f"  Expected: 1 segment (ray travels to absorber with full brightness, then stops)")
+    print("  Expected: 1 segment (ray travels to absorber with full brightness, then stops)")
 
     # Test 5: Max ray limit
     print("\nTest 5: Maximum ray limit")
@@ -1242,12 +1243,12 @@ if __name__ == "__main__":
 
     simulator5 = Simulator(scene5, max_rays=5)  # Limit to 5 rays
     ray_segments5 = simulator5.run()
-    print(f"  Scene with 10 light sources")
-    print(f"  Max rays limit: 5")
+    print("  Scene with 10 light sources")
+    print("  Max rays limit: 5")
     print(f"  Ray segments: {len(ray_segments5)}")
     print(f"  Processed rays: {simulator5.processed_ray_count}")
     print(f"  Warning: {scene5.warning}")
-    print(f"  Expected: 5 segments, warning about ray limit")
+    print("  Expected: 5 segments, warning about ray limit")
 
     # Test 6: Ray conversion (_dict_to_ray)
     print("\nTest 6: Ray conversion")
@@ -1304,11 +1305,11 @@ if __name__ == "__main__":
         )
         simulator7.add_ray(ray)
 
-    print(f"  Added 3 rays manually")
+    print("  Added 3 rays manually")
     print(f"  Pending rays: {len(simulator7.pending_rays)}")
 
     ray_segments7 = simulator7.run()
-    print(f"  After simulation:")
+    print("  After simulation:")
     print(f"  Ray segments: {len(ray_segments7)}")
     print(f"  Processed rays: {simulator7.processed_ray_count}")
 
@@ -1382,7 +1383,7 @@ if __name__ == "__main__":
 
     print(f"  Glass 1: n={glass1.n}, merges_with_glass={glass1.merges_with_glass}")
     print(f"  Glass 2: n={glass2.n}, merges_with_glass={glass2.merges_with_glass}")
-    print(f"\n  Intersection Results:")
+    print("\n  Intersection Results:")
     if intersection_info8:
         print(f"    Primary object: {intersection_info8['obj'].__class__.__name__}")
         print(f"    Intersection point: {intersection_info8['point']}")
@@ -1394,12 +1395,12 @@ if __name__ == "__main__":
 
         # Verify: when two glasses intersect at same point, one is primary, other is in merging list
         if len(intersection_info8['surface_merging_objs']) > 0:
-            print(f"\n  [OK] Two glass objects successfully merged")
+            print("\n  [OK] Two glass objects successfully merged")
         else:
-            print(f"\n  [INFO] Both glasses found same intersection point (as expected)")
+            print("\n  [INFO] Both glasses found same intersection point (as expected)")
     else:
-        print(f"    No intersection found")
-        print(f"\n  [INFO] Test demonstrates surface merging detection logic")
+        print("    No intersection found")
+        print("\n  [INFO] Test demonstrates surface merging detection logic")
 
     # Test 9: Surface Merging - Glass + Blocker (should merge, blocker primary)
     print("\nTest 9: Surface Merging - Glass + Blocker at Same Point")
@@ -1424,7 +1425,7 @@ if __name__ == "__main__":
 
     print(f"  Glass: n={glass9.n}, merges_with_glass={glass9.merges_with_glass}")
     print(f"  Blocker: merges_with_glass={blocker9.merges_with_glass}")
-    print(f"\n  Intersection Results:")
+    print("\n  Intersection Results:")
     if intersection_info9:
         print(f"    Primary object: {intersection_info9['obj'].__class__.__name__}")
         print(f"    Surface merging objects: {len(intersection_info9['surface_merging_objs'])}")
@@ -1435,11 +1436,11 @@ if __name__ == "__main__":
 
         # Verify correct merging behavior if both objects found
         if len(intersection_info9['surface_merging_objs']) > 0:
-            print(f"\n  [OK] Glass + Blocker merged correctly")
+            print("\n  [OK] Glass + Blocker merged correctly")
         else:
-            print(f"\n  [INFO] Surface merging logic working as designed")
+            print("\n  [INFO] Surface merging logic working as designed")
     else:
-        print(f"\n  [INFO] Test demonstrates glass+blocker handling")
+        print("\n  [INFO] Test demonstrates glass+blocker handling")
 
     # Test 10: Surface Merging - Undefined Behavior (incompatible objects)
     print("\nTest 10: Surface Merging - Undefined Behavior Detection")
@@ -1484,7 +1485,7 @@ if __name__ == "__main__":
 
     print(f"  Glass: merges_with_glass={glass10.merges_with_glass}")
     print(f"  Non-merging object: merges_with_glass={non_merging10.merges_with_glass}")
-    print(f"\n  Intersection Results:")
+    print("\n  Intersection Results:")
     if intersection_info10:
         print(f"    Primary object: {intersection_info10['obj'].__class__.__name__}")
         print(f"    Surface merging objects: {len(intersection_info10['surface_merging_objs'])}")
@@ -1492,11 +1493,11 @@ if __name__ == "__main__":
 
         # This should detect undefined behavior when glass+non-merging objects overlap
         if intersection_info10['undefined_behavior']:
-            print(f"\n  [OK] Undefined behavior correctly detected")
+            print("\n  [OK] Undefined behavior correctly detected")
         else:
-            print(f"\n  [INFO] Undefined behavior detection logic verified (objects must be at exact same point)")
+            print("\n  [INFO] Undefined behavior detection logic verified (objects must be at exact same point)")
     else:
-        print(f"\n  [INFO] Demonstrates incompatible object detection")
+        print("\n  [INFO] Demonstrates incompatible object detection")
 
     # Test 11: Helper Methods
     print("\nTest 11: Helper Methods (_is_glass, _can_merge_with_glass)")
@@ -1507,15 +1508,15 @@ if __name__ == "__main__":
     blocker11 = Blocker(scene11, {'p1': {'x': 0, 'y': 0}, 'p2': {'x': 100, 'y': 0}})
     non_merging11 = NonMergingObject(scene11, {'x': 0, 'y': 0})
 
-    print(f"  Glass:")
+    print("  Glass:")
     print(f"    _is_glass(): {simulator11._is_glass(glass11)}")
     print(f"    _can_merge_with_glass(): {simulator11._can_merge_with_glass(glass11)}")
 
-    print(f"  Blocker:")
+    print("  Blocker:")
     print(f"    _is_glass(): {simulator11._is_glass(blocker11)}")
     print(f"    _can_merge_with_glass(): {simulator11._can_merge_with_glass(blocker11)}")
 
-    print(f"  Non-merging object:")
+    print("  Non-merging object:")
     print(f"    _is_glass(): {simulator11._is_glass(non_merging11)}")
     print(f"    _can_merge_with_glass(): {simulator11._can_merge_with_glass(non_merging11)}")
 
@@ -1526,7 +1527,7 @@ if __name__ == "__main__":
     assert simulator11._can_merge_with_glass(blocker11) == True
     assert simulator11._can_merge_with_glass(non_merging11) == False
 
-    print(f"\n  [OK] Helper methods working correctly")
+    print("\n  [OK] Helper methods working correctly")
 
     # Test 12: Undefined Behavior Warning Threshold
     print("\nTest 12: Undefined Behavior Warning Threshold")
@@ -1551,7 +1552,7 @@ if __name__ == "__main__":
     assert simulator12.total_undefined_behavior == simulator12.UNDEFINED_BEHAVIOR_THRESHOLD
     assert scene12.warning is not None
 
-    print(f"\n  [OK] Warning threshold mechanism working correctly")
+    print("\n  [OK] Warning threshold mechanism working correctly")
 
     print("\n" + "="*60)
     print("ALL SURFACE MERGING TESTS PASSED!")

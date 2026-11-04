@@ -491,7 +491,7 @@ if __name__ == "__main__":
     # Add a non-optical annotation
     scene2.add_object(MockAnnotation("Experiment Setup"))
 
-    print(f"  Scene configuration:")
+    print("  Scene configuration:")
     print(f"    Total objects: {len(scene2.objs)}")
     print(f"    Optical objects: {len(scene2.optical_objs)}")
     print(f"    Ray density: {scene2.ray_density} radians")
@@ -525,7 +525,7 @@ if __name__ == "__main__":
     # Setting ray_density should affect the appropriate mode density
     scene3.mode = 'rays'
     scene3.ray_density = 0.05
-    print(f"  After setting ray_density=0.05 in 'rays' mode:")
+    print("  After setting ray_density=0.05 in 'rays' mode:")
     print(f"    ray_mode_density = {scene3.ray_mode_density} (should be 0.05)")
     print(f"    image_mode_density = {scene3.image_mode_density} (should still be 1.0)")
 
@@ -542,8 +542,8 @@ if __name__ == "__main__":
     try:
         scene4.color_mode = 'invalid_mode'
         print("  Set color_mode='invalid_mode': FAILED (should have raised error)")
-    except ValueError as e:
-        print(f"  Set color_mode='invalid_mode': Correctly raised ValueError")
+    except ValueError:
+        print("  Set color_mode='invalid_mode': Correctly raised ValueError")
 
     # Test 12: Test mode validation
     print("\nTest 12: Simulation mode validation")
@@ -557,8 +557,8 @@ if __name__ == "__main__":
     try:
         scene4.mode = 'invalid_mode'
         print("  Set mode='invalid_mode': FAILED (should have raised error)")
-    except ValueError as e:
-        print(f"  Set mode='invalid_mode': Correctly raised ValueError")
+    except ValueError:
+        print("  Set mode='invalid_mode': Correctly raised ValueError")
 
     # Test 13: Test viewing options
     print("\nTest 13: Viewing options")
@@ -600,13 +600,13 @@ if __name__ == "__main__":
     try:
         scene6.min_brightness_exp = -1
         print("  min_brightness_exp=-1: FAILED (should have raised error)")
-    except ValueError as e:
-        print(f"  min_brightness_exp=-1: Correctly raised ValueError")
+    except ValueError:
+        print("  min_brightness_exp=-1: Correctly raised ValueError")
 
     try:
         scene6.min_brightness_exp = 0
         print("  min_brightness_exp=0: FAILED (should have raised error)")
-    except ValueError as e:
-        print(f"  min_brightness_exp=0: Correctly raised ValueError")
+    except ValueError:
+        print("  min_brightness_exp=0: Correctly raised ValueError")
 
     print("\nScene test completed successfully!")

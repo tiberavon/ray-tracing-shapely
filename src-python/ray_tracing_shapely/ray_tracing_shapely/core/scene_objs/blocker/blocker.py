@@ -15,21 +15,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from typing import Dict, Any, Optional
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":
     from ray_tracing_shapely.core.scene_objs.base_filter import BaseFilter
     from ray_tracing_shapely.core.scene_objs.line_obj_mixin import LineObjMixin
-    from ray_tracing_shapely.core.scene_objs.base_scene_obj import BaseSceneObj
     from ray_tracing_shapely.core.constants import GREEN_WAVELENGTH
-    from ray_tracing_shapely.core import geometry
 else:
     from ..base_filter import BaseFilter
     from ..line_obj_mixin import LineObjMixin
-    from ..base_scene_obj import BaseSceneObj
     from ...constants import GREEN_WAVELENGTH
-    from ... import geometry
 
 
 class Blocker(LineObjMixin, BaseFilter):
@@ -166,11 +161,11 @@ class Blocker(LineObjMixin, BaseFilter):
             Dict with 'isAbsorbed': True to indicate the ray is absorbed.
         """
         if verbose >= 1:
-            print(f"\n=== BLOCKER on_ray_incident CALLED ===")
+            print("\n=== BLOCKER on_ray_incident CALLED ===")
             inc_x = incident_point['x'] if isinstance(incident_point, dict) else incident_point.x
             inc_y = incident_point['y'] if isinstance(incident_point, dict) else incident_point.y
             print(f"  Incident point: ({inc_x:.4f}, {inc_y:.4f})")
-            print(f"  Ray absorbed by blocker")
+            print("  Ray absorbed by blocker")
 
         return {
             'isAbsorbed': True

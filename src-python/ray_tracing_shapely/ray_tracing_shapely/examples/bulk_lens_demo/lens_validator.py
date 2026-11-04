@@ -18,8 +18,6 @@ limitations under the License.
 import sys
 import os
 import math
-import csv
-import json
 
 # Add parent directories to path to from ray_tracing_shapely import core modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -27,9 +25,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from ray_tracing_shapely.core.scene import Scene
 from ray_tracing_shapely.core.scene_objs.light_source.point_source import PointSource
 from ray_tracing_shapely.core.scene_objs.glass.spherical_lens import SphericalLens
-from ray_tracing_shapely.core.scene_objs.blocker.blocker import Blocker
-from ray_tracing_shapely.core.simulator import Simulator
-from ray_tracing_shapely.core.svg_renderer import SVGRenderer  
 def main():
     """Run the collimation demonstration.
     this is with a """
@@ -84,17 +79,17 @@ def main():
     lens_center_y = (p0['y'] + p4['y']) / 2
 
     print(f"\nLens center: ({lens_center_x:.2f}, {lens_center_y:.2f})")
-    print(f"Expected center: (100, 300)")
+    print("Expected center: (100, 300)")
 
     # Check 1: Are the edge points properly ordered?
-    print(f"\nCheck 1: Edge point positions")
+    print("\nCheck 1: Edge point positions")
     print(f"  p0 (top): x={p0['x']:.2f}, y={p0['y']:.2f}")
     print(f"  p1 (top): x={p1['x']:.2f}, y={p1['y']:.2f}")
     print(f"  p3 (bot): x={p3['x']:.2f}, y={p3['y']:.2f}")
     print(f"  p4 (bot): x={p4['x']:.2f}, y={p4['y']:.2f}")
 
     # Check 2: Are arc centers reasonable?
-    print(f"\nCheck 2: Arc centers")
+    print("\nCheck 2: Arc centers")
     print(f"  p2 (arc center): x={p2['x']:.2f}, y={p2['y']:.2f}")
     print(f"  p5 (arc center): x={p5['x']:.2f}, y={p5['y']:.2f}")
 
@@ -104,18 +99,18 @@ def main():
     r1_to_p2 = math.sqrt((p1['x'] - p2['x'])**2 + (p1['y'] - p2['y'])**2)
     r3_to_p2 = math.sqrt((p3['x'] - p2['x'])**2 + (p3['y'] - p2['y'])**2)
 
-    print(f"\nCheck 3: Arc radii consistency")
-    print(f"  Surface 1 (p5 center):")
+    print("\nCheck 3: Arc radii consistency")
+    print("  Surface 1 (p5 center):")
     print(f"    Distance p0 to p5: {r0_to_p5:.2f}")
     print(f"    Distance p4 to p5: {r4_to_p5:.2f}")
     print(f"    Difference: {abs(r0_to_p5 - r4_to_p5):.4f} (should be ~0)")
-    print(f"  Surface 2 (p2 center):")
+    print("  Surface 2 (p2 center):")
     print(f"    Distance p1 to p2: {r1_to_p2:.2f}")
     print(f"    Distance p3 to p2: {r3_to_p2:.2f}")
     print(f"    Difference: {abs(r1_to_p2 - r3_to_p2):.4f} (should be ~0)")
 
     # Check 4: Is this a biconvex lens? (both surfaces should curve away from center)
-    print(f"\nCheck 4: Lens type (biconvex, biconcave, or meniscus)")
+    print("\nCheck 4: Lens type (biconvex, biconcave, or meniscus)")
 
     # For a biconvex lens centered at x=100:
     # - Left surface (p5 center) should be at x < 100 and curve outward (left)
@@ -139,20 +134,20 @@ def main():
     is_biconcave = (p5['x'] > lens_center_x) and (p2['x'] < lens_center_x)
 
     if is_biconvex:
-        print(f"  RESULT: BICONVEX (converging) lens [OK]")
+        print("  RESULT: BICONVEX (converging) lens [OK]")
     elif is_biconcave:
-        print(f"  RESULT: BICONCAVE (diverging) lens [ERROR]")
+        print("  RESULT: BICONCAVE (diverging) lens [ERROR]")
     else:
-        print(f"  RESULT: MENISCUS lens [WARNING]")
+        print("  RESULT: MENISCUS lens [WARNING]")
 
     # Check 5: Lens width at center
     lens_width = abs(max(p0['x'], p4['x']) - min(p1['x'], p3['x']))
-    print(f"\nCheck 5: Lens width")
+    print("\nCheck 5: Lens width")
     print(f"  Width at center: {lens_width:.2f}")
-    print(f"  Expected: ~43-44 (for r=200, thickness=10)")
+    print("  Expected: ~43-44 (for r=200, thickness=10)")
 
     # Check 6: CRITICAL - Aperture vs chord length constraint
-    print(f"\nCheck 6: Aperture vs chord constraint (CRITICAL)")
+    print("\nCheck 6: Aperture vs chord constraint (CRITICAL)")
 
     # The two circles defining the lens surfaces
     # Left surface: center at p5, radius r0_to_p5
@@ -176,7 +171,7 @@ def main():
     print(f"  Circles intersect: {circles_intersect}")
 
     if not circles_intersect:
-        print(f"  ERROR: Circles do not intersect! Invalid lens geometry.")
+        print("  ERROR: Circles do not intersect! Invalid lens geometry.")
     else:
         # Calculate the chord length at the intersection points
         # Using the formula for chord length between two intersecting circles
@@ -201,15 +196,15 @@ def main():
             aperture_valid = lens_aperture < chord_length
 
             if not aperture_valid:
-                print(f"  ERROR: Aperture exceeds chord length!")
+                print("  ERROR: Aperture exceeds chord length!")
                 print(f"         Lens aperture ({lens_aperture:.2f}) must be < chord ({chord_length:.2f})")
             elif abs(lens_aperture - chord_length) < 0.1:
-                print(f"  WARNING: Aperture very close to chord (degenerate edges)")
+                print("  WARNING: Aperture very close to chord (degenerate edges)")
             else:
                 margin = chord_length - lens_aperture
                 print(f"  OK: Aperture is valid (margin: {margin:.2f})")
         else:
-            print(f"  ERROR: Cannot calculate chord (circles don't intersect properly)")
+            print("  ERROR: Cannot calculate chord (circles don't intersect properly)")
             aperture_valid = False
     
     # i don't hink the min aperture above is correct, moreover the check
@@ -217,7 +212,7 @@ def main():
     # to biconcave lenses, and I dont' see the case switch structure here.  
     # So for the time being override aperture check , we need to debug this
     if aperture_valid is False:
-        print(f" OVERRIDDEN")
+        print(" OVERRIDDEN")
         aperture_valid = True
 
     print("="*60 + "\n")

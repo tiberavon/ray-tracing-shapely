@@ -22,11 +22,9 @@ from typing import List, Optional, Dict, Any, Union, Tuple, TYPE_CHECKING
 if __name__ == "__main__":
     from ray_tracing_shapely.core.scene_objs.base_scene_obj import BaseSceneObj, SimulationReturn
     from ray_tracing_shapely.core import geometry
-    from ray_tracing_shapely.core.constants import MIN_RAY_SEGMENT_LENGTH
 else:
     from .base_scene_obj import BaseSceneObj, SimulationReturn
     from .. import geometry
-    from ..constants import MIN_RAY_SEGMENT_LENGTH
 
 if TYPE_CHECKING:
     from ..ray import Ray
@@ -492,13 +490,13 @@ class BaseGlass(BaseSceneObj):
             elif incident_type == 0:
                 # Equivalent to not intersecting (e.g. two overlapping interfaces)
                 if verbose >= 2:
-                    print(f"      Overlapping surfaces: n1 unchanged")
+                    print("      Overlapping surfaces: n1 unchanged")
                 pass
             else:
                 # Undefined behavior (e.g. incident on an edge point)
                 # Absorb the ray to prevent incorrect ray direction
                 if verbose >= 2:
-                    print(f"      UNDEFINED BEHAVIOR")
+                    print("      UNDEFINED BEHAVIOR")
                 return {
                     'isAbsorbed': True,
                     'isUndefinedBehavior': True
@@ -572,7 +570,7 @@ class BaseGlass(BaseSceneObj):
 
         # DEBUG: Print all refract calls
         if verbose >= 2:
-            print(f"\nDEBUG REFRACT CALL:")
+            print("\nDEBUG REFRACT CALL:")
             print(f"  Incident point: ({inc_x:.4f}, {inc_y:.4f})")
             print(f"  n1={n1:.4f}, cos1={cos1:.4f}, sq1={sq1:.6f}")
             print(f"  Normal: ({normal_x:.4f}, {normal_y:.4f})")
@@ -581,7 +579,7 @@ class BaseGlass(BaseSceneObj):
         if sq1 < 0:
             # Total internal reflection
             if verbose >= 2:
-                print(f"  -> TIR (sq1 < 0)")
+                print("  -> TIR (sq1 < 0)")
             ray.p1 = {'x': inc_x, 'y': inc_y} if isinstance(ray.p1, dict) else incident_point
 
             refl_x = inc_x + ray_x + 2 * cos1 * normal_x
@@ -609,7 +607,7 @@ class BaseGlass(BaseSceneObj):
         else:
             # Refraction occurs
             if verbose >= 2:
-                print(f"  -> REFRACTION")
+                print("  -> REFRACTION")
             cos2 = math.sqrt(sq1)
 
             # Fresnel equations for reflection coefficients
@@ -742,7 +740,7 @@ class BaseGlass(BaseSceneObj):
 
             # DEBUG: Print refraction details
             if verbose >= 2:
-                print(f"DEBUG REFRACTION:")
+                print("DEBUG REFRACTION:")
                 print(f"  Incident point: ({inc_x:.4f}, {inc_y:.4f})")
                 print(f"  Ray direction: ({ray_x:.4f}, {ray_y:.4f})")
                 print(f"  Normal: ({normal_x:.4f}, {normal_y:.4f})")
@@ -810,14 +808,14 @@ class BaseGlass(BaseSceneObj):
             if refracted_brightness > brightness_threshold_refr:
                 new_rays.append(ray3)
                 if verbose >= 2:
-                    print(f"  Added refracted ray to newRays list")
+                    print("  Added refracted ray to newRays list")
                 return {
                     'newRays': new_rays,
                     'truncation': truncation
                 }
             else:
                 if verbose >= 2:
-                    print(f"  Refracted ray too dim, absorbed")
+                    print("  Refracted ray too dim, absorbed")
                 return {
                     'isAbsorbed': True,
                     'newRays': new_rays,
@@ -983,7 +981,7 @@ if __name__ == "__main__":
     print(f"After refraction brightness: s={ray.brightness_s:.6f}, p={ray.brightness_p:.6f}")
 
     if result:
-        print(f"Refraction result:")
+        print("Refraction result:")
         print(f"  New rays created: {len(result.get('newRays', []))}")
         if result.get('newRays'):
             for i, new_ray in enumerate(result.get('newRays', [])):

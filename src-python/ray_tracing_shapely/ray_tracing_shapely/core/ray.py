@@ -380,7 +380,7 @@ if __name__ == "__main__":
     # Modify copy and verify original is unchanged
     ray3.brightness_s = 0.1
     ray3.p1['x'] = 50
-    print(f"  After modifying copy:")
+    print("  After modifying copy:")
     print(f"    Original brightness: {ray1.total_brightness}")
     print(f"    Copy brightness: {ray3.total_brightness}")
     print(f"    Original p1.x: {ray1.p1['x']}")

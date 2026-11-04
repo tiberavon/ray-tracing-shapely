@@ -43,6 +43,8 @@ import os
 # Ensure the package is importable when running directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+import pytest
+
 from ray_tracing_shapely.core.scene import Scene
 from ray_tracing_shapely.core.scene_objs.glass.glass import Glass
 from ray_tracing_shapely.core.scene_objs.light_source.single_ray import SingleRay
@@ -72,7 +74,7 @@ def build_test_scene():
         {'x': 250, 'y': 200, 'arc': False},
         {'x': 150, 'y': 200, 'arc': False},
     ]
-    prism.refraction_index = 1.5
+    prism.refIndex = 1.5
     prism.name = 'test_prism'
     scene.add_object(prism)
 
@@ -100,6 +102,54 @@ def run_simulation(scene):
     sim = Simulator(scene)
     segments = sim.run()
     return segments, sim.lineage
+
+
+# =============================================================================
+# Fixtures -- the same objects main() passes as arguments, for pytest
+# =============================================================================
+# Scene-building and the simulation are module-scoped: they are the slow part
+# and no test mutates them. The context is function-scoped, because it holds a
+# live SQLite connection and because tests here open and close it on purpose.
+
+@pytest.fixture(scope="module")
+def _built():
+    return build_test_scene()
+
+
+@pytest.fixture(scope="module")
+def scene(_built):
+    return _built[0]
+
+
+@pytest.fixture(scope="module")
+def detector(_built):
+    return _built[1]
+
+
+@pytest.fixture(scope="module")
+def _run(scene):
+    return run_simulation(scene)
+
+
+@pytest.fixture(scope="module")
+def segments(_run):
+    return _run[0]
+
+
+@pytest.fixture(scope="module")
+def lineage(_run):
+    return _run[1]
+
+
+@pytest.fixture(autouse=True)
+def _context(scene, segments, lineage):
+    """With lineage, as main() does.
+
+    One test here re-sets a context without lineage to exercise the
+    'requires lineage' path, so this is per test, not per module.
+    """
+    set_context(scene, segments, lineage=lineage)
+    yield
 
 
 # =============================================================================
@@ -188,7 +238,7 @@ def test_tools_registered():
     assert rdp['input_schema']['required'] == ['detector_name'], (
         f"Expected detector_name required, got {rdp['input_schema']['required']}"
     )
-    print(f"  PASS: both tools present, rank_detector_paths requires detector_name")
+    print("  PASS: both tools present, rank_detector_paths requires detector_name")
     return True
 
 
@@ -231,7 +281,7 @@ def test_detector_hits_table(scene, segments, lineage):
     assert result2['data']['row_count'] == 1, (
         f"Expected 1 joined hit row, got {result2['data']['row_count']}"
     )
-    print(f"  PASS: 1 detector row, 1 detector_hits row joined to rays")
+    print("  PASS: 1 detector row, 1 detector_hits row joined to rays")
     return True
 
 
@@ -253,7 +303,7 @@ def test_detector_hits_table_empty_safe():
     result = query_rays("SELECT COUNT(*) as n FROM detectors")
     assert result['status'] == 'ok', f"Expected ok, got: {result}"
     assert result['data']['rows'][0][0] == 0, "Expected 0 detector rows"
-    print(f"  PASS: empty detectors table does not error")
+    print("  PASS: empty detectors table does not error")
     return True
 
 

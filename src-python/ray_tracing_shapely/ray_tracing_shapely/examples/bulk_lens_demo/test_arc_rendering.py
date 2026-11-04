@@ -135,8 +135,8 @@ def test_basic_arcs():
         dwg.add(dwg.text(label, insert=(x + 5, y - 5), fill='red', font_size='8px'))
 
     dwg.save()
-    print(f"\nTest SVG saved to: arc_test.svg")
-    print(f"View this file in a browser or Inkscape to see which arcs render correctly.")
+    print("\nTest SVG saved to: arc_test.svg")
+    print("View this file in a browser or Inkscape to see which arcs render correctly.")
 
 
 def test_lens_from_actual_coords():
@@ -177,7 +177,7 @@ def test_lens_from_actual_coords():
         {
             'name': 'Original (sweep 0,0)',
             'offset_x': 0,
-            'path': f"M 121.79,-200.0 L 78.21,-200.0 A 103.53,103.53 0 0 0 78.21,-400.0 L 121.79,-400.0 A 103.53,103.53 0 0 0 121.79,-200.0 Z",
+            'path': "M 121.79,-200.0 L 78.21,-200.0 A 103.53,103.53 0 0 0 78.21,-400.0 L 121.79,-400.0 A 103.53,103.53 0 0 0 121.79,-200.0 Z",
             'color': 'cyan'
         },
         {
@@ -208,7 +208,7 @@ def test_lens_from_actual_coords():
                         fill='black', font_size='12px', text_anchor='middle'))
 
     dwg.save()
-    print(f"\nLens coordinates test saved to: lens_coords_test.svg")
+    print("\nLens coordinates test saved to: lens_coords_test.svg")
 
 
 if __name__ == '__main__':

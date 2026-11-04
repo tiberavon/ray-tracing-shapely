@@ -38,6 +38,8 @@ import os
 # Ensure the package is importable when running directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+import pytest
+
 from ray_tracing_shapely.core.scene import Scene
 from ray_tracing_shapely.core.scene_objs.glass.glass import Glass
 from ray_tracing_shapely.core.scene_objs.light_source.single_ray import SingleRay
@@ -65,7 +67,7 @@ def build_test_scene():
         {'x': 250, 'y': 100, 'arc': False},
         {'x': 150, 'y': 100, 'arc': False},
     ]
-    prism.refraction_index = 1.5
+    prism.refIndex = 1.5
     prism.name = 'test_prism'
     scene.add_object(prism)
 
@@ -85,6 +87,55 @@ def run_simulation(scene):
     sim = Simulator(scene)
     segments = sim.run()
     return segments, sim.lineage
+
+
+# =============================================================================
+# Fixtures -- the same objects main() passes as arguments, for pytest
+# =============================================================================
+# Scene-building and the simulation are module-scoped: they are the slow part
+# and no test mutates them. The context is function-scoped, because it holds a
+# live SQLite connection and because tests here open and close it on purpose.
+
+@pytest.fixture(scope="module")
+def _built():
+    return build_test_scene()
+
+
+@pytest.fixture(scope="module")
+def scene(_built):
+    return _built[0]
+
+
+@pytest.fixture(scope="module")
+def prism(_built):
+    return _built[1]
+
+
+@pytest.fixture(scope="module")
+def _run(scene):
+    return run_simulation(scene)
+
+
+@pytest.fixture(scope="module")
+def segments(_run):
+    return _run[0]
+
+
+@pytest.fixture(scope="module")
+def lineage(_run):
+    return _run[1]
+
+
+@pytest.fixture(autouse=True)
+def _context(scene, segments, lineage):
+    """With lineage, as main() does.
+
+    Two tests here deliberately re-set a context *without* lineage to
+    exercise the error path. They overwrite this one, which is why it is set
+    per test rather than once per module.
+    """
+    set_context(scene, segments, lineage=lineage)
+    yield
 
 
 # =============================================================================
@@ -121,7 +172,7 @@ def test_schema_properties_have_types():
             assert 'description' in prop_def, (
                 f"Tool {t['name']}, property '{prop_name}' missing 'description'"
             )
-    print(f"  PASS: All properties have type and description")
+    print("  PASS: All properties have type and description")
     return True
 
 
@@ -305,7 +356,7 @@ def test_tool_registry_new_tools():
     assert 'rank_paths_by_energy' in names, "rank_paths_by_energy missing"
     assert 'check_energy_conservation' in names, "check_energy_conservation missing"
     assert 'fresnel_transmittances' in names, "fresnel_transmittances missing"
-    print(f"  PASS: All 3 Phase 2 tools in registry")
+    print("  PASS: All 3 Phase 2 tools in registry")
     return True
 
 

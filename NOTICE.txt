@@ -13,9 +13,9 @@ Simulation project:
     doi:10.5281/zenodo.6386611
     Licensed under the Apache License, Version 2.0
 
-35 of this distribution's 145
+35 of this distribution's 146
 source files are translations of that work, each carrying both
-copyright notices in its own header. The remaining 110 were
+copyright notices in its own header. The remaining 111 were
 written for this project and carry only this project's notice.
 
 The translated files are:

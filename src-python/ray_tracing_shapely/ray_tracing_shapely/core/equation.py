@@ -581,7 +581,7 @@ if __name__ == "__main__":
     if second_time > 0:
         print(f"  Speedup: {first_time/second_time:.1f}x")
     else:
-        print(f"  Speedup: >1000x (too fast to measure)")
+        print("  Speedup: >1000x (too fast to measure)")
     print(f"  Same function object: {fn12a is fn12b}")
 
     # Test 13: Error handling - malformed fraction

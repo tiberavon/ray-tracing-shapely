@@ -39,7 +39,7 @@ See dev_doc/architecture/components/nonimaging_design.md
 from __future__ import annotations
 
 import math
-from typing import ClassVar, List, Optional, Tuple
+from typing import ClassVar, List, Optional, Tuple, TYPE_CHECKING
 
 from .base_prism import BasePrism
 from .nonimaging_geometry import Point, ccoptpt, hyp, rfr
@@ -50,6 +50,9 @@ from .sms_chain import (
     build_sms_chain,
     sms_chain_step,
 )
+
+if TYPE_CHECKING:
+    from ...core.scene import Scene
 
 
 def _nrm(v: Point) -> Point:

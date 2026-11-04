@@ -126,9 +126,9 @@ def create_single_lens_test():
                     fill='orange', font_size='10px', text_anchor='middle'))
 
     dwg.save()
-    print(f"Single lens test saved to: single_lens_test.svg")
+    print("Single lens test saved to: single_lens_test.svg")
     print(f"Lens width: {lens_width:.2f}")
-    print(f"Lens height: 200.00")
+    print("Lens height: 200.00")
     print(f"Arc radius: {radius:.2f}")
 
 

@@ -16,7 +16,6 @@ limitations under the License.
 """
 
 import math
-from typing import Dict, Any, Optional, List
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":
@@ -619,7 +618,7 @@ if __name__ == "__main__":
     result_div = beam_div.on_simulation_start()
     print(f"  Rays generated: {len(result_div['newRays'])}")
     print(f"  Brightness scale: {result_div['brightnessScale']:.4f}")
-    print(f"  ==> More rays due to divergence (central ray + angled rays)")
+    print("  ==> More rays due to divergence (central ray + angled rays)")
 
     # Test 3: Lambertian beam
     print("\nTest 3: Lambertian beam (lambert = True)")
@@ -645,7 +644,7 @@ if __name__ == "__main__":
         ray_angled = result_lambert['newRays'][1]
         print(f"  Central ray brightness: {ray_central.brightness_s + ray_central.brightness_p:.4f}")
         print(f"  Angled ray brightness: {ray_angled.brightness_s + ray_angled.brightness_p:.4f}")
-        print(f"  ==> Angled rays are dimmer due to Lambert (cosine) weighting")
+        print("  ==> Angled rays are dimmer due to Lambert (cosine) weighting")
 
     # Test 4: Random beam
     print("\nTest 4: Random beam (random = True)")
@@ -665,7 +664,7 @@ if __name__ == "__main__":
     result_random = beam_random.on_simulation_start()
     print(f"  Rays generated: {len(result_random['newRays'])}")
     print(f"  Random numbers cached: {len(beam_random.random_numbers)}")
-    print(f"  ==> Rays placed randomly instead of uniformly")
+    print("  ==> Rays placed randomly instead of uniformly")
 
     # Test 5: Color simulation
     print("\nTest 5: Beam with color simulation (red light)")

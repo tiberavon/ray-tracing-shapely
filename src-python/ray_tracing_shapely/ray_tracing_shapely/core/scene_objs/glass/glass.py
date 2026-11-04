@@ -16,7 +16,7 @@ limitations under the License.
 """
 
 import math
-from typing import Dict, Any, Optional, List, Union, Tuple, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":
@@ -346,7 +346,9 @@ class Glass(BaseGlass):
         ray_p1 = geometry.point(ray.p1['x'], ray.p1['y']) if isinstance(ray.p1, dict) else ray.p1
         ray_p2 = geometry.point(ray.p2['x'], ray.p2['y']) if isinstance(ray.p2, dict) else ray.p2
 
-        r = geometry.distance(center, p3)
+        r = geometry.distance(center, p3)  # noqa: F841 -- POSSIBLE DEFECT, left for review: this computes a radius
+        # from p3, and the circle below is built from p2 instead. Either the
+        # radius is redundant or the circle is using the wrong point.
         intersections = geometry.line_circle_intersections(
             geometry.line(ray_p1, ray_p2),
             geometry.circle(center, p2)
@@ -418,7 +420,7 @@ class Glass(BaseGlass):
             Dict with ray behavior (refracted, reflected, or absorbed).
         """
         if verbose >= 1:
-            print(f"\n=== GLASS on_ray_incident CALLED ===")
+            print("\n=== GLASS on_ray_incident CALLED ===")
             print(f"  Ray: p1=({ray.p1['x'] if isinstance(ray.p1, dict) else ray.p1.x:.4f}, {ray.p1['y'] if isinstance(ray.p1, dict) else ray.p1.y:.4f})")
             print(f"  Ray: p2=({ray.p2['x'] if isinstance(ray.p2, dict) else ray.p2.x:.4f}, {ray.p2['y'] if isinstance(ray.p2, dict) else ray.p2.y:.4f})")
             print(f"  surface_merging_objs: {len(surface_merging_objs) if surface_merging_objs else 0} objects")
@@ -434,7 +436,7 @@ class Glass(BaseGlass):
         # If there's no intersection point, return None (ray doesn't intersect)
         if incident_data['s_point'] is None:
             if verbose >= 1:
-                print(f"  No intersection found, returning None")
+                print("  No intersection found, returning None")
             return None
 
         incident_type = incident_data['incident_type']
@@ -455,7 +457,7 @@ class Glass(BaseGlass):
             # Equivalent to not intersecting (e.g., overlapping interfaces)
             n1 = 1
             if verbose >= 1:
-                print(f"  Overlapping surfaces, n1=1")
+                print("  Overlapping surfaces, n1=1")
         else:
             # Undefined behavior (e.g., incident on edge point)
             if verbose >= 1:
@@ -784,13 +786,13 @@ if __name__ == "__main__":
         'refIndex': 1.5
     })
 
-    print(f"  Initial path:")
+    print("  Initial path:")
     for i, p in enumerate(prism_test.path):
         print(f"    Point {i}: ({p['x']}, {p['y']})")
 
     # Move
     prism_test.move(5, 5)
-    print(f"  After move(5, 5):")
+    print("  After move(5, 5):")
     for i, p in enumerate(prism_test.path):
         print(f"    Point {i}: ({p['x']}, {p['y']})")
 
@@ -819,7 +821,7 @@ if __name__ == "__main__":
     if intersection:
         print(f"  Ray intersects at: ({intersection.x:.2f}, {intersection.y:.2f})")
     else:
-        print(f"  No intersection found")
+        print("  No intersection found")
 
     # Test 4: Scale
     print("\nTest 4: Scale transformation")
@@ -832,12 +834,12 @@ if __name__ == "__main__":
         'not_done': False
     })
 
-    print(f"  Before scale:")
+    print("  Before scale:")
     for i, p in enumerate(prism_scale.path):
         print(f"    Point {i}: ({p['x']}, {p['y']})")
 
     prism_scale.scale(2.0)
-    print(f"  After scale(2.0):")
+    print("  After scale(2.0):")
     for i, p in enumerate(prism_scale.path):
         print(f"    Point {i}: ({p['x']:.1f}, {p['y']:.1f})")
 
@@ -856,7 +858,7 @@ if __name__ == "__main__":
     print(f"  Center before: ({center_before['x']:.1f}, {center_before['y']:.1f})")
 
     prism_rotate.rotate(math.pi / 2)  # 90 degrees
-    print(f"  After 90° rotation:")
+    print("  After 90° rotation:")
     for i, p in enumerate(prism_rotate.path):
         print(f"    Point {i}: ({p['x']:.1f}, {p['y']:.1f})")
 

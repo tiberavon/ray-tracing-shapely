@@ -72,7 +72,7 @@ def test_coupled_prisms():
     print("="*60)
     print(f"Prism1 (bottom): vertices at y=30, y=50 (shared edge), n={prism1.refIndex}")
     print(f"Prism2 (top): vertices at y=50 (shared edge), y=70, n={prism2.refIndex}")
-    print(f"Ray: vertical from (50,20) upward")
+    print("Ray: vertical from (50,20) upward")
     print()
 
     simulator = Simulator(scene, max_rays=20, verbose=2)

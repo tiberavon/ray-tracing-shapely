@@ -21,11 +21,9 @@ from typing import Optional, Dict, Any, List
 if __name__ == "__main__":
     from ray_tracing_shapely.core.scene_objs.base_scene_obj import BaseSceneObj
     from ray_tracing_shapely.core.scene_objs.line_obj_mixin import LineObjMixin
-    from ray_tracing_shapely.core import geometry
 else:
     from ..base_scene_obj import BaseSceneObj
     from ..line_obj_mixin import LineObjMixin
-    from ...geometry import geometry
 
 
 class Detector(LineObjMixin, BaseSceneObj):
@@ -483,7 +481,7 @@ if __name__ == "__main__":
 
     if intersection:
         detector2.on_ray_incident(ray1, 0, intersection, [])
-        print(f"  After ray 1:")
+        print("  After ray 1:")
         print(f"    power: {detector2.power:.4f}")
         print(f"    normal: {detector2.normal:.4f}")
         print(f"    shear: {detector2.shear:.4f}")
@@ -502,7 +500,7 @@ if __name__ == "__main__":
 
     if intersection2:
         detector2.on_ray_incident(ray2, 1, intersection2, [])
-        print(f"  After ray 2:")
+        print("  After ray 2:")
         print(f"    power: {detector2.power:.4f}")
         print(f"    normal: {detector2.normal:.4f}")
         print(f"    shear: {detector2.shear:.4f}")
@@ -516,7 +514,7 @@ if __name__ == "__main__":
     # Test 6: Export CSV
     print("\nTest 6: Export CSV")
     csv_data = detector2.export_csv()
-    print(f"  CSV output:")
+    print("  CSV output:")
     for line in csv_data.split('\n')[:5]:  # First 5 lines
         print(f"    {line}")
     print("    ...")
@@ -541,7 +539,7 @@ if __name__ == "__main__":
     # Test 9: Move and transform
     print("\nTest 9: Move detector")
     detector3.move(10, 20)
-    print(f"  After move(10, 20):")
+    print("  After move(10, 20):")
     print(f"    p1: {detector3.p1}")
     print(f"    p2: {detector3.p2}")
 

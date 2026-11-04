@@ -43,6 +43,8 @@ import os
 # Ensure the package is importable when running directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+import pytest
+
 from ray_tracing_shapely.core.scene import Scene
 from ray_tracing_shapely.core.scene_objs.glass.glass import Glass
 from ray_tracing_shapely.core.scene_objs.light_source.single_ray import SingleRay
@@ -74,7 +76,7 @@ def build_test_scene():
         {'x': 250, 'y': 100, 'arc': False},
         {'x': 150, 'y': 100, 'arc': False},
     ]
-    prism.refraction_index = 1.5
+    prism.refIndex = 1.5
     prism.name = 'test_prism'
     scene.add_object(prism)
 
@@ -95,6 +97,45 @@ def run_simulation(scene):
     sim = Simulator(scene)
     segments = sim.run()
     return segments
+
+
+# =============================================================================
+# Fixtures -- the same objects main() passes as arguments, for pytest
+# =============================================================================
+# Scene-building and the simulation are module-scoped: they are the slow part
+# and no test mutates them. The context is function-scoped, because it holds a
+# live SQLite connection and because one test below closes it deliberately.
+
+@pytest.fixture(scope="module")
+def _built():
+    return build_test_scene()
+
+
+@pytest.fixture(scope="module")
+def scene(_built):
+    return _built[0]
+
+
+@pytest.fixture(scope="module")
+def prism(_built):
+    return _built[1]
+
+
+@pytest.fixture(scope="module")
+def segments(scene):
+    return run_simulation(scene)
+
+
+@pytest.fixture(autouse=True)
+def _context(scene, segments):
+    """Every test here needs the context, including those taking no arguments.
+
+    main() calls set_context once; under pytest each test gets its own, so
+    test_clear_context_closes_db can close the database without stranding the
+    tests that follow it. conftest.py clears it either way.
+    """
+    set_context(scene, segments)
+    yield
 
 
 # =============================================================================
@@ -374,7 +415,7 @@ def test_clear_context_closes_db():
     clear_context()
     result = query_rays("SELECT 1")
     assert result['status'] == 'error', f"Expected error after clear, got {result}"
-    print(f"  PASS: query_rays returns error after clear_context()")
+    print("  PASS: query_rays returns error after clear_context()")
     return True
 
 

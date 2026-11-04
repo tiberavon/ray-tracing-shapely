@@ -76,7 +76,7 @@ def build_test_scene():
         {'x': 250, 'y': 100, 'arc': False},
         {'x': 150, 'y': 100, 'arc': False},
     ]
-    prism.refraction_index = 1.5
+    prism.refIndex = 1.5
     prism.name = 'test_prism'
     scene.add_object(prism)
 
@@ -191,7 +191,7 @@ def test_save_render_with_highlight_summary():
             highlight_summary=hl,
         )
         assert result['highlight_summary'] == hl
-    print(f"  PASS: highlight_summary preserved")
+    print("  PASS: highlight_summary preserved")
     return True
 
 
@@ -209,7 +209,7 @@ def test_save_render_json_serializable():
             assert len(json_str) > 0
         except (TypeError, ValueError) as e:
             assert False, f"Descriptor not JSON-serializable: {e}"
-    print(f"  PASS: json.dumps() succeeded")
+    print("  PASS: json.dumps() succeeded")
     return True
 
 
@@ -226,7 +226,7 @@ def test_png_fallback():
             print(f"  PASS: cairosvg available, PNG at {result['png_path']}")
         else:
             assert result['png_path'] is None
-            print(f"  PASS: cairosvg not installed, png_path=None")
+            print("  PASS: cairosvg not installed, png_path=None")
     return True
 
 
@@ -258,7 +258,7 @@ def test_clear_context_resets_counter():
         assert '_001.' in r['svg_path'], (
             f"Expected _001 after clear_context, got {r['svg_path']}"
         )
-    print(f"  PASS: Counter reset after clear_context()")
+    print("  PASS: Counter reset after clear_context()")
     return True
 
 

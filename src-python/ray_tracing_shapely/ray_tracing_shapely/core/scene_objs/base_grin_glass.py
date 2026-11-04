@@ -17,7 +17,7 @@ limitations under the License.
 
 import math
 import sympy as sp
-from typing import Dict, Any, Callable, Optional
+from typing import Dict, Any, Optional
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":
@@ -717,7 +717,7 @@ if __name__ == "__main__":
     if grin.error:
         print(f"  Error during initialization: {grin.error}")
     else:
-        print(f"  Functions initialized successfully")
+        print("  Functions initialized successfully")
 
         # Test refractive index at various points
         print("\nRefractive index at various points:")

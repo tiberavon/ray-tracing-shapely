@@ -265,7 +265,8 @@ def exit_angle_for_sample(
     # It hits the exit face at an angle relative to the normal
     # For normal exit design: face_angle = 90 - theta_c_mid
     theta_c_mid = 90 - face_angle_deg
-    theta_c_mid_rad = math.radians(theta_c_mid)
+    theta_c_mid_rad = math.radians(theta_c_mid)  # noqa: F841 -- the radian form the comment above describes; exit_angle
+    # below works in degrees, so this is unused but documents the geometry
 
     # Exit angle = theta_c - theta_c_mid (small angle approximation)
     exit_angle = math.degrees(theta_c) - theta_c_mid

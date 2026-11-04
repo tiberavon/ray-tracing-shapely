@@ -37,11 +37,9 @@ from typing import Dict, Any, Optional, List
 if __name__ == "__main__":
     from ray_tracing_shapely.core.scene_objs.base_scene_obj import BaseSceneObj, SimulationReturn
     from ray_tracing_shapely.core.scene_objs.line_obj_mixin import LineObjMixin
-    from ray_tracing_shapely.core import geometry
 else:
     from .base_scene_obj import BaseSceneObj, SimulationReturn
     from .line_obj_mixin import LineObjMixin
-    from .. import geometry
 
 
 class GroundGlass(LineObjMixin, BaseSceneObj):

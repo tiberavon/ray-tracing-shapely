@@ -342,7 +342,7 @@ def test_statistics():
 
     stats = get_ray_statistics(segments)
 
-    print(f"Statistics from get_ray_statistics():")
+    print("Statistics from get_ray_statistics():")
     print(f"  total_rays: {stats['total_rays']}")
     print(f"  tir_rays: {stats['tir_rays']}")
     print(f"  grazing_rays_angle: {stats['grazing_rays_angle']}")

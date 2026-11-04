@@ -446,19 +446,19 @@ if __name__ == "__main__":
 
     # Test rotate
     obj.rotate(math.pi / 4)  # 45 degrees
-    print(f"\nAfter rotate(45 degrees):")
+    print("\nAfter rotate(45 degrees):")
     print(f"  p1: {obj.p1}")
     print(f"  p2: {obj.p2}")
 
     # Test rotate back
     obj.rotate(- math.pi / 4)  # - 45 degrees
-    print(f"\nAfter rotate back to original position (- 45 degrees):")
+    print("\nAfter rotate back to original position (- 45 degrees):")
     print(f"  p1: {obj.p1}")
     print(f"  p2: {obj.p2}")
 
     # Test scale
     obj.scale(2.0)
-    print(f"\nAfter scale(2.0):")
+    print("\nAfter scale(2.0):")
     print(f"  p1: {obj.p1}")
     print(f"  p2: {obj.p2}")
 

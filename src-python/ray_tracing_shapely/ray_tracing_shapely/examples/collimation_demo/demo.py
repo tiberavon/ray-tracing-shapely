@@ -81,7 +81,7 @@ def main():
     scene.add_object(lens)
     scene.add_object(screen)
 
-    print(f"\nScene setup:")
+    print("\nScene setup:")
     print(f"  Point source: position=({source.x}, {source.y})")
     print(f"  Lens: x={lens.p1['x']}, y=[{lens.p1['y']}, {lens.p2['y']}], f={lens.focal_length}")
     print(f"  Screen: x={screen.p1['x']}, y=[{screen.p1['y']}, {screen.p2['y']}]")

@@ -16,10 +16,8 @@ limitations under the License.
 """
 
 import math
-from typing import Union, List, Tuple, Dict
-from shapely.geometry import Point as ShapelyPoint, LineString, LinearRing
-from shapely.ops import nearest_points
-import numpy as np
+from typing import Union, List, Dict
+from shapely.geometry import Point as ShapelyPoint, LineString
 
 
 class Point:

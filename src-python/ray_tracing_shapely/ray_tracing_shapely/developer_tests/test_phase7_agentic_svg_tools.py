@@ -56,6 +56,8 @@ from pathlib import Path
 # Ensure the package is importable when running directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+import pytest
+
 from ray_tracing_shapely.core.scene import Scene
 from ray_tracing_shapely.core.scene_objs.glass.glass import Glass
 from ray_tracing_shapely.core.scene_objs.light_source.single_ray import SingleRay
@@ -108,7 +110,7 @@ def build_test_scene():
         {'x': 250, 'y': 100, 'arc': False},
         {'x': 150, 'y': 100, 'arc': False},
     ]
-    prism.refraction_index = 1.5
+    prism.refIndex = 1.5
     prism.name = 'test_prism'
     scene.add_object(prism)
 
@@ -129,6 +131,40 @@ def run_simulation(scene):
     sim = Simulator(scene)
     segments = sim.run()
     return segments
+
+
+# =============================================================================
+# Fixtures -- the same objects main() passes as arguments, for pytest
+# =============================================================================
+# Scene-building and the simulation are module-scoped: they are the slow part
+# and no test mutates them. The context is function-scoped, because it holds a
+# live SQLite connection and because tests here open and close it on purpose.
+
+@pytest.fixture(scope="module")
+def _built():
+    return build_test_scene()
+
+
+@pytest.fixture(scope="module")
+def scene(_built):
+    return _built[0]
+
+
+@pytest.fixture(scope="module")
+def prism(_built):
+    return _built[1]
+
+
+@pytest.fixture(scope="module")
+def segments(scene):
+    return run_simulation(scene)
+
+
+@pytest.fixture(autouse=True)
+def _context(scene, segments):
+    """main() sets this once; under pytest each test needs its own."""
+    set_context(scene, segments)
+    yield
 
 
 def test_imports():
@@ -154,7 +190,7 @@ def test_compute_scene_bounds(scene):
     bounds = _compute_scene_bounds(scene)
     min_x, min_y, w, h = bounds
     assert w > 0 and h > 0, f"Width/height must be positive, got w={w}, h={h}"
-    assert min_x < 200 and min_y < 80, f"min_x/min_y should be below object coords"
+    assert min_x < 200 and min_y < 80, "min_x/min_y should be below object coords"
     print(f"  PASS: bounds = ({min_x:.1f}, {min_y:.1f}, {w:.1f}, {h:.1f})")
     return True
 
@@ -283,13 +319,13 @@ def test_tool_registry():
     text = list_available_tools()
     for name in expected_svg_tools:
         assert name in text, f"{name} missing from list_available_tools()"
-    print(f"  PASS: All 5 SVG tools in list_available_tools()")
+    print("  PASS: All 5 SVG tools in list_available_tools()")
 
     # Check solveit notebook helper
     note = generate_tool_note_for_solveit_notebook()
     for name in expected_svg_tools:
         assert name in note, f"{name} missing from solveit notebook note"
-    print(f"  PASS: All 5 SVG tools in generate_tool_note_for_solveit_notebook()")
+    print("  PASS: All 5 SVG tools in generate_tool_note_for_solveit_notebook()")
 
     return True
 

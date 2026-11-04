@@ -7,7 +7,7 @@ name = "ray-tracing-shapely"
 version = "0.2.0"
 description = "Python ray tracing library using Shapely for computational geometry"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "ray-tracing-shapely authors and contributors", email = "micheleben@gmail.com"}
@@ -19,18 +19,18 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Physics",
 ]
 
 dependencies = [
     "shapely>=2.0.0",
     "sympy>=1.12",
-    "numpy>=1.20.0",
+    # 1.23.2 is the first release with a CPython 3.11 wheel; anything
+    # older would be a source build on the Python floor below.
+    "numpy>=1.23.2",
     "svgwrite>=1.4.0",
     # Required for bidirectional ray tracing (Ray Lineage Step C): the combined
     # forward/backward graph is an attributed nx.DiGraph, and path extraction,
@@ -81,11 +81,23 @@ all = [
     "ray-tracing-shapely[radiometry,eye-safety,agentic,notebook]",
 ]
 
+# What CI installs to run the suite. Deliberately narrower than `dev`:
+# the tests need pint (radiometry) and transitions with graphviz (the
+# classification flows), and no test imports jupyterlab or papermill, which
+# `all` would drag in on every matrix job.
+test = [
+    "ray-tracing-shapely[radiometry,eye-safety,agentic]",
+    "pytest>=7.0.0",
+]
+
 dev = [
     "ray-tracing-shapely[all]",
     "pytest>=7.0.0",
-    "black>=22.0.0",
-    "flake8>=4.0.0",
+    # ruff replaces both black and flake8, and is what CI runs.
+    "ruff>=0.6",
+    # Installed but deliberately not in CI: 774 of 1759 functions carry a
+    # return annotation, so mypy would mostly report absence rather than
+    # error. Useful locally on a module you are working on.
     "mypy>=1.0.0",
 ]
 
@@ -101,11 +113,37 @@ package-dir = {"" = "."}
 where = ["."]
 include = ["ray_tracing_shapely", "ray_tracing_shapely.*"]
 
-[tool.black]
+[tool.ruff]
 line-length = 100
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+target-version = "py311"
+
+[tool.ruff.lint]
+# `F` is the blocking set: pyflakes finds real defects -- an undefined name,
+# an import that is not there, a variable assigned and never read -- rather
+# than style. It was chosen as the starting point because the full default
+# ruleset reports 1795 findings, and a gate nobody can get through is a gate
+# that gets switched off. Widen a family at a time, each with its own cleanup.
+select = ["F"]
+
+[tool.ruff.lint.per-file-ignores]
+# In the developer tests the module-level import list is itself an assertion.
+# `test_imports()` in several files has no body beyond a comment -- *"If we
+# got here, imports succeeded (done at module level)"* -- so a name imported
+# and never otherwise used is the thing being checked. Removing it would
+# leave the test passing while testing less, which is worse than the warning.
+"ray_tracing_shapely/developer_tests/*" = ["F401"]
+
+[tool.pytest.ini_options]
+testpaths = ["ray_tracing_shapely/developer_tests"]
+# These tests run two ways: under pytest, and as scripts whose `main()` block
+# collects each function's return value to build a summary table. The returns
+# are what the second route needs, so the warning is about the design working
+# as intended, not a defect. 188 of them would otherwise bury real warnings.
+filterwarnings = [
+    "ignore::pytest.PytestReturnNotNoneWarning",
+]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true

@@ -549,7 +549,7 @@ if __name__ == "__main__":
         print(f"\nTest evaluation (incident angle = {test_params['theta0']:.3f} rad):")
         print(f"  Reflected angle: {angle_result:.3f} rad")
         print(f"  Reflected brightness: {brightness_result:.2f}")
-        print(f"  -> Mirror correctly reflects at opposite angle with same brightness")
+        print("  -> Mirror correctly reflects at opposite angle with same brightness")
 
     print("\nBaseCustomSurface test completed successfully!")
 

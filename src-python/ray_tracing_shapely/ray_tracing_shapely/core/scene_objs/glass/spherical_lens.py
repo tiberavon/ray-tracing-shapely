@@ -16,7 +16,6 @@ limitations under the License.
 """
 
 import math
-from typing import Dict, Any, Optional
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":
@@ -508,7 +507,7 @@ if __name__ == "__main__":
     })
 
     if lens.path:
-        print(f"  Lens built successfully")
+        print("  Lens built successfully")
         print(f"  Number of path points: {len(lens.path)}")
         params = lens.get_dr1r2()
         print(f"  D={params['d']:.1f}, R1={params['r1']:.1f}, R2={params['r2']:.1f}")
@@ -532,7 +531,7 @@ if __name__ == "__main__":
     })
 
     if lens_focal.path:
-        print(f"  Lens built successfully")
+        print("  Lens built successfully")
         params_rad = lens_focal.get_dr1r2()
         print(f"  Calculated R1={params_rad['r1']:.1f}, R2={params_rad['r2']:.1f}")
     else:
@@ -549,7 +548,7 @@ if __name__ == "__main__":
     })
 
     if lens_invalid.path:
-        print(f"  Lens built (unexpected)")
+        print("  Lens built (unexpected)")
     else:
         print(f"  Lens not built (expected): {lens_invalid.error}")
         print(f"  Stored params: {lens_invalid.params}")

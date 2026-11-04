@@ -679,7 +679,7 @@ def test_right_angle_tir():
 
     # Test critical angle
     critical = prism_15.critical_angle_at_hypotenuse()
-    assert 0 < critical < 45, f"Critical angle should be < 45 for TIR at 45 deg incidence"
+    assert 0 < critical < 45, "Critical angle should be < 45 for TIR at 45 deg incidence"
     print(f"  Critical angle at hypotenuse (n=1.5): {critical:.2f} deg - PASS")
 
     print("  RightAnglePrism TIR tests: ALL PASSED")

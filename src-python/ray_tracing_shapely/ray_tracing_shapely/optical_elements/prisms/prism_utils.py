@@ -205,7 +205,7 @@ def angular_dispersion(
     denominator_sq = 1 - n * n * sin_half_A * sin_half_A
     if denominator_sq <= 0:
         raise ValueError(
-            f"Angular dispersion undefined: n * sin(A/2) >= 1"
+            "Angular dispersion undefined: n * sin(A/2) >= 1"
         )
 
     dispersion_rad = (2 * sin_half_A) / math.sqrt(denominator_sq) * dn_dlambda

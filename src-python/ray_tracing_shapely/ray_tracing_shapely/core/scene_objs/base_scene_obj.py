@@ -19,7 +19,6 @@ import json
 import copy
 import uuid as uuid_module
 from typing import Optional, Dict, Any, List, TypedDict, Union, TYPE_CHECKING
-from dataclasses import dataclass
 
 if TYPE_CHECKING:
     from ..ray import Ray

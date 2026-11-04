@@ -1968,7 +1968,7 @@ if __name__ == "__main__":
     renderer = SVGRenderer(width=400, height=300)
     print(f"  Canvas size: {renderer.width}x{renderer.height}")
     print(f"  Viewbox: {renderer.viewbox}")
-    print(f"  Layers created: objects, rays, labels")
+    print("  Layers created: objects, rays, labels")
 
     # Test 2: Custom viewbox
     print("\nTest 2: Custom viewbox")
@@ -2223,7 +2223,7 @@ if __name__ == "__main__":
 
     print("\nSVGRenderer test completed successfully!")
     print(f"\nTest files created in: {temp_dir}")
-    print(f"  - test_renderer_output.svg")
-    print(f"  - test_complete_scene.svg")
-    print(f"  - test_ray_arrows.svg")
-    print(f"  - test_scene_settings.svg")
+    print("  - test_renderer_output.svg")
+    print("  - test_complete_scene.svg")
+    print("  - test_ray_arrows.svg")
+    print("  - test_scene_settings.svg")

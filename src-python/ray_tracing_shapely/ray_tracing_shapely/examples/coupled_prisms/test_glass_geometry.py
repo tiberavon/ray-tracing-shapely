@@ -85,7 +85,7 @@ def test_coupled_prisms_geometry():
     scene.add_object(medium)
     scene.add_object(ill_prism)
 
-    print(f"\nScene setup:")
+    print("\nScene setup:")
     print(f"  - Measuring prism (n={prisms_ref_index})")
     print(f"  - Medium layer (n={medium_ref_index})")
     print(f"  - Illumination prism (n={prisms_ref_index})")
@@ -149,7 +149,7 @@ def test_coupled_prisms_geometry():
     # Find interface between meas_prism and medium
     meas_medium = analysis.get_interface_between(meas_prism, medium)
     if meas_medium:
-        print(f"\nMeasuring prism - Medium interface:")
+        print("\nMeasuring prism - Medium interface:")
         print(f"  Length: {meas_medium.length:.2f}")
         print(f"  This is where light passes from prism (n={meas_medium.n1:.2f}) to medium (n={meas_medium.n2:.2f})")
     else:
@@ -158,14 +158,14 @@ def test_coupled_prisms_geometry():
     # Find interface between medium and ill_prism
     medium_ill = analysis.get_interface_between(medium, ill_prism)
     if medium_ill:
-        print(f"\nMedium - Illumination prism interface:")
+        print("\nMedium - Illumination prism interface:")
         print(f"  Length: {medium_ill.length:.2f}")
         print(f"  This is where light passes from medium (n={medium_ill.n1:.2f}) to prism (n={medium_ill.n2:.2f})")
     else:
         print("\nNo interface found between medium and illumination prism")
 
     # Get all interfaces for the medium
-    print(f"\nAll interfaces involving the medium layer:")
+    print("\nAll interfaces involving the medium layer:")
     medium_interfaces = analysis.get_interfaces_for(medium)
     for interface in medium_interfaces:
         other_n = interface.n1 if interface.glass2 is medium else interface.n2

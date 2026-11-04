@@ -96,7 +96,7 @@ def create_corrected_lens():
 
     # Add labels outside the lens
     center_x = (p0_x + p1_x) / 2
-    center_y = (p0_y + p4_y) / 2
+    center_y = (p0_y + p4_y) / 2  # noqa: F841 -- paired with center_x for the label placement below
 
     # Calculate and show dimensions
     width = abs(p1_x - p0_x)
@@ -119,19 +119,19 @@ def create_corrected_lens():
                     fill='orange', font_size='10px', text_anchor='middle'))
 
     dwg.save()
-    print(f"Corrected lens test saved to: corrected_lens_test.svg")
+    print("Corrected lens test saved to: corrected_lens_test.svg")
     print(f"Width at edges: {width:.2f}")
     print(f"Height: {height:.2f}")
     print(f"Arc radius: {radius:.2f}")
-    print(f"\nPath structure:")
+    print("\nPath structure:")
     print(f"  p0 ({p0_x:.2f}, {p0_y:.2f}) - top-left")
-    print(f"  --> arc via p5 (left surface) -->")
+    print("  --> arc via p5 (left surface) -->")
     print(f"  p4 ({p4_x:.2f}, {p4_y:.2f}) - bottom-left")
-    print(f"  --> line -->")
+    print("  --> line -->")
     print(f"  p3 ({p3_x:.2f}, {p3_y:.2f}) - bottom-right")
-    print(f"  --> arc via p2 (right surface) -->")
+    print("  --> arc via p2 (right surface) -->")
     print(f"  p1 ({p1_x:.2f}, {p1_y:.2f}) - top-right")
-    print(f"  --> line back to p0")
+    print("  --> line back to p0")
 
 
 if __name__ == '__main__':

@@ -35,6 +35,8 @@ import math
 # Ensure the package is importable when running directly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
+import pytest
+
 from ray_tracing_shapely.analysis.fresnel_utils import (
     tir_analysis,
     critical_angle,
@@ -104,6 +106,47 @@ def build_two_glass_scene():
     glass_low.auto_label_cardinal()
 
     return scene
+
+
+# =============================================================================
+# Fixtures -- the same objects main() passes as arguments, for pytest
+# =============================================================================
+# Unlike its siblings this module has no run_simulation() helper: main() drives
+# the Simulator inline and takes the lineage off it, so the fixture does the
+# same rather than inventing a helper the script route would not use.
+
+@pytest.fixture(scope="module")
+def _sim():
+    scene = build_two_glass_scene()
+    sim = Simulator(scene)
+    segments = sim.run()
+    return scene, segments, sim.lineage
+
+
+@pytest.fixture(scope="module")
+def scene(_sim):
+    return _sim[0]
+
+
+@pytest.fixture(scope="module")
+def segments(_sim):
+    return _sim[1]
+
+
+@pytest.fixture(scope="module")
+def lineage(_sim):
+    return _sim[2]
+
+
+@pytest.fixture(autouse=True)
+def _context(scene, segments, lineage):
+    """One test here clears the context on purpose to check the error path.
+
+    main() restores it by hand afterwards -- "Restore context for remaining
+    tests". Setting it per test makes that unnecessary.
+    """
+    set_context(scene, segments, lineage=lineage)
+    yield
 
 
 # =============================================================================
@@ -224,7 +267,7 @@ def test_tir_analysis_n1_leq_n2():
         assert False, "Should have raised ValueError"
     except ValueError as e:
         assert 'n1' in str(e) and 'n2' in str(e)
-    print(f"  PASS: ValueError raised for n1 <= n2")
+    print("  PASS: ValueError raised for n1 <= n2")
     return True
 
 

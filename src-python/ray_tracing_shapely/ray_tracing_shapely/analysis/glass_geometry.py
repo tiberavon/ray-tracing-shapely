@@ -430,7 +430,8 @@ def describe_prism(prism: 'BaseGlass', format: str = 'text') -> str:
     """
     # Check if this is a prism with functional labels
     has_functional_labels = hasattr(prism, '_functional_labels') and prism._functional_labels
-    has_vertex_labels = hasattr(prism, '_vertex_labels') and prism._vertex_labels
+    has_vertex_labels = hasattr(prism, '_vertex_labels') and prism._vertex_labels  # noqa: F841 -- paired with has_functional_labels above; kept so the two
+    # label kinds this function knows about stay visible together
 
     if not has_functional_labels:
         # Fall back to standard describe_edges for non-prism objects
@@ -1241,7 +1242,7 @@ if __name__ == "__main__":
     center = line2.interpolate(0.5, normalized=True)
     print(f"  Line: {list(line2.coords)}")
     print(f"  Center: ({center.x:.2f}, {center.y:.2f})")
-    print(f"  Expected: (5.0, 2.5)")
+    print("  Expected: (5.0, 2.5)")
 
     # Test 4: Boundary difference
     print("\nTest 4: Boundary difference (exterior edges)")

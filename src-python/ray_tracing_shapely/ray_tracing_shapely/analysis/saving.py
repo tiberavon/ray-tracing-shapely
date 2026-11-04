@@ -31,7 +31,6 @@ data that is not available in the JavaScript version.
 
 import csv
 import math
-import os
 from pathlib import Path
 from typing import List, Optional, Union
 

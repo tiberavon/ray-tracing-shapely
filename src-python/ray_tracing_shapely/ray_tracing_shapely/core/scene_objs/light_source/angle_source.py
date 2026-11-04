@@ -16,7 +16,6 @@ limitations under the License.
 """
 
 import math
-from typing import Dict, Any, Optional
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":
@@ -469,7 +468,7 @@ if __name__ == "__main__":
         ) * 180 / math.pi
         print(f"  First ray angle: {angle_first:.1f}°")
         print(f"  Last ray angle: {angle_last:.1f}°")
-        print(f"  ==> Asymmetric: rays from 0° to 45° (one-sided)")
+        print("  ==> Asymmetric: rays from 0° to 45° (one-sided)")
 
     # Test 3: Color simulation
     print("\nTest 3: Angle source with color simulation (red light)")
@@ -540,10 +539,10 @@ if __name__ == "__main__":
 
     result_bright = source_bright.on_simulation_start()
     print(f"  Brightness: {source_bright.brightness}")
-    print(f"  Initial ray_density: 0.1")
+    print("  Initial ray_density: 0.1")
     print(f"  Rays generated: {len(result_bright['newRays'])}")
     print(f"  Brightness scale: {result_bright['brightnessScale']:.4f}")
-    print(f"  ==> No brightness loss! Ray density was automatically increased.")
+    print("  ==> No brightness loss! Ray density was automatically increased.")
 
     if len(result_bright['newRays']) > 0:
         ray = result_bright['newRays'][0]
@@ -575,6 +574,6 @@ if __name__ == "__main__":
 
     print(f"  Wide angle (180°): {len(result_wide['newRays'])} rays")
     print(f"  Narrow angle (10°): {len(result_narrow['newRays'])} rays")
-    print(f"  ==> Wider angle produces more rays")
+    print("  ==> Wider angle produces more rays")
 
     print("\nAngleSource test completed successfully!")

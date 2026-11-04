@@ -18,7 +18,6 @@ Test script to demonstrate the verbose levels in the simulator."""
 
 import sys
 import os
-from typing import List
 
 # Add parent directories to path to from ray_tracing_shapely import core modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))

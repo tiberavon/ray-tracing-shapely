@@ -16,7 +16,6 @@ limitations under the License.
 """
 
 import math
-from typing import Dict, Any, Optional
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":
@@ -258,7 +257,7 @@ class IdealLens(LineObjMixin, BaseSceneObj):
             None (modifies the ray in place).
         """
         if verbose >= 1:
-            print(f"\n=== IDEAL LENS on_ray_incident CALLED ===")
+            print("\n=== IDEAL LENS on_ray_incident CALLED ===")
             inc_x = incident_point['x'] if isinstance(incident_point, dict) else incident_point.x
             inc_y = incident_point['y'] if isinstance(incident_point, dict) else incident_point.y
             print(f"  Incident point: ({inc_x:.4f}, {inc_y:.4f})")

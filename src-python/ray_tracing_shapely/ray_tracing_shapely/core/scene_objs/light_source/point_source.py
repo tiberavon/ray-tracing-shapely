@@ -16,7 +16,6 @@ limitations under the License.
 """
 
 import math
-from typing import Dict, Any, Optional
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":
@@ -442,10 +441,10 @@ if __name__ == "__main__":
 
     result_bright = source_bright.on_simulation_start()
     print(f"  Brightness: {source_bright.brightness}")
-    print(f"  Initial ray_density: 0.1")
+    print("  Initial ray_density: 0.1")
     print(f"  Rays generated: {len(result_bright['newRays'])}")
     print(f"  Brightness scale: {result_bright['brightnessScale']:.4f}")
-    print(f"  ==> No brightness loss! The algorithm increased ray count to avoid clamping.")
+    print("  ==> No brightness loss! The algorithm increased ray count to avoid clamping.")
 
     if len(result_bright['newRays']) > 0:
         ray = result_bright['newRays'][0]
@@ -474,7 +473,7 @@ if __name__ == "__main__":
     print(f"  Expected per-ray brightness: {expected_per_ray:.2f}")
     print(f"  Actual per-ray brightness: {actual_per_ray:.2f}")
     print(f"  Brightness scale: {result_proper['brightnessScale']:.2f}")
-    print(f"  ==> No clamping! Full brightness preserved.")
+    print("  ==> No clamping! Full brightness preserved.")
 
     if len(result_proper['newRays']) > 0:
         ray = result_proper['newRays'][0]

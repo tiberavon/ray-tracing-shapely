@@ -62,7 +62,7 @@ import math
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 
 from .nonimaging_geometry import isl
-from ..roles import Role, Mechanism
+from ..roles import Role
 
 if TYPE_CHECKING:
     from ...core.scene import Scene

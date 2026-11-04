@@ -22,12 +22,10 @@ from typing import Dict, Any, Optional, Union, TYPE_CHECKING
 if __name__ == "__main__":
     from ray_tracing_shapely.core.scene_objs.base_filter import BaseFilter
     from ray_tracing_shapely.core.scene_objs.line_obj_mixin import LineObjMixin
-    from ray_tracing_shapely.core.geometry import geometry
     from ray_tracing_shapely.core.constants import GREEN_WAVELENGTH
 else:
     from ..base_filter import BaseFilter
     from ..line_obj_mixin import LineObjMixin
-    from ...geometry import geometry
     from ...constants import GREEN_WAVELENGTH
 
 if TYPE_CHECKING:
@@ -288,7 +286,7 @@ if __name__ == "__main__":
     print(f"  Incident ray: ({ray.p1['x']}, {ray.p1['y']}) -> ({ray.p2['x']}, {ray.p2['y']})")
     mirror2.on_ray_incident(ray, 0, incident_point)
     print(f"  Reflected ray: ({ray.p1['x']:.2f}, {ray.p1['y']:.2f}) -> ({ray.p2['x']:.2f}, {ray.p2['y']:.2f})")
-    print(f"  Expected: ray should reflect back to the left")
+    print("  Expected: ray should reflect back to the left")
 
     # Test 3: 45-degree ray hitting vertical mirror
     print("\nTest 3: 45-degree ray hitting vertical mirror")
@@ -330,7 +328,7 @@ if __name__ == "__main__":
     print(f"  Incident ray: ({ray3.p1['x']}, {ray3.p1['y']}) -> ({ray3.p2['x']}, {ray3.p2['y']})")
     mirror4.on_ray_incident(ray3, 0, incident_point3)
     print(f"  Reflected ray: ({ray3.p1['x']:.2f}, {ray3.p1['y']:.2f}) -> ({ray3.p2['x']:.2f}, {ray3.p2['y']:.2f})")
-    print(f"  Expected: ray should reflect 90° (upward)")
+    print("  Expected: ray should reflect 90° (upward)")
 
     # Test 5: Wavelength filter (dichroic mirror)
     print("\nTest 5: Dichroic mirror (reflects green only)")

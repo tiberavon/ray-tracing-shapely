@@ -68,7 +68,10 @@ def test_rxi_direct_de_fan_snell_consistency():
     """Every DE point's normal is unit length and satisfies the defining Cartesian oval equation."""
     scene, rxi = _build_default_rxi()
 
-    n = rxi.n_lens
+    n = rxi.n_lens  # noqa: F841 -- INCOMPLETE TEST, left for review: this function is
+    # named ..._snell_consistency and its docstring promises the defining
+    # Cartesian oval equation, but the body only checks that normals are
+    # unit length. `n` is the refractive index that check would need.
     for p in rxi.DE:
         mag = math.hypot(p.n[0], p.n[1])
         assert abs(mag - 1.0) < 1e-9, f"DE normal not unit length: {p.n}"

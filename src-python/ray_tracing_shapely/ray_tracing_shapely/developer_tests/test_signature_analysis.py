@@ -379,7 +379,7 @@ def test_estimate_role_transition_pure_function():
     # uncertainty spans both straddling edges (1 and 2), not just the "to" edge:
     # the true crossover could lie anywhere in either, not just the second one.
     assert abs(result['uncertainty'] - 2.0) < 1e-9, result
-    print(f"  PASS: found refract->tir transition at edge_index=2, arc_position=2.0 exactly")
+    print("  PASS: found refract->tir transition at edge_index=2, arc_position=2.0 exactly")
     return True
 
 

@@ -94,7 +94,7 @@ def main():
     # Get lens parameters for display
     lens_params = lens.get_dffd_bfd()
 
-    print(f"\nScene setup:")
+    print("\nScene setup:")
     print(f"  Point source: position=({source.x}, {source.y})")
     print(f"  Lens: center_x=100, y=[200, 400], ffd={lens_params['ffd']:.1f}, bfd={lens_params['bfd']:.1f}, d={lens_params['d']:.1f}, n={lens.refIndex}")
     print(f"  Screen: x={screen.p1['x']}, y=[{screen.p1['y']}, {screen.p2['y']}]")

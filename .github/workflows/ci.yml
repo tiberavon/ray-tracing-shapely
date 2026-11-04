@@ -1,0 +1,149 @@
+# The public workflow: the checks a contributor can act on.
+#
+# This file is published to the core repository by the sync pipeline, so it
+# runs in two places — here in the private monorepo, and in
+# tiberavon/ray-tracing-shapely. Public repositories get free runner minutes
+# and the private one does not, so the matrix widens only in the public repo;
+# the private repo runs a single version, which is enough to catch a
+# regression on the push that caused it.
+#
+# The guards that protect publication — provenance, attribution, the bare-core
+# boundary, the publish gates — are NOT here. They need dev_doc/tools/, which
+# is never published, so they live in guards.yml, which never leaves the
+# private repository.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A newer push supersedes an older run on the same ref. Saves minutes, and
+# nobody reads the result of a run they have already replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CORE: src-python/ray_tracing_shapely
+  PUBLIC_REPO: tiberavon/ray-tracing-shapely
+
+jobs:
+  test:
+    name: test (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      # One Python failing must not hide the others; that is the only reason
+      # for running more than one.
+      fail-fast: false
+      matrix:
+        # The expression must stay on one line: a newline inside ${{ }} is
+        # not reliably parsed. Public repo -> three versions, private -> one.
+        python: ${{ fromJSON(github.repository == 'tiberavon/ray-tracing-shapely' && '["3.11","3.12","3.13"]' || '["3.11"]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install
+        working-directory: ${{ env.CORE }}
+        # `[test]`, not `[dev]`: dev pulls `all`, which includes jupyterlab
+        # and papermill, and no test imports either.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+      - name: Test
+        working-directory: ${{ env.CORE }}
+        run: pytest -q
+
+  # macOS and Windows on one version only. Windows is not decoration: the
+  # pyproject already avoids pygraphviz because it is painful to build there,
+  # and the codebase carries path-separator handling. Public repository only,
+  # where the minutes are free.
+  test-other-platforms:
+    name: test (${{ matrix.os }})
+    if: github.repository == 'tiberavon/ray-tracing-shapely'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        working-directory: ${{ env.CORE }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+      - name: Test
+        working-directory: ${{ env.CORE }}
+        run: pytest -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # ruff alone: linting does not need the package installed, so this job
+      # finishes in seconds and gives the fastest signal on the run.
+      - run: pip install "ruff>=0.6"
+      - name: Lint
+        working-directory: ${{ env.CORE }}
+        # The blocking set is `select = ["F"]` in pyproject.toml. Widen a rule
+        # family at a time, each with its own cleanup -- the full default
+        # ruleset reports 1795 findings on this codebase.
+        run: ruff check ray_tracing_shapely
+
+  build:
+    # Packaging metadata is the one thing a release cannot fix after the fact,
+    # so it is checked on every push rather than at release time. This caught
+    # a core distribution whose PyPI page would have been blank.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - name: Build
+        run: python -m build --outdir dist ${{ env.CORE }}
+      - name: Check metadata
+        # twine warns rather than fails on a missing long_description, so the
+        # warning is promoted to an error here: a blank PyPI page is exactly
+        # the class of defect this job exists to catch.
+        run: twine check --strict dist/*
+      - name: Install the built wheel into a clean environment
+        run: |
+          python -m venv /tmp/fresh
+          /tmp/fresh/bin/pip install dist/*.whl
+          /tmp/fresh/bin/python -c "import ray_tracing_shapely; print('import OK')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Matches .readthedocs.yaml, so a build that passes here passes there.
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r docs/requirements.txt
+      - name: Build the documentation
+        working-directory: docs
+        # Errors fail; warnings do not. There are 108 known warnings, all of
+        # one kind -- docstrings written in markdown habits being parsed as
+        # reStructuredText -- and a cleanup pass is scheduled for them.
+        # Switch to `-W` once it lands: a warning budget already blown
+        # enforces nothing.
+        run: sphinx-build -b html . _build/html

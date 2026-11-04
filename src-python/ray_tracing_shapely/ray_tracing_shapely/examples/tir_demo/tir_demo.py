@@ -23,9 +23,6 @@ from typing import List
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from ray_tracing_shapely.core.scene import Scene
-from ray_tracing_shapely.core.scene_objs.light_source.point_source import PointSource
-from ray_tracing_shapely.core.scene_objs.glass.ideal_lens import IdealLens
-from ray_tracing_shapely.core.scene_objs.blocker.blocker import Blocker
 from ray_tracing_shapely.core.simulator import Simulator
 from ray_tracing_shapely.core.svg_renderer import SVGRenderer
 from ray_tracing_shapely.core.scene_objs.glass.glass import Glass
