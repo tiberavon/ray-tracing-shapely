@@ -1,5 +1,7 @@
 # ray-tracing-shapely
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23991020.svg)](https://doi.org/10.5281/zenodo.23991020)
+
 A 2D optical **analysis and design** environment in Python, built on
 [Shapely](https://shapely.readthedocs.io/) for geometry. It began as a
 translation of a JavaScript interactive simulator and grew into something with
@@ -111,6 +113,13 @@ If you use this software, please cite **both** this project and the Ray Optics
 Simulation project it is in part translated from. `CITATION.cff` carries the
 metadata for both; GitHub will format it for you from the *Cite this
 repository* link.
+
+This project: [doi:10.5281/zenodo.23991020](https://doi.org/10.5281/zenodo.23991020)
+— that is the *concept* DOI and always resolves to the latest release. Each
+release also has its own DOI, which is what to cite if you need to pin the
+exact version a result came from.
+
+Upstream: [doi:10.5281/zenodo.6386611](https://doi.org/10.5281/zenodo.6386611).
 
 ## Licence and attribution
 
