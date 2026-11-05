@@ -1,0 +1,27 @@
+{
+  "upload_type": "software",
+  "title": "ray-tracing-shapely: a 2D optical analysis and design environment",
+  "license": "Apache-2.0",
+  "creators": [
+    {
+      "name": "Benetti, Michele",
+      "orcid": "0000-0002-5851-6937"
+    }
+  ],
+  "description": "A 2D optical analysis and design environment in Python, built on Shapely for geometry. Ray lineage as a graph, bidirectional tracing, structural path signatures, run persistence and cross-run comparison, nonimaging design (CPC-family concentrators and Mi\u00f1ano-Ben\u00edtez SMS profile construction), unit-checked radiometry, IEC 60825-1 and IEC 62471 exposure limits, and an agentic tool surface. 35 of the core distribution's source files are a translation of the Ray Optics Simulation JavaScript project; the remaining 111 were written for this project. Every file declares which it is in its own header.",
+  "keywords": [
+    "ray tracing",
+    "optics",
+    "nonimaging optics",
+    "photobiological safety",
+    "computational geometry"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "10.5281/zenodo.6386611",
+      "relation": "isDerivedFrom",
+      "resource_type": "software",
+      "scheme": "doi"
+    }
+  ]
+}

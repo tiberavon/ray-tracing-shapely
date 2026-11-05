@@ -6,6 +6,9 @@ message: >-
   Simulation project it is in part translated from.
 type: software
 authors:
+  - family-names: Benetti
+    given-names: Michele
+    orcid: "https://orcid.org/0000-0002-5851-6937"
   - name: ray-tracing-shapely authors and contributors
 repository-code: "https://github.com/tiberavon/ray-tracing-shapely"
 abstract: >-

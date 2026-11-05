@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+# >=77 for PEP 639: `license` as an SPDX string rather than a table.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,15 +9,15 @@ version = "0.2.0"
 description = "Python ray tracing library using Shapely for computational geometry"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 authors = [
-    {name = "ray-tracing-shapely authors and contributors", email = "micheleben@gmail.com"}
+    {name = "Michele Benetti", email = "micheleben@gmail.com"},
+    {name = "ray-tracing-shapely authors and contributors"},
 ]
 keywords = ["ray-tracing", "optics", "simulation", "shapely", "physics"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",

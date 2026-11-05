@@ -2,7 +2,14 @@ sphinx>=8
 myst-parser>=4
 furo
 sphinx-design
-# the package itself, for autodoc
--e ../src-python/ray_tracing_shapely
+# The package itself, for autodoc.
+#
+# The path is relative to the CURRENT WORKING DIRECTORY, not to this file --
+# pip resolves `-e <path>` against cwd. Both Read the Docs and the CI docs
+# job run pip from the repository root (`.readthedocs.yaml` names this file
+# as `docs/requirements.txt`, resolved from the root), so the path must be
+# root-relative. It was `../src-python/...`, which only resolves if pip is
+# run from inside docs/, and failed in both places.
+-e ./src-python/ray_tracing_shapely
 pint
 transitions
