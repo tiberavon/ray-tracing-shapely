@@ -37,8 +37,7 @@ On top of that sit layers the original simulator does not have:
 
 If you want an interactive simulator with a gallery of worked scenes, the
 upstream [Ray Optics Simulation](https://github.com/ricktu288/ray-optics) is
-better at that and always will be. This is for the case where the simulation
-is the beginning of the work rather than the end of it.
+better. This is more an analytical tool to understand a design.
 
 ## Install
 
@@ -136,8 +135,7 @@ If you use this software please cite both, per `CITATION.cff`.
 
 ## Status
 
-Early development, and honest about it: the translation of the original
+Early development: the translation of the original
 simulator is not complete, and the API is not yet stable. Issues and
 descriptions of what you are trying to do are the most useful contribution
-right now — more useful than pull requests, which the project is not yet set
-up to accept.
+right now .
