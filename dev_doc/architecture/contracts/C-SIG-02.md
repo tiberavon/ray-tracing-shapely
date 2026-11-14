@@ -9,7 +9,7 @@ viewpoint: numerical
 status: documented
 failure_mode: silent
 checked_by: null
-witness: dev_doc/architecture/04_worked_example.md
+witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_signature_analysis.py::test_path_signature_and_spectrum
 tracked_by: null
 conflicts_with: null
 refines: null

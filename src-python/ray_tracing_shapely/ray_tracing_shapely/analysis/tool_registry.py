@@ -14,12 +14,18 @@ Static registry of all public analysis tools.  Provides a single entry point
 for agents and users to discover available functions, classes, and their
 signatures without reading source files.
 
-The registry is maintained as a hardcoded list alongside the code.
+The registry is maintained as a hardcoded list alongside the code. Of the
+three tool lists (C-AGENT-02), the catalogue and the agentic list are kept
+here by hand; the list the MCP server publishes is derived from them
+(get_exposed_tools), and a package outside the core adds to all three
+through register_tool.
 ===============================================================================
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any, Union
+import inspect
+import sys
+from typing import Any, Callable, Dict, List, Optional, Union
 
 
 # =============================================================================
@@ -326,6 +332,20 @@ _REGISTRY: List[Dict[str, str]] = [
     },
     {
         'module': 'analysis.agentic_tools',
+        'name': 'set_extension_context',
+        'kind': 'function',
+        'signature': '(key: str, value: Any) -> None',
+        'description': "Register a package's live objects under a namespaced key in the same context registry",
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'get_extension_context',
+        'kind': 'function',
+        'signature': '(key: str, missing: str) -> Any',
+        'description': 'The objects a package registered, or RuntimeError with the given message',
+    },
+    {
+        'module': 'analysis.agentic_tools',
         'name': 'query_rays',
         'kind': 'function',
         'signature': '(sql: str) -> Dict[str, Any]',
@@ -506,7 +526,64 @@ _REGISTRY: List[Dict[str, str]] = [
         'signature': '() -> List[Dict[str, Any]]',
         'description': 'Return agentic tool wrappers with metadata for LLM frameworks',
     },
+    {
+        'module': 'analysis.tool_registry',
+        'name': 'get_exposed_tools',
+        'kind': 'function',
+        'signature': '() -> List[Callable]',
+        'description': 'The agentic tools the MCP server publishes: every agentic tool not withdrawn',
+    },
+    {
+        'module': 'analysis.tool_registry',
+        'name': 'register_tool',
+        'kind': 'function',
+        'signature': '(function, description, input_schema, *, module, expose=True, withdrawn_reason=None) -> bool',
+        'description': 'Add an agentic tool from outside the core to the catalogue, the agentic list and the MCP server at once',
+    },
+    {
+        'module': 'analysis.tool_registry',
+        'name': 'withdrawn_tools',
+        'kind': 'function',
+        'signature': '() -> Dict[str, str]',
+        'description': 'The agentic tools not published to agents, each with the reason',
+    },
+    {
+        'module': 'analysis.tool_registry',
+        'name': 'check_tool_lists',
+        'kind': 'function',
+        'signature': '() -> List[str]',
+        'description': 'Problems with the agreement between the catalogue, the agentic list and the exposed list (C-AGENT-02)',
+    },
 ]
+
+
+# =============================================================================
+# The three lists (C-AGENT-02)
+# =============================================================================
+#
+# _REGISTRY            the Python API catalogue: every public function and
+#                      class, agentic or not. A superset of the next.
+# get_agentic_tools()  the agent tools, each with a JSON Schema, named by its
+#                      function's own __name__ (the name MCP publishes).
+# get_exposed_tools()  what the MCP server publishes: every agentic tool
+#                      not in _WITHDRAWN_TOOLS. Derived, never written by hand,
+#                      so it cannot drift from the agentic list.
+
+#: Agentic tools kept callable from Python (KD12: deprecate rather than
+#: remove) but not published to agents, each with the reason.
+_WITHDRAWN_TOOLS: Dict[str, str] = {
+    'find_rays_inside_glass_xml':
+        'superseded by query_rays (SQL over the same rays) and highlight_rays_inside_glass_svg',
+    'find_rays_crossing_edge_xml':
+        'superseded by query_rays (SQL over the same rays) and highlight_rays_crossing_edge_svg',
+    'find_rays_by_angle_to_edge_xml':
+        'superseded by query_rays and paths_by_incidence_angle',
+    'find_rays_by_polarization_xml':
+        'superseded by query_rays and highlight_rays_by_polarization_svg',
+}
+
+#: Agentic tools registered from outside the core, through register_tool.
+_EXTERNAL_TOOLS: List[Dict[str, Any]] = []
 
 
 # =============================================================================
@@ -555,9 +632,9 @@ def list_available_tools(format: str = 'text') -> Union[str, Dict[str, List[Dict
     return '\n'.join(lines)
 
 
-def get_agentic_tools() -> List[Dict[str, Any]]:
+def _builtin_agentic_tools() -> List[Dict[str, Any]]:
     """
-    Return the agentic tool wrappers with metadata and JSON Schema definitions.
+    The core's own agentic tool wrappers with metadata and JSON Schema definitions.
 
     Each entry contains:
     - 'name': function name (str)
@@ -801,7 +878,7 @@ def get_agentic_tools() -> List[Dict[str, Any]]:
         # --- Bidirectional path-auditing tools
         # (dev_doc/architecture/components/analysis_signature.md) ---
         {
-            'name': 'path_surfaces',
+            'name': 'path_surfaces_tool',
             'function': path_surfaces_tool,
             'description': 'Reduce a bidirectional path to its physical hop sequence -- '
                            'surface_name/edge_index/arc_position/hit_point per node, with '
@@ -858,7 +935,7 @@ def get_agentic_tools() -> List[Dict[str, Any]]:
             },
         },
         {
-            'name': 'path_physical_summary',
+            'name': 'path_physical_summary_tool',
             'function': path_physical_summary_tool,
             'description': 'Reconstruct one bidirectional path\'s polarization '
                            '(brightness_s/brightness_p, degree of polarization, '
@@ -880,7 +957,7 @@ def get_agentic_tools() -> List[Dict[str, Any]]:
             },
         },
         {
-            'name': 'fresnel_transmittances',
+            'name': 'fresnel_transmittances_tool',
             'function': fresnel_transmittances_tool,
             'description': 'Compute Fresnel power transmittances and reflectances at a '
                            'planar dielectric interface. Standalone — no context needed.',
@@ -1135,6 +1212,127 @@ def get_agentic_tools() -> List[Dict[str, Any]]:
         },
     ]
 
+def get_agentic_tools() -> List[Dict[str, Any]]:
+    """
+    Return the agentic tool wrappers with metadata and JSON Schema definitions.
+
+    The core's own tools, then any registered from outside it
+    (``register_tool``). Each entry: ``name`` (the function's own
+    ``__name__``, the name MCP publishes), ``function``, ``description``,
+    ``input_schema``. Withdrawn tools are included: they stay callable from
+    Python; ``get_exposed_tools`` leaves them out.
+
+    Returns:
+        List of dicts with tool metadata, callables, and JSON Schema definitions.
+    """
+    return _builtin_agentic_tools() + [dict(t) for t in _EXTERNAL_TOOLS]
+
+
+def get_exposed_tools() -> List[Callable[..., Any]]:
+    """
+    The functions the MCP server publishes: every agentic tool not withdrawn, in order.
+
+    Returns:
+        A list of callables.
+    """
+    return [t['function'] for t in _published_entries()]
+
+
+def _published_entries() -> List[Dict[str, Any]]:
+    """The agentic entries of the tools the MCP server publishes."""
+    return [t for t in get_agentic_tools() if t['name'] not in _WITHDRAWN_TOOLS]
+
+
+def withdrawn_tools() -> Dict[str, str]:
+    """The withdrawn agentic tools: name -> why it is not published."""
+    return dict(_WITHDRAWN_TOOLS)
+
+
+def register_tool(
+    function: Callable[..., Any],
+    description: str,
+    input_schema: Dict[str, Any],
+    *,
+    module: str,
+    expose: bool = True,
+    withdrawn_reason: Optional[str] = None,
+) -> bool:
+    """
+    Add an agentic tool from outside the core to all three lists at once.
+
+    A package that depends on the core (the core never imports it) calls
+    this from an explicit setup function, not at import time, so importing
+    the package does not change what an agent sees.
+
+    Args:
+        function: The tool. Its ``__name__`` is its name everywhere.
+        description: One paragraph for the agent.
+        input_schema: JSON Schema of its parameters.
+        module: Where it lives, for the catalogue (``_REGISTRY``).
+        expose: Publish it over MCP. False requires ``withdrawn_reason``.
+        withdrawn_reason: Why an unexposed tool is not published.
+
+    Returns:
+        True.
+
+    Raises:
+        ValueError: If the name is taken, or ``expose`` is False without a
+            reason (or True with one).
+        RuntimeError: If the MCP server is already running: its clients
+            have read the tool list, and a tool added now would reach some
+            agents and not others.
+    """
+    name = function.__name__
+    if any(t['name'] == name for t in get_agentic_tools()) or any(e['name'] == name for e in _REGISTRY):
+        raise ValueError(f"a tool named {name!r} is already registered")
+    if expose == (withdrawn_reason is not None):
+        raise ValueError(f"{name!r}: give withdrawn_reason exactly when expose is False")
+    server = sys.modules.get(__name__.rsplit('.', 1)[0] + '.mcp_server')
+    if expose and server is not None and server.is_serving():
+        raise RuntimeError(f"cannot register {name!r}: the MCP server is already running; "
+                           "register tools before start_background()")
+    try:
+        signature = str(inspect.signature(function))
+    except (TypeError, ValueError):
+        signature = '(...)'
+    _REGISTRY.append({'module': module, 'name': name, 'kind': 'function', 'signature': signature,
+                      'description': description.split('. ')[0]})
+    _EXTERNAL_TOOLS.append({'name': name, 'function': function, 'description': description,
+                            'input_schema': input_schema})
+    if not expose:
+        _WITHDRAWN_TOOLS[name] = withdrawn_reason
+    elif server is not None:
+        server.expose(function)
+    return True
+
+
+def check_tool_lists() -> List[str]:
+    """
+    What breaks C-AGENT-02's agreement between the three lists, if anything.
+
+    Returns:
+        One line per problem; empty when the lists agree.
+    """
+    problems: List[str] = []
+    agentic = get_agentic_tools()
+    names = [t['name'] for t in agentic]
+    catalogue = {e['name'] for e in _REGISTRY}
+    for t in agentic:
+        if t['name'] != t['function'].__name__:
+            problems.append(f"agentic tool {t['name']!r} is the function {t['function'].__name__!r}: "
+                            "MCP publishes the function's name, so the two lists name it differently")
+        if t['name'] not in catalogue:
+            problems.append(f"agentic tool {t['name']!r} is not in the catalogue (_REGISTRY)")
+    for n in sorted({n for n in names if names.count(n) > 1}):
+        problems.append(f"agentic tool {n!r} is listed more than once")
+    for n, reason in _WITHDRAWN_TOOLS.items():
+        if n not in names:
+            problems.append(f"withdrawn tool {n!r} is not an agentic tool")
+        if not reason:
+            problems.append(f"withdrawn tool {n!r} has no reason")
+    return problems
+
+
 def generate_tool_note_for_solveit_notebook(tool_list:List[Dict[str, Any]]= None):
     """
     Generate a markdown text which is supposed to be copied in a note in a solve.it notebook.
@@ -1145,7 +1343,7 @@ def generate_tool_note_for_solveit_notebook(tool_list:List[Dict[str, Any]]= None
         A string with the formatting that is used by solve.it.com.
     """
     if tool_list is None:
-        tool_list = get_agentic_tools()
+        tool_list = _published_entries()
     names = [t['name'] for t in tool_list]
     return f"### optical tools:\ntools from ray_tracing_shapely that you can use: &`[{', '.join(names)}]`"
 
@@ -1161,13 +1359,14 @@ def generate_tool_note_for_copilot(tool_list: List[Dict[str, Any]] = None) -> st
 
     Args:
         tool_list: Optional list of tool dicts (from get_agentic_tools()).
-            Defaults to the full agentic tool set.
+            Defaults to the tools the MCP server publishes: withdrawn ones
+            are not announced, since an agent could not call them.
 
     Returns:
         A markdown string ready to paste into Copilot Agent chat.
     """
     if tool_list is None:
-        tool_list = get_agentic_tools()
+        tool_list = _published_entries()
     names = ', '.join(f'`{t["name"]}`' for t in tool_list)
     return (
         f"**ray_tracing_shapely MCP tools available:** {names}\n\n"

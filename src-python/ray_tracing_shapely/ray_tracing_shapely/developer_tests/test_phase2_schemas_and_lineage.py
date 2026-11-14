@@ -355,7 +355,7 @@ def test_tool_registry_new_tools():
     names = [t['name'] for t in tools]
     assert 'rank_paths_by_energy' in names, "rank_paths_by_energy missing"
     assert 'check_energy_conservation' in names, "check_energy_conservation missing"
-    assert 'fresnel_transmittances' in names, "fresnel_transmittances missing"
+    assert 'fresnel_transmittances_tool' in names, "fresnel_transmittances_tool missing"
     print("  PASS: All 3 Phase 2 tools in registry")
     return True
 

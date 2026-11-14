@@ -39,6 +39,8 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from ..core.glass_spans import GlassSpan, glass_spans
+
 if TYPE_CHECKING:
     from ..core.ray import Ray
     from ..core.ray_lineage import RayLineage
@@ -176,23 +178,28 @@ class Connection:
 # Geometry helpers
 # ---------------------------------------------------------------------------
 
-def _surface_edges(obj: Any) -> List[Tuple[int, Tuple[float, float], Tuple[float, float]]]:
-    """Return the straight edges of a surface object as (index, a, b) tuples.
+def _surface_spans(obj: Any) -> List[GlassSpan]:
+    """Return the physical surfaces of an object, in order.
 
-    Glass/prism polygons (``.path``) yield one edge per vertex pair, closed.
-    Line objects (mirror, blocker, detector) with ``.p1``/``.p2`` yield one edge.
-    Arc edges are approximated by their chord (a documented first-cut limitation).
+    Glass/prism outlines (``.path``) yield one span per surface: a straight
+    edge, or a whole circular arc (``core.glass_spans``). Line objects
+    (mirror, blocker, detector) with ``.p1``/``.p2`` yield one straight span.
     """
     path = getattr(obj, 'path', None)
     if path:
-        pts = [(p['x'], p['y']) for p in path]
-        n = len(pts)
-        return [(i, pts[i], pts[(i + 1) % n]) for i in range(n)]
+        return glass_spans(path)
     p1 = getattr(obj, 'p1', None)
     p2 = getattr(obj, 'p2', None)
     if p1 and p2:
-        return [(0, (p1['x'], p1['y']), (p2['x'], p2['y']))]
+        return [GlassSpan(0, "line", (0, 1), (p1['x'], p1['y']), (p2['x'], p2['y']))]
     return []
+
+
+def _surface_edges(obj: Any) -> List[Tuple[int, Tuple[float, float], Tuple[float, float]]]:
+    """Return each surface as (index, start, end): exact for a straight edge,
+    the chord for an arc. Kept for callers that only need the end points; use
+    ``_surface_spans`` for anything that depends on the shape."""
+    return [(span.index, span.start, span.end) for span in _surface_spans(obj)]
 
 
 def _locate_on_surface(
@@ -202,24 +209,21 @@ def _locate_on_surface(
 ) -> Optional[Tuple[int, float, float]]:
     """Locate a hit point on a surface as (edge_index, arc_length, edge_length).
 
-    Picks the edge with the smallest perpendicular distance to the point; returns
-    None if the closest edge is farther than ``tol`` (i.e. the point is not on
-    this surface). arc_length is measured from the edge's first vertex.
+    Picks the span (straight edge or arc) nearest the point; returns None if
+    it is farther than ``tol`` (i.e. the point is not on this surface).
+    arc_length is measured along the span from its start -- along the curve,
+    for an arc. Before arcs were spans, a hit mid-arc was measured against the
+    arc's chords and fell outside ``tol``, so curved surfaces mostly vanished
+    from signatures.
     """
-    px, py = point['x'], point['y']
+    xy = (point['x'], point['y'])
     best: Optional[Tuple[float, int, float, float]] = None
-    for idx, a, b in _surface_edges(obj):
-        abx, aby = b[0] - a[0], b[1] - a[1]
-        seg_len2 = abx * abx + aby * aby
-        if seg_len2 == 0.0:
+    for span in _surface_spans(obj):
+        if span.length == 0.0:
             continue
-        t = ((px - a[0]) * abx + (py - a[1]) * aby) / seg_len2
-        tc = max(0.0, min(1.0, t))
-        cx, cy = a[0] + tc * abx, a[1] + tc * aby
-        dist = math.hypot(px - cx, py - cy)
-        seg_len = math.sqrt(seg_len2)
+        dist, along = span.locate(xy)
         if best is None or dist < best[0]:
-            best = (dist, idx, tc * seg_len, seg_len)
+            best = (dist, span.index, along, span.length)
     if best is None or best[0] > tol:
         return None
     return best[1], best[2], best[3]

@@ -174,6 +174,44 @@ def set_bidirectional_context(result: 'BidirectionalResult') -> None:
         populate_backward_rays(db, result.backward_segments)
 
 
+def set_extension_context(key: str, value: Any) -> None:
+    """
+    Register a live object for tools defined outside the core.
+
+    A package that depends on the core (it never imports the package) keeps
+    its live objects in this same registry, under its own namespaced key, so
+    one ``clear_context`` clears everything an assistant can see.
+
+    Args:
+        key: ``"<package>.<name>"``: must contain a dot, so it cannot
+            collide with the core's own keys.
+        value: The object (a dict of the package's own objects, typically).
+
+    Raises:
+        ValueError: If ``key`` has no dot.
+    """
+    if '.' not in key:
+        raise ValueError(f"extension context keys are namespaced '<package>.<name>', got {key!r}")
+    _CONTEXT[key] = value
+
+
+def get_extension_context(key: str, missing: str) -> Any:
+    """
+    The object a package registered under ``key``.
+
+    Args:
+        key: The key given to ``set_extension_context``.
+        missing: The message to raise with when nothing is registered: it
+            should say which setter to call.
+
+    Raises:
+        RuntimeError: With ``missing``, if nothing is registered under ``key``.
+    """
+    if _CONTEXT.get(key) is None:
+        raise RuntimeError(missing)
+    return _CONTEXT[key]
+
+
 def get_context() -> Dict[str, Any]:
     """Return a copy of the current context dict (for inspection/debugging)."""
     return dict(_CONTEXT)
@@ -186,6 +224,9 @@ def clear_context() -> None:
     db = _CONTEXT.get('db')
     if db is not None:
         db.close()
+    for key, value in _CONTEXT.items():          # an extension's own database
+        if '.' in key and isinstance(value, dict) and isinstance(value.get('db'), sqlite3.Connection):
+            value['db'].close()
     reset_render_counter()
     _CONTEXT.clear()
 

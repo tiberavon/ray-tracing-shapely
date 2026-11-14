@@ -38,12 +38,14 @@ narrative. Where a concept has a testable half, that half is a contract in
 `dev_doc/architecture/contracts/`, and the concept links to it rather than
 repeating the rule.
 
-## Not here yet
+## Seeing a concept run
 
-A concept states reasoning. A reader who wants to *see* it run has nowhere
-to go from the file. Linking each concept to an executed worked-example
-notebook — and later to a published field note — is a planned addition, not
-an oversight.
+A concept states reasoning; it does not run it. Where a concept has a
+testable half, the contract it links to names the test that checks it,
+and that test is the smallest runnable form of the idea. The project's
+working notebooks are not part of this documentation. Write-ups edited
+from them may be published separately, and will link here, not the other
+way round.
 
 ## The catalogue
 
@@ -58,7 +60,7 @@ an oversight.
 | **KA4** | [agent_tools_return_errors_as_values_not_exceptions](KA4_agent_tools_return_errors_as_values_not_exceptions.md) | The boundary returns a structured result; the layer beneath it still raises. |
 | **KA5** | [live_objects_reach_tools_through_an_explicit_registry](KA5_live_objects_reach_tools_through_an_explicit_registry.md) | A library module's `globals()` is not the caller's, so the context is passed, not found. |
 | **KA6** | [agents_query_a_database_not_a_function_per_question](KA6_agents_query_a_database_not_a_function_per_question.md) | Composable queries over a described schema, rather than a wrapper per question. |
-| **KA7** | [a_tool_is_registered_in_three_places_or_it_is_unreachable](KA7_a_tool_is_registered_in_three_places_or_it_is_unreachable.md) | `agentic_tools`, `tool_registry`, `mcp_server._EXPOSED_TOOLS` — two of three is unreachable. |
+| **KA7** | [a_tool_is_registered_in_three_places_or_it_is_unreachable](KA7_a_tool_is_registered_in_three_places_or_it_is_unreachable.md) | Defined, catalogued, published — two of three is unreachable; the published list is derived, and the agreement tested. |
 | **KA8** | [tool_output_is_budgeted_against_the_context_window](KA8_tool_output_is_budgeted_against_the_context_window.md) | Summarise and filter by construction; return a descriptor, not the payload. |
 | **KA9** | [every_argument_is_parsed_and_checked_at_the_agent_boundary](KA9_every_argument_is_parsed_and_checked_at_the_agent_boundary.md) | Quantities parsed and dimension-checked, names resolved, SQL keyword-filtered. |
 
@@ -103,9 +105,10 @@ an oversight.
 | **KD10** | [classification_runs_as_a_state_machine_with_one_fixed_diagram](KD10_classification_runs_as_a_state_machine_with_one_fixed_diagram.md) | A diagram that varies with its input is a diagram nobody can check. |
 | **KD11** | [component_boundaries_carry_assume_guarantee_contracts](KD11_component_boundaries_carry_assume_guarantee_contracts.md) | An obligation needs a named holder; a violation needs a named failure. |
 | **KD12** | [the_tool_list_is_audited_before_it_is_extended](KD12_the_tool_list_is_audited_before_it_is_extended.md) | Inventory the surface before extending it; deprecate rather than remove. |
+| **KD13** | [a_known_defect_has_a_register_entry_and_an_upstream_one_is_written_as_its_fix](KD13_a_known_defect_has_a_register_entry_and_an_upstream_one_is_written_as_its_fix.md) | A stable id for what we know is wrong; a dependency's defect written as the pull request that fixes it. |
 
 ## Status
 
-**All 36 written.** Every link resolves. Each file carries its key, a
+**All 37 written.** Every link resolves. Each file carries its key, a
 `one_line`, an `informs:` list, and a `Read also` section pointing at close
 siblings.

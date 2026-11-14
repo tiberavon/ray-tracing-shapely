@@ -861,7 +861,7 @@ def test_mcp_exposes_path_auditing_tools():
     from ray_tracing_shapely.analysis.tool_registry import get_agentic_tools
 
     names = [t['name'] for t in get_agentic_tools()]
-    for expected in ('path_surfaces', 'audit_bidirectional_paths', 'path_physical_summary'):
+    for expected in ('path_surfaces_tool', 'audit_bidirectional_paths', 'path_physical_summary_tool'):
         assert expected in names, f"{expected} missing from get_agentic_tools(): {names}"
 
     try:

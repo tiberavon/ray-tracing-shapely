@@ -1,18 +1,26 @@
 ---
 key: KA7
 title: Why a tool is registered in three places
-one_line: A tool is callable only if it appears in `agentic_tools`, in `tool_registry`, and in `mcp_server._EXPOSED_TOOLS`; two of three fails as though it were never written, so the registered count is asserted in a test.
+one_line: A tool is callable only if it is defined, catalogued with its schema, and published; two of three fails as though it were never written, so the published list is derived from the catalogue rather than kept by hand, and the agreement is checked by a test.
 status: active
 informs: [agentic_layer, analysis_run_registry, eye_safety, C-AGENT-02]
 since: 0.1
 ---
 
 A new tool is not finished when the code works. It is finished when an AI
-assistant can call it — which means it has been registered in three
-separate places: the file that defines it (`agentic_tools`), the list that
-describes it (`tool_registry`), and the list the server publishes
-(`mcp_server._EXPOSED_TOOLS`). Where the tool produces data worth
-querying, the database's column descriptions count as a fourth.
+assistant can call it. That takes three things:
+- it is defined (`agentic_tools`);
+- it is catalogued with its description and parameter schema
+  (`tool_registry`);
+- it is in the list the server publishes.
+
+Where the tool produces data worth querying, the database's column
+descriptions count as a fourth.
+
+The published list is not kept by hand. It is derived: every catalogued tool
+except those deliberately withdrawn, each withdrawal written down with its
+reason. A package outside the core adds a tool to all three through one call
+(`register_tool`), so it cannot land in two of them.
 
 ## "Add the exposure later" was tried
 
@@ -34,9 +42,19 @@ fails as if it had never been written. That has happened: four tools were
 named in the paragraph a person pastes into the assistant's chat, and none
 was in the server's list.
 
-Because the number of registered tools is a fact, it is checked by a test.
-That is the cheapest possible detector for a tool that reached two homes
-out of three.
+While the lists were three hand-kept literals, that incident was noticed
+but never fixed: the paragraph went on announcing the same four tools. In
+the meantime three more tools were catalogued under one name and published
+under another.
+
+A test of the *count* catches an addition to one list, not a rename or a
+swap. So the agreement itself is checked, name by name. Deriving the third
+list from the second removes the commonest way to break it.
+
+The check also must not depend on the server's library. A test that skips
+whenever that library fails to import also skips when a new release of it
+breaks the server. Such a test kept passing in CI while the server could
+not start on any fresh install.
 
 ## What this does not claim
 

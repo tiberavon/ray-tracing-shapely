@@ -171,12 +171,24 @@ def checked_hazard_value(hazard_key: str, value: Any, alpha_rad: float, *, name:
 def checked_scalar(value: Any, expected_unit: str, *, name: str) -> float:
     """Like `checked_hazard_value`, for a single quantity with no
     radiometric irradiance/radiance ambiguity to worry about (power,
-    length, time, angle, ...) -- ordinary `ensure_quantity`/`parse_quantity`
-    dimensionality checking is already sufficient for these, since only
-    steradian-bearing quantities have the "dimensionless in Pint" problem
-    `ensure_radiometric_quantity` exists to work around. Used by both
-    flows' `alpha_rad`, and `iec60825_1_flow.py`'s
+    length, time, plane angle, ...) -- ordinary
+    `ensure_quantity`/`parse_quantity` dimensionality checking is
+    sufficient for these. Used by both flows' `alpha_rad`, and
+    `iec60825_1_flow.py`'s
     `measured_power_W`/`wavelength_nm`/`duration_s_class1`.
+
+    **"Sufficient" here means: none of these expectations is a solid
+    angle.** An earlier version of this docstring justified the ordinary
+    check by saying that "only steradian-bearing quantities have the
+    'dimensionless in Pint' problem" -- correct, and it is exactly why
+    anything whose *expected* unit is `sr` must not come through here.
+    `alpha_rad` is a plane angle and is safe: a caller who supplies `deg`
+    gets it converted correctly, and `sr` in an `alpha_rad` slot is a
+    units error this check cannot see but which no caller has a reason to
+    make. A solid-angle expectation is the reverse case and goes through
+    `_as_radiometric_quantity` instead: the two conversion wrappers'
+    `solid_angle` argument was once routed here by this same reasoning
+    (`KW-UNITS-01`, closed; `C-UNITS-02`).
 
     **Mandatory**: `value` must be a `pint.Quantity` or a Pint-formatted
     string -- see `checked_hazard_value`'s own docstring for why a bare
@@ -204,18 +216,23 @@ def checked_radiance_from_irradiance(irradiance: Any, solid_angle: Any) -> 'Quan
     """Pint-checked wrapper around `eye_safety.radiance_from_irradiance`.
 
     Validates that `irradiance` really is an irradiance (not, say, a dose
-    or an already-radiance value) and `solid_angle` really is a solid
-    angle, performs the *same* plain-float division the tested function
-    already does (this never re-implements the arithmetic), and returns a
-    dimensionally-labelled `Quantity` -- confirming, by construction via
-    Pint's own unit arithmetic, that `W/m^2 / sr` really is `W/(m^2*sr)`,
-    not silently miscomputed.
+    or an already-radiance value) and that `solid_angle` really is a
+    *solid* angle (not a plane angle, not a bare dimensionless number --
+    see `_as_radiometric_quantity` for why that needs the strict check
+    rather than an ordinary dimensionality one), performs the *same*
+    plain-float division the tested function already does (this never
+    re-implements the arithmetic), and returns a dimensionally-labelled
+    `Quantity` -- confirming, by construction via Pint's own unit
+    arithmetic, that `W/m^2 / sr` really is `W/(m^2*sr)`, not silently
+    miscomputed.
 
     Args:
         irradiance: A `pint.Quantity` or Pint-formatted string, dimensionally
             an irradiance (`W/m^2`).
-        solid_angle: A `pint.Quantity` or Pint-formatted string, dimensionally
-            a solid angle (`sr`).
+        solid_angle: A `pint.Quantity` or Pint-formatted string, in
+            steradian or a prefixed steradian. A plane angle (`rad`,
+            `mrad`, `deg`) or a dimensionless magnitude is rejected, even
+            though Pint reports it as dimensionally compatible.
 
     Returns:
         A `pint.Quantity`, dimensionality `W/(m^2*sr)`.
@@ -223,8 +240,8 @@ def checked_radiance_from_irradiance(irradiance: Any, solid_angle: Any) -> 'Quan
     Raises:
         ValueError: If either argument is not the expected kind of quantity.
     """
-    irradiance_q = _as_quantity(irradiance, IRRADIANCE, name="irradiance", radiometric=True)
-    solid_angle_q = _as_quantity(solid_angle, "sr", name="solid_angle", radiometric=False)
+    irradiance_q = _as_radiometric_quantity(irradiance, IRRADIANCE, name="irradiance")
+    solid_angle_q = _as_radiometric_quantity(solid_angle, "sr", name="solid_angle")
     value = _radiance_from_irradiance(
         irradiance_q.to("W/m^2").magnitude, solid_angle_q.to("sr").magnitude,
     )
@@ -233,26 +250,43 @@ def checked_radiance_from_irradiance(irradiance: Any, solid_angle: Any) -> 'Quan
 
 def checked_irradiance_from_radiance(radiance: Any, solid_angle: Any) -> 'Quantity':
     """Pint-checked wrapper around `eye_safety.irradiance_from_radiance` --
-    the inverse of `checked_radiance_from_irradiance`, same guarantees.
+    the inverse of `checked_radiance_from_irradiance`, same guarantees,
+    `solid_angle` included.
 
     Raises:
         ValueError: If either argument is not the expected kind of quantity.
     """
-    radiance_q = _as_quantity(radiance, RADIANCE, name="radiance", radiometric=True)
-    solid_angle_q = _as_quantity(solid_angle, "sr", name="solid_angle", radiometric=False)
+    radiance_q = _as_radiometric_quantity(radiance, RADIANCE, name="radiance")
+    solid_angle_q = _as_radiometric_quantity(solid_angle, "sr", name="solid_angle")
     value = _irradiance_from_radiance(
         radiance_q.to("W/(m^2*sr)").magnitude, solid_angle_q.to("sr").magnitude,
     )
     return Quantity(value, "W/m^2")
 
 
-def _as_quantity(value: Any, expected_unit: str, *, name: str, radiometric: bool) -> 'Quantity':
+def _as_radiometric_quantity(value: Any, expected_unit: str, *, name: str) -> 'Quantity':
     """Shared string-or-Quantity acceptance for the two checked conversion
-    wrappers above. `radiometric=True` routes through the stricter
-    irradiance/radiance-distinguishing check; `radiometric=False` (used
-    for the plain solid-angle argument, which has no such ambiguity) uses
-    the ordinary dimensionality check.
+    wrappers above. Every argument of both wrappers -- the radiometric one
+    *and* the solid angle -- goes through the stricter same-*kind* check
+    (`ensure_radiometric_quantity`/`parse_radiometric_quantity`), never the
+    ordinary dimensionality one.
+
+    **The solid angle needs it just as much as the radiometric argument,
+    and for the same reason** (`C-UNITS-02`). Pint's default registry treats
+    radian and steradian alike as dimensionless, so an ordinary
+    dimensionality check against `"sr"` accepts `mrad`, `deg` and a bare
+    dimensionless magnitude. This helper once took a
+    `radiometric` flag and the solid angle was passed `False`, on the
+    reasoning that a solid angle carries no irradiance-vs-radiance
+    ambiguity -- true, but beside the point: the ambiguity that matters
+    for this argument is sr-vs-rad, which is the same dimensionless-angle
+    problem `ensure_radiometric_quantity` was built for.
+    `3.025 mrad` where `3.025 msr` was meant then returned the *correct*
+    number (the milli- prefixes coincide), which is why the gap outlived
+    the test suite (`KW-UNITS-01`); `3.025 deg` returned a silently
+    wrong one. The flag is gone rather than set to `True` at every call
+    site, so the loose path cannot be reintroduced by passing `False`.
     """
     if isinstance(value, str):
-        return (parse_radiometric_quantity if radiometric else parse_quantity)(value, expected_unit)
-    return (ensure_radiometric_quantity if radiometric else ensure_quantity)(value, expected_unit, name=name)
+        return parse_radiometric_quantity(value, expected_unit)
+    return ensure_radiometric_quantity(value, expected_unit, name=name)

@@ -61,9 +61,10 @@ Note on E/X symmetry:
 from __future__ import annotations
 
 import math
-from typing import Any, ClassVar, Dict, List, Tuple, Union, TYPE_CHECKING
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 from .base_prism import BasePrism
+from ..roles import Role, Mechanism
 
 if TYPE_CHECKING:
     from ...core.scene import Scene
@@ -89,12 +90,25 @@ class EquilateralPrism(BasePrism):
         Edge 2: Entrance Face (E) | facing North West Edge (NW)
     """
 
-    # Functional labels for edges (in path order)
-    _edge_roles: ClassVar[List[Tuple[str, str]]] = [
-        ("B", "Base"),
-        ("X", "Exit Face"),
-        ("E", "Entrance Face"),
+    # Functional labels for edges (in path order), each with a Role tag.
+    # The base is outside the dispersing path (light enters E and leaves X),
+    # so it is a BLOCKER, the same tag RefractometerPrism gives its own
+    # unused base.
+    _edge_roles: ClassVar[List[Tuple[str, str, Role]]] = [
+        ("B", "Base", Role.BLOCKER),
+        ("X", "Exit Face", Role.EXIT),
+        ("E", "Entrance Face", Role.ENTRANCE),
     ]
+
+    # Mechanism per edge, keyed by short functional label. Read by
+    # profile_export for the spans' mechanism field. The base has none:
+    # nothing is meant to happen there, and the 3D bridge builds a
+    # mechanism-less span as an absorbing face.
+    _edge_mechanisms: ClassVar[Dict[str, Optional[Mechanism]]] = {
+        "B": None,
+        "X": Mechanism.REFRACT,
+        "E": Mechanism.REFRACT,
+    }
 
     # Labels for vertices (in path order)
     _vertex_roles: ClassVar[List[Tuple[str, str]]] = [

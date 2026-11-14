@@ -9,7 +9,7 @@ viewpoint: agentic
 status: documented
 failure_mode: silent
 checked_by: null
-witness: notebooks/optiland_scene_bridge_refractometer_demo.ipynb section 10
+witness: src-python/ray_tracing_shapely_optiland/tests/test_visualization.py::test_renderer_registry_recognises_extruded_polygon_solid
 tracked_by: null
 conflicts_with: null
 refines: null

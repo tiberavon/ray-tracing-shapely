@@ -59,6 +59,29 @@ Physics:
     measurement range exits perpendicular to the exit face, minimizing
     ghost reflections and simplifying the optical path.
 
+    The sample sits on the measuring surface M, which is the WIDE edge:
+    for a valid TIR design theta_c > 45 deg, so face_angle < 45 deg and
+    the slanted faces lean inwards going from M down to the base B
+    (M > B, as drawn above).
+
+Angle conventions:
+    face_angle (stored attribute, degrees):
+        angle between the entrance/exit face and the NORMAL of the
+        measuring surface. For the mid-range design,
+        face_angle = 90 - theta_c_mid.
+    meas2edge_angle (derived property, degrees):
+        the interior polygon angle at V3 (equal to the one at V2, by
+        symmetry), between the measuring surface and the entrance/exit
+        face. meas2edge_angle = 90 - face_angle, so for the mid-range
+        design it equals theta_c_mid.
+
+    With b the inward overhang of each slanted face measured along M
+    (V3 -> V0) and H the height:
+        tan(face_angle) = b / H,   tan(meas2edge_angle) = H / b,
+        B = M - 2 b.
+    b < 0 (meas2edge_angle > 90 deg) gives a wide-base trapezoid,
+    meas2edge_angle = 90 deg a rectangle.
+
 Two system architectures:
     - 'angular': Abbe-like with focusing lens (measuring surface length is free)
     - 'geometric': Lensless direct imaging (length constrained by geometry)
@@ -67,7 +90,9 @@ Two system architectures:
 
 from __future__ import annotations
 
+import copy
 import math
+import uuid as uuid_module
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 from .base_prism import BasePrism
@@ -243,8 +268,11 @@ class RefractometerPrism(BasePrism):
 
         Args:
             scene: The scene this prism belongs to.
-            face_angle_deg: Face angle in degrees (angle between measuring
-                           surface and entrance/exit faces).
+            face_angle_deg: Face angle in degrees: angle between the
+                           entrance/exit faces and the NORMAL of the
+                           measuring surface (see "Angle conventions" in
+                           the module docstring). Must be < 45 deg for the
+                           default height, otherwise the base vanishes.
             n_prism: Refractive index of the prism material.
             measuring_surface_length: Length of the measuring surface.
             position: Reference point coordinates.
@@ -440,30 +468,46 @@ class RefractometerPrism(BasePrism):
 
     def _compute_path(self) -> List[Dict[str, Union[float, bool]]]:
         """
-        Compute vertex path for symmetric trapezoid.
+        Compute vertex path for the symmetric wide-top trapezoid.
+
+        Used by the primary constructor, from_apex_angle and
+        from_geometric_constraints; from_critical_ray_path replaces the
+        path afterwards with its own height.
 
         The trapezoid has:
-        - Base (bottom) of computed length
-        - Top (measuring surface) of specified length
-        - Symmetric slanted sides at face_angle
+        - Top (measuring surface, edge 2) of length M
+        - Default height H = M / 2
+        - Slanted faces leaning by face_angle from the measuring surface's
+          normal, so each face is inset by b = H * tan(face_angle) and
+          the base is B = M - 2 b (wide top for face_angle > 0).
+
+        The interior angle at V3/V2 is therefore 90 - face_angle (see
+        meas2edge_angle). No small-angle guard is applied: tan() is well
+        behaved near 0, and a guard would break that identity.
 
         Returns:
             List of vertex dictionaries with 'x', 'y', 'arc' keys.
+
+        Raises:
+            ValueError: If the base length is not strictly positive
+                (face_angle >= 45 deg for the default H = M / 2). A
+                degenerate or self-intersecting polygon would otherwise be
+                traced silently.
         """
         M = self.measuring_surface_length
         alpha = math.radians(self.face_angle)
 
-        # Height of trapezoid based on face angle and measuring surface
-        # The slanted side makes angle alpha with the measuring surface
-        # Choose a reasonable height based on measuring surface length
-        H = M * 0.5  # Default height is half the measuring surface length
+        H = M * 0.5  # Default height; from_critical_ray_path overrides the path
 
-        # Base length: B = M + 2 * H * tan(alpha)
-        # But we need to be careful with the geometry
-        # For a symmetric trapezoid with face angle alpha:
-        # - The slant makes angle alpha with the horizontal (measuring surface)
-        # - Width increase from top to bottom: 2 * H / tan(alpha)
-        B = M + 2 * H / math.tan(alpha) if alpha > 0.01 else M
+        b = H * math.tan(alpha)  # inward overhang of each slanted face
+        B = M - 2 * b
+        if B <= 0:
+            raise ValueError(
+                f"Degenerate RefractometerPrism: face_angle={self.face_angle:.4f} deg "
+                f"gives base length {B:.6g} <= 0 for the default height H = M/2. "
+                f"face_angle must be < 45 deg (a valid TIR design has "
+                f"theta_c > 45 deg, i.e. face_angle < 45 deg)."
+            )
 
         # Vertices (CCW, centered at origin before rotation/translation)
         # V0: Bottom left
@@ -594,3 +638,212 @@ class RefractometerPrism(BasePrism):
             Tuple of ((x1, y1), (x2, y2)).
         """
         return self.get_edge_endpoints(2)
+
+    @property
+    def meas2edge_angle(self) -> float:
+        """
+        Interior polygon angle at V3 (Top Left), in degrees.
+
+        This is the angle between the measuring surface (edge 2) and the
+        entrance face (edge 3); by the left-right symmetry it equals the
+        angle at V2 between the measuring surface and the exit face.
+
+        Angle conventions:
+            face_angle (stored attribute): angle between the entrance/exit
+                face and the NORMAL of the measuring surface. For the
+                mid-range design face_angle = 90 - theta_c_mid.
+            meas2edge_angle (this property): the interior angle between the
+                measuring surface and the entrance/exit face.
+                meas2edge_angle = 90 - face_angle, so for the mid-range
+                design it equals theta_c_mid.
+
+        Computed from the actual vertices of self.path, not read from
+        face_angle, so it is correct for every constructor, any rotation,
+        and after morphing.
+        """
+        return self.get_interior_angle(3)
+
+    # =========================================================================
+    # Morphing (re-shape an existing prism in place)
+    # =========================================================================
+
+    def _detached_copy(self) -> 'RefractometerPrism':
+        """
+        Return an independent copy of this prism that shares the scene.
+
+        Design decision: copy.deepcopy(self) would also deep-copy the
+        `scene` the prism references (and everything the scene holds).
+        Instead the scene is pre-seeded in the deepcopy memo, so the copy
+        keeps a reference to the SAME scene while path, labels and every
+        other attribute are copied. The copy is not added to scene.objs
+        (construction never registers an object; scene.add_object() does),
+        and it gets a fresh uuid so lineage records cannot confuse the two.
+        """
+        memo: Dict[int, Any] = {}
+        scene = getattr(self, 'scene', None)
+        if scene is not None:
+            memo[id(scene)] = scene
+        clone = copy.deepcopy(self, memo)
+        clone._uuid = str(uuid_module.uuid4())
+        return clone
+
+    def morphing_meas2edge_angle(
+        self,
+        new_angle_deg: float,
+        *,
+        inplace: bool = True
+    ) -> 'RefractometerPrism':
+        """
+        Change the top-corner angle (meas2edge_angle) of an existing prism.
+
+        The measuring surface (V2, V3: length, position, orientation) and
+        the height are kept fixed; only the two base vertices V0, V1 move.
+        Works from the stored vertices with vectors, so it is valid for a
+        rotated prism. 90 deg gives a rectangle (B = M); smaller angles
+        shrink the base (wide top); larger angles, up to 180, give B > M.
+
+        State kept in sync:
+            - face_angle = 90 - new_angle_deg
+            - cardinal edge labels (auto_label_cardinal())
+            - _position is moved to the new vertex mean, so that it stays
+              the 'centroid' anchor of the stored path (moving V0, V1 moves
+              the vertex mean). measuring_surface_length and size are
+              unchanged because edge 2 is unchanged.
+
+        Deliberately NOT touched: n_prism, n_sample_range, theta_c_range,
+        system_type, measuring_surface_length, refIndex. The prism is
+        re-shaped, not re-designed for another sample range; note that
+        exit_angle_for() uses the new face_angle, so the mid-range sample
+        no longer exits normally unless new_angle_deg == theta_c_mid.
+
+        Args:
+            new_angle_deg: The new interior angle at V3/V2, in degrees,
+                in the open interval (0, 180).
+            inplace: Keyword-only. True modifies and returns self; False
+                returns a detached copy (see _detached_copy) and leaves
+                this prism untouched.
+
+        Returns:
+            The morphed prism (self when inplace=True).
+
+        Raises:
+            ValueError: If new_angle_deg is not in (0, 180) exclusive.
+            ValueError: If the new base length would not be strictly
+                positive; the message gives the minimum valid angle,
+                degrees(atan2(H, M/2)). Raised before anything changes.
+        """
+        if not (0.0 < new_angle_deg < 180.0):
+            raise ValueError(
+                f"new_angle_deg must be in (0, 180) exclusive, got {new_angle_deg}"
+            )
+
+        V0, V1, V2, V3 = [(v['x'], v['y']) for v in self.path[:4]]
+
+        dx, dy = V2[0] - V3[0], V2[1] - V3[1]
+        M = math.hypot(dx, dy)
+        half_M = M / 2
+        m_dir = (dx / M, dy / M)              # along the measuring surface, V3 -> V2
+        m_perp = (m_dir[1], -m_dir[0])        # from edge 2 towards the base
+        m_mid = ((V2[0] + V3[0]) / 2, (V2[1] + V3[1]) / 2)
+        b_mid = ((V0[0] + V1[0]) / 2, (V0[1] + V1[1]) / 2)
+        H = (b_mid[0] - m_mid[0]) * m_perp[0] + (b_mid[1] - m_mid[1]) * m_perp[1]
+
+        b = H / math.tan(math.radians(new_angle_deg))   # negative above 90 deg
+        half_B = half_M - b
+        if 2 * half_B <= 0:
+            min_angle = math.degrees(math.atan2(H, half_M))
+            raise ValueError(
+                f"new_angle_deg={new_angle_deg} gives a non-positive base length "
+                f"({2 * half_B:.6g}); the minimum valid angle for this prism "
+                f"(H={H:.6g}, M={M:.6g}) is ~{min_angle:.3f} deg"
+            )
+
+        target = self if inplace else self._detached_copy()
+
+        target.path[0]['x'] = m_mid[0] - half_B * m_dir[0] + H * m_perp[0]
+        target.path[0]['y'] = m_mid[1] - half_B * m_dir[1] + H * m_perp[1]
+        target.path[1]['x'] = m_mid[0] + half_B * m_dir[0] + H * m_perp[0]
+        target.path[1]['y'] = m_mid[1] + half_B * m_dir[1] + H * m_perp[1]
+
+        target.face_angle = 90.0 - new_angle_deg
+        target._position = target._get_centroid()
+        target.auto_label_cardinal()
+        return target
+
+    def morphing_scale(
+        self,
+        *,
+        scale: Optional[float] = None,
+        target_measuring_surface_length: Optional[float] = None,
+        inplace: bool = True
+    ) -> 'RefractometerPrism':
+        """
+        Uniformly scale an existing prism about its vertex mean.
+
+        Every vertex is scaled about _get_centroid() (the vertex mean, i.e.
+        the 'centroid' anchor), so the prism stays where it was placed.
+        All angles (face_angle, meas2edge_angle) are invariant.
+
+        Updated by the factor: measuring_surface_length; size (BasePrism's
+        characteristic size, which for this class is the measuring surface
+        length); and every length attribute that is set:
+        source_distance, sensor_length, path_length (lensless system) and
+        ray_path_length (from_critical_ray_path). n_target and the other
+        dimensionless physics attributes are unchanged. Edge labels are
+        recomputed.
+
+        Args:
+            scale: Keyword-only. Percentage, > 0: 100 = unchanged,
+                50 = half, 200 = double (slider semantics).
+            target_measuring_surface_length: Keyword-only. Desired
+                measuring surface length, > 0; the factor is derived as
+                target / measuring_surface_length.
+            inplace: Keyword-only. True modifies and returns self; False
+                returns a detached copy (see _detached_copy) and leaves
+                this prism untouched.
+
+        Exactly one of scale and target_measuring_surface_length must be
+        given.
+
+        Returns:
+            The scaled prism (self when inplace=True).
+
+        Raises:
+            ValueError: If neither or both of scale and
+                target_measuring_surface_length are given, or the given one
+                is not > 0.
+        """
+        if (scale is None) == (target_measuring_surface_length is None):
+            raise ValueError(
+                "exactly one of scale and target_measuring_surface_length "
+                "must be given"
+            )
+        if target_measuring_surface_length is not None:
+            if target_measuring_surface_length <= 0:
+                raise ValueError(
+                    f"target_measuring_surface_length must be > 0, "
+                    f"got {target_measuring_surface_length}"
+                )
+            factor = target_measuring_surface_length / self.measuring_surface_length
+        else:
+            if scale <= 0:
+                raise ValueError(f"scale must be > 0 (a percentage), got {scale}")
+            factor = scale / 100.0
+
+        target = self if inplace else self._detached_copy()
+
+        cx, cy = target._get_centroid()
+        for v in target.path:
+            v['x'] = cx + (v['x'] - cx) * factor
+            v['y'] = cy + (v['y'] - cy) * factor
+
+        target.measuring_surface_length *= factor
+        target.size *= factor
+        for name in ('source_distance', 'sensor_length', 'path_length',
+                     'ray_path_length'):
+            value = getattr(target, name, None)
+            if value is not None:
+                setattr(target, name, value * factor)
+
+        target.auto_label_cardinal()
+        return target

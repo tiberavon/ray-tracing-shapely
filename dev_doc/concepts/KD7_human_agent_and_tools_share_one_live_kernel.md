@@ -57,6 +57,10 @@ and results are saved to disk precisely so they outlive the notebook that
 made them. The claim is about where *interactive* work happens, and why
 the tooling is built to sit there.
 
+Nor that the notebook is what gets published. Most stay with the project's
+working records. What is published is a small set of example notebooks,
+and write-ups edited from the others.
+
 ## Read also
 
 - **KA5** — [live_objects_reach_tools_through_an_explicit_registry](KA5_live_objects_reach_tools_through_an_explicit_registry.md) — how tools reach those objects

@@ -35,6 +35,7 @@ Saving a 3D trace to disk in a form that can be queried, the same way
 | File | What it holds |
 |---|---|
 | `ray_tracing_shapely_optiland/nsq_db.py` | `create_nsq_database`, `persist_nsq_run`, `get_nsq_schema_description`, and the reused `execute_query`. |
+| `ray_tracing_shapely_optiland/agentic.py` | The read-only 3D tools an assistant calls: `describe_nsq_scene`, `describe_nsq_schema` (each column with its meaning), `query_nsq`, `nsq_path_spectrum` (rays grouped by source, faces met and end), `compare_2d_3d_summary` (a 2D-against-3D comparison's summary, `C-BRIDGE-14`); `set_nsq_context` and `set_comparison_context`, which keeps the trace in the core's context registry; `path_spectrum`, the same grouping as a library function; and `register()`, which adds the tools to the core's lists when called, never at import. |
 
 ## What it produces
 
@@ -53,6 +54,7 @@ Saving a 3D trace to disk in a form that can be queried, the same way
 |---|---|
 | `C-NSQ-RUN-01` | **Owns** it. A run is never saved with an empty events table unless path recording was genuinely off — an empty table is otherwise a silent failure. |
 | `C-NSQ-RUN-02` | **Owns** it. The exact `record_paths` setting used is written into `params.json`. |
+| `C-AGENT-03` | **Owns** it, with `agentic_layer`. The 3D tools are registered on request, read one context in the core's registry, name faces as the log does, and only read. |
 | `C-NSQ-RUN-03` | **Owns** it. The query machinery stays table-name-agnostic, so the 2D and 3D databases share one implementation. |
 | `C-RUN-01`, `C-RUN-02` | **Relies** on them. Same schema-versioning promise and same physical/numerical split as the 2D bundle. |
 

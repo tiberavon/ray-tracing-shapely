@@ -144,3 +144,122 @@ def test_persist_profile_artifact_writes_valid_json(tmp_path):
     assert path == tmp_path / "refractometer_critical_path" / "n_target_1.33" / "profile.json"
     loaded = json.loads(path.read_text())
     assert loaded["schema_version"] == PROFILE_SCHEMA_VERSION
+
+
+# --- flat prisms tagged for export, and the labelled inverse --------------
+
+from ray_tracing_shapely.optical_elements.prisms.base_prism import BasePrism  # noqa: E402
+from ray_tracing_shapely.optical_elements.prisms.equilateral import EquilateralPrism  # noqa: E402
+from ray_tracing_shapely.optical_elements.prisms.right_angle import RightAnglePrism  # noqa: E402
+
+FLAT_PRISMS = {
+    "refractometer": _refractometer,
+    "equilateral": lambda scene: EquilateralPrism(scene, side_length=50.0, rotation=17.0),
+    "right_angle": lambda scene: RightAnglePrism(scene, leg_length=30.0, position=(3.0, -4.0)),
+}
+
+
+def _export(prism):
+    return export_profile(
+        prism, symmetry=EXTRUDE_SYMMETRY, physical_params={}, numerical_params={}
+    )
+
+
+@pytest.mark.parametrize("name", sorted(FLAT_PRISMS))
+def test_every_flat_prism_span_carries_a_role(name):
+    profile = _export(FLAT_PRISMS[name](Scene()))
+    for span in profile["spans"]:
+        assert span["role"] is not None, f"{name} span {span['short_label']} has no role"
+    # Every span with a role other than BLOCKER is on the optical path, so
+    # it must declare what happens there.
+    for span in profile["spans"]:
+        if span["role"] != "blocker":
+            assert span["mechanism"] is not None, (
+                f"{name} span {span['short_label']} has role {span['role']} but no mechanism"
+            )
+
+
+def test_right_angle_and_equilateral_tags():
+    by_label = {s["short_label"]: s for s in _export(RightAnglePrism(Scene(), leg_length=30.0))["spans"]}
+    assert (by_label["E"]["role"], by_label["E"]["mechanism"]) == ("entrance", "refract")
+    assert (by_label["H"]["role"], by_label["H"]["mechanism"]) == ("wall", "tir")
+    assert (by_label["X"]["role"], by_label["X"]["mechanism"]) == ("exit", "refract")
+    by_label = {s["short_label"]: s for s in _export(EquilateralPrism(Scene(), side_length=50.0))["spans"]}
+    assert (by_label["B"]["role"], by_label["B"]["mechanism"]) == ("blocker", None)
+    assert (by_label["X"]["role"], by_label["X"]["mechanism"]) == ("exit", "refract")
+    assert (by_label["E"]["role"], by_label["E"]["mechanism"]) == ("entrance", "refract")
+
+
+@pytest.mark.parametrize("name", sorted(FLAT_PRISMS))
+def test_from_profile_round_trips_export(name):
+    """export -> from_profile -> export reproduces the profile: geometry,
+    normals, labels, roles and mechanisms all survive."""
+    original = _export(FLAT_PRISMS[name](Scene()))
+    rebuilt = BasePrism.from_profile(Scene(), original, n=1.6)
+    again = _export(rebuilt)
+    assert again["spans"] == original["spans"]
+    for a, b in zip(again["points"], original["points"]):
+        assert a == pytest.approx(b, abs=1e-12)
+    for a, b in zip(again["normals"], original["normals"]):
+        assert a == pytest.approx(b, abs=1e-12)
+    assert rebuilt.refIndex == 1.6
+    assert type(rebuilt) is BasePrism
+
+
+def test_from_profile_keeps_labels_addressable_unlike_from_vertices():
+    profile = _export(_refractometer(Scene()))
+    rebuilt = BasePrism.from_profile(Scene(), profile, n=1.72)
+    m_index = rebuilt.find_edge_by_functional_label("M")
+    assert m_index is not None
+    assert rebuilt.get_functional_label(m_index) == ("M", "Measuring Surface")
+    assert rebuilt.get_edge_role(m_index).value == "sample_medium"
+    assert rebuilt._edge_mechanisms["M"].value == "tir"
+
+    vertices = [tuple(profile["points"][s["index_start"]]) for s in profile["spans"]]
+    unlabelled = BasePrism.from_vertices(Scene(), vertices, n=1.72)
+    assert unlabelled.find_edge_by_functional_label("M") is None
+
+
+def test_from_profile_rejects_curved_span():
+    profile = _export(_refractometer(Scene()))
+    profile["spans"][0]["index_end"] += 1
+    with pytest.raises(NotImplementedError, match="two-point"):
+        BasePrism.from_profile(Scene(), profile, n=1.5)
+
+
+def test_from_profile_rejects_open_outline():
+    profile = _export(_refractometer(Scene()))
+    profile["points"][1] = [profile["points"][1][0] + 0.5, profile["points"][1][1]]
+    with pytest.raises(ValueError, match="does not close"):
+        BasePrism.from_profile(Scene(), profile, n=1.5)
+
+
+def test_from_profile_rejects_clockwise_outline():
+    profile = _export(_refractometer(Scene()))
+    # Reverse the traversal: every span runs backwards and in reverse order.
+    spans, points, normals = [], [], []
+    for span in reversed(profile["spans"]):
+        p1, p2 = profile["points"][span["index_start"]], profile["points"][span["index_start"] + 1]
+        n = profile["normals"][span["index_start"]]
+        spans.append(dict(span, index_start=len(points), index_end=len(points) + 2))
+        points += [p2, p1]
+        normals += [n, n]
+    profile.update(spans=spans, points=points, normals=normals)
+    with pytest.raises(ValueError, match="clockwise"):
+        BasePrism.from_profile(Scene(), profile, n=1.5)
+
+
+def test_from_profile_rejects_a_wrong_normal():
+    profile = _export(_refractometer(Scene()))
+    nx, ny = profile["normals"][0]
+    profile["normals"][0] = [-nx, -ny]
+    profile["normals"][1] = [-nx, -ny]
+    with pytest.raises(ValueError, match="stored normal"):
+        BasePrism.from_profile(Scene(), profile, n=1.5)
+
+
+def test_from_profile_rejects_unknown_vocabulary():
+    profile = _export(_refractometer(Scene()))
+    profile["spans"][1]["mechanism"] = "diffract"
+    with pytest.raises(ValueError, match="diffract"):
+        BasePrism.from_profile(Scene(), profile, n=1.5)

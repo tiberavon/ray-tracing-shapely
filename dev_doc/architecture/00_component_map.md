@@ -26,7 +26,7 @@ Post-hoc, over a completed run. Reads the core; never modifies it.
 
 | Component | Realises | What it is |
 |---|---|---|
-| `analysis_lineage` | `KB1` `KB4` | Energy ranking, branching statistics, trap detection, path length. |
+| `analysis_lineage` | `KB1` `KB4` | Energy ranking, branching statistics, trap detection, path length; the light that left, on a plane past the optic (irradiance map, line profile). |
 | `analysis_bidirectional` | `KB2` `KB1` | Forward and backward passes joined at shared surfaces, and path auditing. |
 | `analysis_signature` | `KB3` `KA1` | Path signatures and the spectra two runs are compared by. |
 | `analysis_run_registry` | `KB8` `KC3` `KD8` | Persisting a run, and comparing runs across a sweep. |
@@ -47,16 +47,16 @@ Above the simulator. Turns dimensionless brightness into physical quantity.
 |---|---|---|
 | `optical_elements_physics` | `KC1` `KC4` `KD3` | `PhysicalScene`, projection models, photoconversion. |
 | `optical_elements_units` | `KC4` `KA9` `KA3` | One registry, one parser, one validator, named dimensionalities. |
-| `eye_safety` | `KC5` `KC6` `KD5` | Hazard evaluation against two standards. |
+| `eye_safety` | `KC5` `KC6` `KD5` `KD13` | Hazard evaluation against two standards. |
 | `eye_safety_classification_flow` | `KD10` `KD4` `KA9` | The observable state machine over classification, and intake. |
-| `nonimaging_design` | `KC2` `KD5` `KD9` | CPC, DTIRC, RXI, RR, RX construction from design methods. |
+| `nonimaging_design` | `KC2` `KD5` `KD9` | CPC, DTIRC, RXI, RR, RX construction from design methods; labelled lenses, LED collimators, aspheres and exact curved mirrors, exportable as profiles; light sources described once for both engines; measured LEDs (rayfiles: reading, slicing, radiation plot); scanned lens faces, fitted. |
 
 ## Rendering and 3D
 
 | Component | Realises | What it is |
 |---|---|---|
 | `svg_renderer` | `KB6` `KA1` `KC7` | The scene as an addressable SVG, including the annotation layer. |
-| `optiland_scene_bridge` | `KB7` `KC7` `KD3` | A 2D profile into placed 3D solids, and back. |
+| `optiland_scene_bridge` | `KB7` `KC7` `KD3` `KD5` `KD13` | A 2D profile into placed 3D solids, mirrors and plates, and back, aspheres of revolution included; sources and measured LEDs in 3D; the same rays compared in 2D and 3D; irradiance maps; a collimator in Optiland's sequential engine; static 3D pictures. |
 | `optiland_sms_plugin` | `KB7` `KC2` | This project's profiles as an Optiland geometry plugin. |
 | `optiland_nsq_viewer` | `KC7` `KD7` | An NSQ scene into a notebook cell over WebGL. |
 | `optiland_nsq_run_registry` | `KB8` `KA6` `KD4` | One 3D trace's lineage persisted and queryable. |

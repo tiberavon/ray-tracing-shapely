@@ -9,7 +9,7 @@ viewpoint: structural
 status: documented
 failure_mode: silent
 checked_by: null
-witness: src-python/ray_tracing_shapely/developer_tests/test_roles.py::test_edge_roles_three_tuple_backward_compat
+witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_roles.py::test_edge_roles_three_tuple_backward_compat
 tracked_by: null
 conflicts_with: null
 refines: null

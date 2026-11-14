@@ -50,7 +50,7 @@ came from, and what it is carrying.
 | `is_grazing_result__…`, `caused_grazing__…` | Three separate tests for a ray skimming a surface — by angle, by polarisation, by transmission. | yes/no, each |
 | `source_uuid`, `source_label` | Which source emitted the ray this segment belongs to. | text, optional |
 | `medium_index` | The refractive index of whatever the segment is travelling through. Default 1 (air). Needed for optical path length. | number |
-| `hit_surface_uuid`, `hit_point`, `hit_normal` | Where this segment ended: which surface, at what point, with what surface direction. Only recorded when the simulation was started with `record_surface_hits=True`. | optional |
+| `hit_surface_uuid`, `hit_point`, `hit_normal` | Where this segment ended: which surface (a blocker that absorbed it included), at what point, with what surface direction. Only recorded when the simulation was started with `record_surface_hits=True`. | optional |
 | `incident_angle` | The angle at which this segment struck the surface that stopped it, from the surface's perpendicular. Between 0 and 90°. **Not** the same field as a detector hit's angle (`C-HIT-01`). | number, optional |
 | `gap`, `is_new`, `body_merging_obj` | Internal bookkeeping for the engine. | — |
 
@@ -105,7 +105,7 @@ One entry per interaction along the route, in order.
 | Field | Meaning | Type |
 |---|---|---|
 | `surface_name` | The object's name. Empty if it was unnamed. | text, optional |
-| `edge_index` | Which edge of that object — a position along a curve that was cut into straight pieces, not a coordinate (`C-SIG-01`). | whole number, optional |
+| `edge_index` | Which edge of that object: one number per physical surface, in outline order. A circular arc is one edge, however it is stored; a curve that a design cut into straight pieces is one edge per piece, so the number is a position along the cut-up curve, not a coordinate (`C-SIG-01`). | whole number, optional |
 | `interaction_type` | What happened there. | one of four words |
 
 ## `P-SIGNATURE-SPECTRUM` — every route in a run, with its energy
@@ -141,12 +141,24 @@ assistant can query:
 |---|---|---|
 | `rays` | segment | Everything in `P-RAY-LINEAGE` above, flattened into columns. |
 | `glass_objects` | glass | Name, type, refractive index, edge count, centroid, area. |
-| `edges` | edge of a glass | Its labels, endpoints, midpoint, length. |
+| `edges` | edge of a glass | Its labels, type (`line`, `circular`, `conic` or `spline`), endpoints, midpoint, length. For a curved edge the midpoint is on the curve and the length is the arc length. |
 | `ray_glass_membership` | (segment, glass) | Which segments lie inside which glass. |
-| `ray_edge_crossing` | (segment, edge) | Which segments cross which edge, and at what angle to the edge's perpendicular. |
+| `ray_edge_crossing` | (segment, edge) | Which segments cross or end on which edge, and at what angle to the edge's perpendicular. A circular edge's perpendicular is taken where the segment meets it. |
 | `detectors` | detector | Name, endpoints, bin size. |
 | `detector_hits` | counted crossing | `P-HIT-RECORD`, as rows. |
 | `connections` | joined forward/backward pair | Only present after a bidirectional run: which two segments were matched, on which surface, how close, how nearly opposite. |
+
+A glass's edge may be an exact curve rather than a straight line or an arc:
+a point of its outline (`path[i]`) may carry a `curve` descriptor, a conic or
+a spline with the same fields as `spans[i].curve` in `P-PROFILE` below, or an
+even asphere, `{"type": "asphere", "vertex", "axis", "radius", "conic",
+"coefficients"}`: the conic's sag plus A1 s² + A2 s⁴ + …, the coefficients in
+Zemax's and Optiland's order, `radius` null for a flat base. The edge from
+that point to the next is then that curve, traced exactly
+(`core.glass_curves`: `ConicCurve`, `AsphereCurve`, `SplineCurve`), and
+moving, rotating or scaling the glass carries it along. In `edges` it is one
+row, of type `conic`, `asphere` or `spline`. In `profile.json` an asphere
+span is schema 1.5's.
 
 **`manifest.jsonl`** — one line appended per run, so a design's history is
 one file. **`graph.json`** and **`signature_spectrum.json`** — present
@@ -157,19 +169,125 @@ yet written.
 
 ## `P-PROFILE` — a designed outline, ready to become 3D
 
+The same shape travels both ways: written by `export_profile` from a 2D
+element, and by `import_from_optiland` from a 3D solid; read by the 3D
+bridge, and by `BasePrism.from_profile` to rebuild the element in 2D.
+
 | Field | Meaning | Type |
 |---|---|---|
-| `schema_version` | Currently `"1.0"`. | text |
-| `points` | Every span endpoint, two per straight span. | list of points |
-| `normals` | The outward direction at each endpoint — stored **per span**, so a sharp corner's two edges each keep their own (`C-PROFILE-01`). | list of unit vectors |
+| `schema_version` | Currently `"1.5"` (1.2 added conic and spline glass edges; 1.3 adds `sources`; 1.4 the `rayfile` source; 1.5 the asphere glass edge). A `"1.0"` profile — no `curve`, no `body` — still reads, as all straight spans and a solid. | text |
+| `points` | Points along each span: its two ends for a straight span; for an arc, conic, asphere or spline, `curve_samples` points evenly spaced along it (33 by default), both ends included. | list of points |
+| `normals` | The exact outward direction at each point — stored **per span**, so a sharp corner's two edges each keep their own (`C-PROFILE-01`). | list of unit vectors |
 | `spans[i].index_start`, `.index_end` | Which entries in `points` and `normals` belong to this span. | two whole numbers |
 | `spans[i].short_label`, `.long_label` | The span's functional labels. | text, optional |
 | `spans[i].role`, `.mechanism` | What it is for and what light does there. Empty if the element's class did not tag it. | one word each, optional |
+| `spans[i].curve` | The span's exact shape: `{"type": "line"}`, `{"type": "circle", "center": [a, b], "radius": R}`, `{"type": "conic", "vertex": [a, b], "axis": [ux, uy], "radius": R, "conic": K}` (R signed along the axis, as in Optiland), for a mirror or (schema 1.2) a glass edge, or `{"type": "spline", "points": [...], "tangents": [...]}`, a cubic Hermite curve through the points with those unit tangents, with an optional `"domain": [p0, p1]` for a piece of one. The points are checked against it. Absent means a line. | a small record |
+| `spans[i].curve` (asphere) | Schema 1.5: `{"type": "asphere", "vertex", "axis", "radius", "conic", "coefficients"}`, the conic's sag plus A1 s² + A2 s⁴ + …; `radius` null for a flat base. | descriptor |
+| `body` | `solid` — glass with an inside; or `sheet` — mirrors with no inside, every span reflecting, spans not necessarily joined (written by `export_sheet_profile`). | one word |
 | `symmetry.kind` | How the outline becomes a solid: `extrude`, `revolve`, or `free`. | one word |
 | `symmetry.plane_axes`, `.extrude_axis`, `.length` | For `extrude`: which two axes the outline lies in, which axis it extends along, and how far. | required for `extrude` |
-| `symmetry.axis` | For `revolve`. Not yet read by anything. | required for `revolve` |
-| `construction_params` | The physical and numerical settings that built the element, split as in `P-RUN-BUNDLE`. | two sections |
-| `fit` | Always empty from this side. Reserved for a 3D tool that fits the profile. | — |
+| `symmetry.axis` | For `revolve`: the axis of revolution, as a point on it and a direction, `{"point": [a, b], "direction": [ux, uy]}`, in the outline's own coordinates. The spans are then only the half of the outline to the left of that direction, one chain from the axis back to it; a surface the axis crosses, such as a lens face, is cut there. | required for `revolve` |
+| `construction_params` | The physical and numerical settings that built the element, split as in `P-RUN-BUNDLE`. When any span is curved, the numerical half records `curve_samples`. | two sections |
+| `sources` | The light the element is designed for: source specifications, `P-SOURCE-SPEC` below, each with a distinct `name`. Empty when none was given; absent from a 1.2 profile, which reads as none. | list of records |
+| `fit` | `null`, or for spans built from a measurement `{"spans": {label: record}}`: the scan file and its digest, the model the span holds (`fitted` or `as_measured`), the fitted surface and alignment, the residual (RMS, PV, slope and its noise floor), the correlation warnings, the smoothing, and the rotational symmetry assumed (one meridian) or measured (several). The span's normals are its model's. | record |
+
+The glass's refractive index is not a field; a 2D rebuild is given it
+separately — from `interior_index` when the profile was read off a solid.
+
+### `P-SOURCE-SPEC` — one light source, for both engines
+
+The format of one entry of a profile's `sources`, and the argument of
+`build_source_2d` and `build_source_3d`. Written in the 2D scene's
+coordinates, with one more out of the plane: a point is (a, b, c), and in
+the 3D world it is (a, c, b). The (a, b) to (a, 0, b) half is the bridge's
+plane mapping (`C-BRIDGE-10`).
+
+| Field | Meaning | Type |
+|---|---|---|
+| `name` | Unique within the profile; the 2D source's name and the 3D source's. | text |
+| `kind` | `pencil` (one ray), `point`, `patch` (a flat rectangle square to its axis), or `rayfile` (a measured LED's rays; schema 1.4, fields below). | one word |
+| `position` | `[a, b]` or `[a, b, c]`; `c` is 0 when left out. For a patch, the point `anchor` names. | two or three numbers |
+| `direction_deg` | The emission axis: an angle in the 2D plane, from +a towards +b. An axis out of the plane cannot be written. | degrees |
+| `emission` | `uniform` (equal intensity in every direction of the cone) or `lambertian` (intensity proportional to the cosine from the axis). Not for a pencil. | one word |
+| `half_angle_deg` | The cone's half-angle, up to 90. A `lambertian` source fills the hemisphere, so it is 90; a `uniform` patch must be below 90. Both limits are the 3D engine's: it has no other counterpart. | degrees |
+| `size` | A patch's sides: `[in_plane, out_of_plane]`, the first lying in the 2D plane when `roll_deg` is 0. | two numbers |
+| `roll_deg` | A patch's turn about its axis; positive turns its first side from the plane towards +c. Default 0. | degrees |
+| `anchor` | Where `position` is on a patch, as fractions of `size`: `[0.5, 0.5]` its centre (default), `[0, 0]` a corner. | two numbers |
+| `flux`, `flux_unit` | Total flux; `W` (default) or `lm`. Default 1. | a number, one word |
+| `wavelength_um` | One wavelength, in micrometres. Default 0.55; for a rayfile, none (its spectrum, the peak in 2D). | a number |
+
+A `rayfile` source has `position`, `direction_deg` and `roll_deg`, placed
+as `rayfile_frame` places a file (its z along the axis), and no emission
+law, size or flux of its own. Instead:
+
+| Field | Meaning | Type |
+|---|---|---|
+| `rayfile.path` | The file, relative to the profile's folder or absolute. The file is not in the profile. | text |
+| `rayfile.format` | The format argument its parser takes (`read_rayfile`'s, one of `FORMATS`: `tm25`). | one word |
+| `rayfile.n_rays`, `rayfile.flux`, `rayfile.flux_unit`, `rayfile.sha256` | The file when the spec was written. A file that no longer matches is refused. `flux` and `flux_unit` are copied to the top level. | numbers, text |
+| `slice.max_offset_mm` | The 2D section's limit on h (`slice_rayfile`), chosen from the slicing flow's table. | mm |
+| `slice.kept_share`, `slice.rays_kept` | What that limit kept; checked against the file when the 2D source is built. | a share, a count |
+
+**In 2D** a source is its section by the scene plane (c = 0), as a
+`RaySetSource`: a list of rays, each with its start, direction and
+brightness. Positions sit at the midpoints of equal steps along the section, and
+angles at the midpoints of equal steps across the cone. Each ray is
+weighted by its law's intensity in the plane, the largest weight 1.
+`flux_per_brightness` is the flux over the summed brightness of those rays.
+A pencil or point off the plane, or a patch that does not cross it, has no
+section and is refused.
+
+## `P-RAYFILE` — a measured LED's rays
+
+A supplier's rayfile (IES TM-25, binary), and what `read_rayfile` returns
+from it: a `Rayfile`. Only the layout checked against a file is read; any
+other is refused (`C-SOURCE-02`).
+
+| Field | Meaning | Type |
+|---|---|---|
+| `positions` | Where each ray starts, in the LED's own frame: z along its axis, origin where the supplier puts it (for ams OSRAM, the centre of the package on top of the mould's base). Rays start in air. | n × 3, mm |
+| `directions` | Each ray's direction. | n × 3, unit |
+| `flux` | Each ray's share of the flux. | n numbers, W |
+| `spectrum_nm` | One spectrum for every ray: wavelength and relative value. | k × 2, nm |
+| `name` | The product, from the header. | text |
+| `header` | Every header field read: radiant flux, ray count, date, text fields; fields not decoded kept raw. | record |
+
+**In 3D** a rayfile is placed like a source specification's axes: its z along
+the emission axis, its x along `e_out`, its y along `e_in`, at a point of the
+2D scene (`rayfile_frame`). Ray *k* of a run is record *k* mod *n*.
+
+**In 2D** a rayfile is sliced (`slice_rayfile`, `C-SOURCE-03`) for a
+rotationally symmetric optic:
+- **Skew:** each record's skew offset h is the distance at which its line
+  passes the axis, 0 for a meridional ray.
+- **The turn:** each ray is turned about the axis into the plane with its
+  direction kept, and its offset dropped.
+- **What is kept:** rays with |h| at most the caller's limit.
+- **What is reported:** the flux in the rest, as `skew_share`: the light a
+  2D section cannot carry.
+- **The radiation pattern** (`radiation_pattern`, `radiation_plot_svg`):
+  the kept rays' intensity against the angle from the axis, laid over the
+  LED's own, so a slice that is not a fair sample of the LED's directions
+  shows.
+- **Choosing the limit** (`RayfileSlicingFlow`): a machine that asks for
+  the rayfile and the package's footprint, checks one against the other,
+  and tabulates the flux kept at a series of limits, with the limits at the
+  ends of the range the choice is made in.
+
+## `P-DESIGNED-FACES` — a designed element's faces, for another tracer
+
+Returned by `TIRCollimator.section_faces(points=None)`: one entry per
+optical face of the upper half-section, keyed by the face's short label.
+
+| Field | Meaning | Type |
+|---|---|---|
+| key | The face's short label, as in the element's outline: `12b`, `22b`, `12a`, `22c`, `22a`. | text |
+| points | The face's points in the element's own frame: the source point F at the origin, the axis along the first coordinate, the distance from the axis (never negative) the second. A straight face is its two ends; a designed face is its designed points, `12a` from the vertex outwards, `22c` from its rear end to its front end. | list of points |
+| normals | The exact unit normal at each point — the design's own, not estimated from neighbours. | list of unit vectors |
+| `points=` | How many points per designed face, recomputed from the design; by default the spline edge's own count. | whole number, optional |
+
+The receiving side (`sequential_collimator`) reads the first coordinate as
+Optiland's z and the second as its y.
 
 ## `P-PHYSICAL-SCENE` — the scene with units
 
@@ -227,6 +345,20 @@ dashboard.
 The same folder shape as above. `result.json` additionally records the
 identifier and result of the classification run this intake launched.
 
+## `P-SLICING-RUN` — choosing a rayfile slice's limit, step by step
+
+The same folder shape, from `RayfileSlicingFlow`. The events are its
+questions, the answers' checks, and the slicing. `result.json` holds the
+table:
+
+| Field | Meaning |
+|---|---|
+| `rows` | Per limit on h (mm): rays kept, flux kept, kept and skew share, the kept flux's share within 30° of the axis, and whether the kept share is inside the kept range. |
+| `limit_for_kept_share_mm` | The limits that keep exactly the two ends of the kept range. |
+| `package_mm`, `half_diagonal_mm` | The footprint given, and the largest limit it allows. |
+| `led_within_30deg` | The whole LED's share within 30°, for the rows' column. |
+| `warnings` | Start points covering little of the footprint, or centred off the axis. |
+
 ## `P-AGENTIC-ENVELOPE` — a tool's answer
 
 | Field | Meaning |
@@ -267,10 +399,32 @@ Planned. No fields specified yet.
 
 | Field | Meaning |
 |---|---|
-| `build_faces_from_profile(...)` returns | One Optiland surface per span, keyed by the span's short label — refracting, reflecting or absorbing according to its mechanism (`C-BRIDGE-01`). |
-| `ExtrudedPolygonSolid.surfaces` | The same surfaces, wrapped as one compound object so a viewer can draw it. |
-| `ExtrudedPolygonSolid.profile` | The original profile, kept so the 2D and 3D renderers can draw the cross-section. |
+| `build_faces_from_profile(...)` returns | One Optiland surface per span, keyed by the span's short label — refracting, reflecting or absorbing according to its mechanism (`C-BRIDGE-01`). A reflecting span takes its reflectance from the `reflectances` argument. |
+| `ExtrudedPolygonSolid.surfaces` | The same surfaces, wrapped as one compound object so a viewer can draw it — plus the two end caps, `end_cap_neg` and `end_cap_pos`, when the solid was built with `end_caps` (`C-BRIDGE-04`). |
+| `ExtrudedPolygonSolid.end_caps` | `None` (open ends, the default), `"refract"` (polished glass ends) or `"absorb"` (blackened ends). |
+| `ExtrudedPolygonSolid.profile` | The original profile, kept so the 2D and 3D renderers can draw the cross-section, and so a read-back can recover the labels. |
 | `span_outward_ray(...)` returns | Where and how to place a face, read from the span's own stored normal. |
+| `PolygonPlaneGeometry.vertices` | An end cap's outline, in the cap's own flat frame. Optiland's own checks see only its bounding rectangle (`C-BRIDGE-04`). |
+| `CutConicGeometry(radius, conic, aperture_radius, inner_radius=, azimuth_deg=)` | Optiland's conic of revolution with a central hole and/or cut to an azimuth range (degrees, from local +x towards +y). Each root of the surface is tested against the cut separately, so a ray through a removed part still meets the kept part behind it (`C-BRIDGE-12`). |
+| `SplineRevolutionGeometry(points, tangents, domain=)` | A surface of revolution whose meridian is a spline (`(r, z)` points with unit tangents, the 2D spline edge's own curve), monotonic in r: a designed lens face or TIR wall, or a zone of one. Exact normals; roots bracketed per segment and refined by bisection, so only a ray grazing the surface within 1/16 of a segment can pass it. NumPy only, no gradients (`C-3D-01`). |
+| `AsphereRevolutionGeometry(radius, conic, coefficients, outer_radius, inner_radius=)` | The even asphere of revolution about the local z axis, its vertex at the origin: the 2D asphere edge's surface, coefficients from r², `radius` None for a flat base; a zone when `inner_radius > 0`. Exact, NumPy only, forward only. |
+| `symmetry.azimuth_deg` | In a sheet profile: the range about the axis the revolved mirror covers, from the half-section's side; `[-90, 90]` is the half on the side drawn in 2D (`C-PROFILE-01`, `C-BRIDGE-12`). |
+| `check_containment(result)` returns | `crossings` — how many recorded ray paths passed through an end-cap position; `ray_ids` — which rays; `flux` — the light they carried. Warns when `crossings` is not zero. |
+| `import_from_optiland(solid)` returns | A `P-PROFILE` with the live faces' points and normals and the original labels (`C-BRIDGE-06`). |
+| `interior_index(solid, wavelength_um)` returns | The glass's refractive index at that wavelength, read from the faces. Wavelength in micrometres, Optiland's unit. |
+| `RevolvedProfileSolid.surfaces` | One exact surface of revolution per span of the half-section, each named `<solid>.<short label>` (`L2.S1`); `face(label)` finds one by its short label (`C-BRIDGE-02`, `C-BRIDGE-10`). |
+| `RevolvedProfileSolid.surface_kinds` | What each span became: `conic` (a lens face, or a zone of one), `spline` (a designed face: a spline meridian revolved), `disc`, `annulus` (a flat ring), or `frustum` (a cylinder or cone wall). |
+| `RevolvedProfileSolid.volume` | Optiland's `Volume`; the faces were checked to form a closed solid by the bridge's versions of Optiland's two checks (every rim meets another face's; every ray from `interior_point(profile)` crosses the boundary an odd number of times), which accept zones and cone tips on the axis (`C-BRIDGE-09`, `KW-OPTILAND-06`, `KW-OPTILAND-07`). |
+| `interior_point(profile)` | A point inside a revolve profile's half-section, as far from its edges as possible (its pole of inaccessibility); where the closed-solid check starts its rays, since `Volume()`'s own guess misses a steep meniscus (`KW-OPTILAND-04`). |
+| `RevolvedProfileSolid.interior_on_back(label)` | Whether that face's glass is on the side Optiland calls its back, as read from the stored normal (`C-BRIDGE-07`). |
+| `axis_frame(profile)` returns | The map between a revolve profile's 2D coordinates and the solid's own frame: the axis is z through the origin, the half-section's side +x. Without a placement, that frame is the world. |
+| `RevolvedProfileSolid(..., cs=)` | Where the solid's own frame sits in the world, as a `Lens`'s `cs` places its front vertex (`C-BRIDGE-10`). `to_world(point)` maps a profile point to the world; `source_cs(z, field_angle_deg, x)` places a source on the placed axis, optionally tilted within the outline's plane. |
+| `scene_placement(profile)` returns | The `cs` that puts the solid where its 2D scene had it: scene point (a, b) to world (a, 0, b), the extruded prism's mapping, so the elements of one 2D scene keep their places in 3D (`C-BRIDGE-10`). |
+| `RevolvedProfileSheet(name, profile, reflectances, medium=, cs=)` | Revolved mirrors from a `sheet` profile: one Optiland mirror per span, named, placed and looked up as a solid's faces are; no volume. `reflectances` is one value for every span or one per label. A span not reaching the axis becomes a zone; `azimuth_deg` holds the profile's cut, None for a full turn (`C-BRIDGE-12`). |
+| `RevolvedProfileSheetRenderer2D`, `RevolvedProfileSheetRenderer3D` | The same for a revolved sheet, span by span and unfilled: each mirror and its mirror image as open lines in 2D (a side only where a cut keeps it), one swept actor per span in 3D, over the cut's range (`C-BRIDGE-11`). |
+| `PlanarPlate.from_segment(name, segment, polygon, reflectance= \| absorbing=True)` | A flat plate standing on a 2D segment, perpendicular to the 2D plane: one mirror or absorber face named `<name>.plate`. `polygon` is (u along the segment, v out of the 2D plane); its chord along v = 0 must be the segment (`C-BRIDGE-13`). `PlanarPlate(name, polygon, cs=...)` places one anywhere. |
+| `PlanarPlateRenderer2D`, `PlanarPlateRenderer3D` | Draw a plate's outline from its live face, at its place (`C-BRIDGE-13`). |
+| `RevolvedProfileRenderer2D`, `RevolvedProfileRenderer3D` | Draw a revolved solid in Optiland's viewers, from its live faces and at its placement: in 2D the section through the axis in the viewing plane; in 3D the contour turned about the solid's own axis, in double precision (`C-BRIDGE-11`). |
 
 ## `P-NSQ-RUN-BUNDLE` — a saved 3D trace
 

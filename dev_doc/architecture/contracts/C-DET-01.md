@@ -9,7 +9,7 @@ viewpoint: radiometric
 status: enforced
 failure_mode: silent
 checked_by: >-
-  src-python/ray_tracing_shapely/developer_tests/test_detector_hit_records.py::test_one_sided_absorption_is_default,
+  src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_detector_hit_records.py::test_one_sided_absorption_is_default,
   ::test_non_absorbing_side_is_a_complete_no_op,
   ::test_absorbing_side_flip_recovers_the_hit,
   ::test_two_sided_restores_signed_net_flux,

@@ -27,7 +27,11 @@ matching kind of Optiland surface — refracting, reflecting, absorbing —
 and places it. Every pair in the vocabulary has a mapping.
 
 **Invariants.** The mapping is a fixed table. A pair not in the table
-raises a `ValueError` naming the pair.
+raises a `ValueError` naming the pair. A reflecting span maps to a mirror,
+and a mirror needs a reflectance — the fraction of light it returns —
+which a profile does not record. The caller supplies it per span; a
+reflecting span without one raises a `ValueError` naming the span, rather
+than defaulting to a perfect mirror.
 
 **Units and frames.** Not applicable.
 
@@ -35,4 +39,7 @@ raises a `ValueError` naming the pair.
 surface type for anything unrecognised — would build a solid that traces
 plausibly and is not the one that was designed.
 
-**Checked by.** `test_scene_bridge.py::test_unrecognised_mechanism_raises_value_error`.
+**Checked by.** `test_scene_bridge.py::test_unrecognised_mechanism_raises_value_error`;
+the reflectance requirement by
+`test_end_caps_and_import.py::test_reflect_span_needs_a_reflectance`, and
+the mirror's behaviour by `test_a_perfect_mirror_hypotenuse_folds_like_tir`.

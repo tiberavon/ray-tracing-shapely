@@ -113,11 +113,36 @@ def test_edge_roles_three_tuple_backward_compat():
     print("  PASS: 3-tuple _edge_roles builds, get_functional_label/get_edge_role correct")
 
     # A genuine 2-tuple subclass is unaffected: no role tag, no crash.
-    # RightAnglePrism's _edge_roles is still (short, long) only.
+    # Every shipped flat prism is now tagged, so the 2-tuple case is a
+    # throwaway subclass too.
+    class _ThrowawayUntaggedPrism(RightAnglePrism):
+        _edge_roles: ClassVar[List[Tuple]] = [
+            ("E", "Entrance Face"),
+            ("H", "Hypotenuse"),
+            ("X", "Exit Face"),
+        ]
+
+    untagged = _ThrowawayUntaggedPrism(scene, leg_length=30.0)
+    assert untagged.get_functional_label(0) == ("E", "Entrance Face")
+    assert untagged.get_edge_role(0) is None, "2-tuple _edge_roles should report no Role"
+    print("  PASS: 2-tuple _edge_roles subclasses unaffected")
+
+    # The flat prisms carry Role and Mechanism tags for profile_export.
     right_angle = RightAnglePrism(scene, leg_length=30.0)
-    assert right_angle.get_functional_label(0) is not None
-    assert right_angle.get_edge_role(0) is None, "2-tuple _edge_roles should report no Role"
-    print("  PASS: existing 2-tuple _edge_roles subclasses unaffected")
+    assert [right_angle.get_edge_role(i) for i in range(3)] == [
+        Role.ENTRANCE, Role.WALL, Role.EXIT
+    ]
+    assert right_angle._edge_mechanisms == {
+        "E": Mechanism.REFRACT, "H": Mechanism.TIR, "X": Mechanism.REFRACT
+    }
+    equilateral = EquilateralPrism(scene, side_length=50.0)
+    assert [equilateral.get_edge_role(i) for i in range(3)] == [
+        Role.BLOCKER, Role.EXIT, Role.ENTRANCE
+    ]
+    assert equilateral._edge_mechanisms == {
+        "B": None, "X": Mechanism.REFRACT, "E": Mechanism.REFRACT
+    }
+    print("  PASS: RightAnglePrism and EquilateralPrism carry Role/Mechanism tags")
 
     # RefractometerPrism itself is now Role/Mechanism-tagged
     # (profile_export.py's spans field needs this) -- see

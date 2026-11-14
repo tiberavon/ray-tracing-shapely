@@ -8,7 +8,7 @@ port: P-HIT-RECORD
 viewpoint: radiometric
 status: enforced
 failure_mode: silent
-checked_by: src-python/ray_tracing_shapely/developer_tests/test_detector_hit_records.py::test_detector_never_terminates_ray
+checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_detector_hit_records.py::test_detector_never_terminates_ray
 witness: null
 tracked_by: null
 conflicts_with: null

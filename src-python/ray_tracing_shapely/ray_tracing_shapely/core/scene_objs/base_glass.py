@@ -18,6 +18,8 @@ limitations under the License.
 import math
 from typing import List, Optional, Dict, Any, Union, Tuple, TYPE_CHECKING
 
+from ..glass_spans import glass_spans
+
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":
     from ray_tracing_shapely.core.scene_objs.base_scene_obj import BaseSceneObj, SimulationReturn
@@ -74,12 +76,16 @@ class BaseGlass(BaseSceneObj):
         """
         Get the number of edges in this glass object.
 
+        An edge is one physical surface (a ``core.glass_spans.GlassSpan``): a
+        straight edge, or a whole circular arc, which takes three path entries.
+        For an outline with no arcs this is the path length, as before.
+
         Returns:
-            Number of edges (based on path length). Subclasses should override
-            this if edges are determined differently.
+            Number of edges. Subclasses should override this if edges are
+            determined differently.
         """
         if hasattr(self, 'path') and self.path:
-            return len(self.path)
+            return len(glass_spans(self.path))
         return 0
 
     def _initialize_edge_labels(self) -> None:
@@ -225,9 +231,9 @@ class BaseGlass(BaseSceneObj):
         if not hasattr(self, 'path') or not self.path:
             return (0.0, 0.0)
 
-        p1 = self.path[edge_index]
-        p2 = self.path[(edge_index + 1) % len(self.path)]
-        return ((p1['x'] + p2['x']) / 2, (p1['y'] + p2['y']) / 2)
+        # Halfway along the surface: on the curve for an arc, so a curved
+        # face is labelled by where it actually is, not by its chord.
+        return glass_spans(self.path)[edge_index].midpoint
 
     def auto_label_cardinal(self) -> None:
         """

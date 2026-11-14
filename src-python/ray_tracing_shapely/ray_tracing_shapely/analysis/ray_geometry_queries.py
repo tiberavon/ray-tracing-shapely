@@ -33,7 +33,10 @@ from typing import List, Optional, Tuple, Union, TYPE_CHECKING
 
 from shapely.geometry import Point, LineString
 
-from .glass_geometry import glass_to_polygon, get_edge_descriptions, describe_edges, EdgeDescription
+from .glass_geometry import (
+    glass_to_polygon, get_edge_descriptions, describe_edges, EdgeDescription,
+    edge_linestring, edge_outward_normal, edge_point_at,
+)
 
 if TYPE_CHECKING:
     from ..core.ray import Ray
@@ -178,45 +181,36 @@ def _resolve_edge(glass: 'BaseGlass', edge_label: str) -> EdgeDescription:
 
 
 def _edge_to_linestring(edge: EdgeDescription) -> LineString:
-    """Convert an EdgeDescription to a Shapely LineString."""
-    return LineString([(edge.p1.x, edge.p1.y), (edge.p2.x, edge.p2.y)])
+    """Convert an EdgeDescription to a Shapely LineString (the curve, for an arc)."""
+    return edge_linestring(edge)
 
 
-def _edge_outward_normal(edge: EdgeDescription, glass: 'BaseGlass') -> tuple:
+def _edge_outward_normal(
+    edge: EdgeDescription,
+    glass: 'BaseGlass',
+    point: Optional[Tuple[float, float]] = None,
+    polygon=None,
+) -> tuple:
     """
     Compute the outward-pointing unit normal of an edge.
 
-    The edge direction is p1->p2.  The two candidate normals are
-    (-dy, dx) and (dy, -dx).  We pick the one that points away from
-    the glass centroid.
+    A straight edge's normal is the candidate pointing away from the glass
+    centroid. An arc's normal is taken at the point of the arc nearest
+    ``point`` (default: its midpoint). See
+    ``glass_geometry.edge_outward_normal``.
+
+    Args:
+        edge: The edge.
+        glass: The owning glass.
+        point: Where on the edge (arcs only).
+        polygon: The glass outline, if already computed.
 
     Returns:
         (nx, ny) unit normal pointing outward.
     """
-    dx = edge.p2.x - edge.p1.x
-    dy = edge.p2.y - edge.p1.y
-    length = math.sqrt(dx * dx + dy * dy)
-    if length < 1e-12:
-        return (0.0, 0.0)
-
-    # Two candidate normals
-    n1 = (-dy / length, dx / length)
-    n2 = (dy / length, -dx / length)
-
-    # Pick the one pointing away from the glass centroid
-    poly = glass_to_polygon(glass)
-    cx, cy = poly.centroid.x, poly.centroid.y
-
-    # Vector from edge midpoint to centroid
-    mx, my = edge.midpoint.x, edge.midpoint.y
-    to_centroid_x = cx - mx
-    to_centroid_y = cy - my
-
-    # The outward normal has negative dot product with to-centroid vector
-    dot1 = n1[0] * to_centroid_x + n1[1] * to_centroid_y
-    if dot1 < 0:
-        return n1
-    return n2
+    if polygon is None:
+        polygon = glass_to_polygon(glass)
+    return edge_outward_normal(edge, polygon, point)
 
 
 def _ray_endpoints(ray: 'Ray') -> tuple:
@@ -286,10 +280,17 @@ def find_rays_crossing_edge(
     """
     edge = _resolve_edge(glass_obj, edge_label)
     edge_line = _edge_to_linestring(edge)
+    curved = edge.span is not None and edge.span.is_curved
 
     result = []
     for ray in segments:
         p1x, p1y, p2x, p2y = _ray_endpoints(ray)
+        if curved:
+            # Exact, against the circle: a segment ending on the true curve
+            # (every ray that hit it) would miss the densified polyline.
+            if edge.span.intersect_segment((p1x, p1y), (p2x, p2y)):
+                result.append(ray)
+            continue
         ray_line = LineString([(p1x, p1y), (p2x, p2y)])
         if ray_line.intersects(edge_line):
             result.append(ray)
@@ -334,7 +335,9 @@ def find_rays_by_angle_to_edge(
     """
     edge = _resolve_edge(glass_obj, edge_label)
     edge_line = _edge_to_linestring(edge)
-    normal = _edge_outward_normal(edge, glass_obj)
+    polygon = glass_to_polygon(glass_obj)
+    curved = edge.span is not None and edge.span.is_curved
+    normal = _edge_outward_normal(edge, glass_obj, polygon=polygon)
 
     if proximity is None:
         proximity = edge.length * 2.0
@@ -357,6 +360,11 @@ def find_rays_by_angle_to_edge(
             continue
         rdx /= ray_len
         rdy /= ray_len
+
+        if curved:
+            # An arc's normal depends on where the ray meets it: take it at
+            # the point of the arc nearest the ray's midpoint.
+            normal = _edge_outward_normal(edge, glass_obj, point=(mid.x, mid.y), polygon=polygon)
 
         # Angle between ray direction and edge normal
         # Use absolute dot product because we care about the angle magnitude,
@@ -438,11 +446,10 @@ def interpolate_along_edge(
         >>> pt = interpolate_along_edge(prism, 'S', 3/4, as_point=True)
     """
     edge = _resolve_edge(glass_obj, edge_label)
-    edge_line = _edge_to_linestring(edge)
-    point = edge_line.interpolate(fraction, normalized=True)
+    x, y = edge_point_at(edge, fraction)
     if as_point:
-        return point
-    return (point.x, point.y)
+        return Point(x, y)
+    return (x, y)
 
 
 def normal_along_edge(
@@ -485,13 +492,11 @@ def normal_along_edge(
     """
     edge = _resolve_edge(glass_obj, edge_label)
 
-    # Base point on the edge
-    edge_line = _edge_to_linestring(edge)
-    base_shapely = edge_line.interpolate(fraction, normalized=True)
-    bx, by = base_shapely.x, base_shapely.y
+    # Base point on the edge (along the curve, for an arc)
+    bx, by = edge_point_at(edge, fraction)
 
-    # Outward unit normal
-    nx, ny = _edge_outward_normal(edge, glass_obj)
+    # Outward unit normal at that point
+    nx, ny = _edge_outward_normal(edge, glass_obj, point=(bx, by))
 
     # Tip point
     tx = bx + nx * length

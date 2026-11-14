@@ -8,7 +8,7 @@ port: P-ROLE-MECHANISM
 viewpoint: structural
 status: enforced
 failure_mode: silent
-checked_by: src-python/ray_tracing_shapely/developer_tests/test_roles.py::test_role_mechanism_enum_values
+checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_roles.py::test_role_mechanism_enum_values
 witness: null
 tracked_by: null
 conflicts_with: null

@@ -9,7 +9,7 @@ port: P-RUN-BUNDLE
 viewpoint: numerical
 status: enforced
 failure_mode: silent
-checked_by: src-python/ray_tracing_shapely/developer_tests/test_run_registry.py::test_persist_run_artifacts_writes_expected_files
+checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_run_registry.py::test_persist_run_artifacts_writes_expected_files
 witness: null
 tracked_by: null
 conflicts_with: null

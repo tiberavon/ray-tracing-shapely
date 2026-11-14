@@ -13,8 +13,8 @@ This is a monorepo publishing several independent distributions.
 none special-cased at the repo root. Install the ones you need:
 
 ```bash
-git clone https://github.com/micheleben/ray_tracing_shapely.git
-cd ray_tracing_shapely
+git clone https://github.com/tiberavon/ray-tracing-shapely.git
+cd ray-tracing-shapely
 pip install -e "src-python/ray_tracing_shapely[dev]"        # core — start here
 pip install -e "src-python/ray_tracing_shapely_optiland[dev]"  # 3D verification, planning stage
 pip install -e "src-python/optiland_sms[dev]"                  # Optiland SMS plugin, planning stage

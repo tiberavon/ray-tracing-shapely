@@ -29,6 +29,18 @@ On top of that sit layers the original simulator does not have:
   RXI) and Miñano–Benítez Simultaneous Multiple Surface profile construction
   (RR / RX / RXI), on a reusable plane-curve toolbox. Surfaces are built from
   optical requirements, not from vertices typed in by hand.
+- **Lenses and aspheres** — labelled singlets, LED collimators (a TIR lens and
+  a Fresnel lens) and exact even aspheres as glass edges, with the
+  coefficients in Zemax's and Optiland's order. A lens face measured by a
+  profilometer is read from its DXF and fitted with its vertex and tilt. The
+  fit reports which of its numbers the data do not separately determine, and
+  becomes two models of the lens, fitted and as measured.
+- **Light sources and measured LEDs** — a source described once, built in 2D
+  and in 3D, and stored with the element it lights in `profile.json`. An LED's
+  rayfile (IES TM-25) is read, drawn as a radiation pattern, and sliced into
+  the 2D plane, with the share of its light a 2D section cannot carry stated.
+- **Light on a plane** — the irradiance map, and the 2D line profile, of the
+  light that leaves an optic.
 - **Radiometry and eye safety** — unit-checked physical quantities, and
   exposure-limit routines for IEC 60825-1 (lasers) and IEC 62471 (lamps and
   LEDs), run as explicit state machines rather than nested conditionals.
@@ -98,7 +110,7 @@ that made it.
 
 The code is documented in two layers, both shipped with the package:
 
-- **`dev_doc/concepts/`** — why the code has the shape it has. Thirty-six
+- **`dev_doc/concepts/`** — why the code has the shape it has. Thirty-seven
   numbered concepts, each stating one claim and the evidence for it, written
   for a reader who wants to understand the design rather than just call it.
 - **`dev_doc/architecture/`** — what is true now: a component map, a port
@@ -132,8 +144,8 @@ This project began as a translation of the
 [doi:10.5281/zenodo.6386611](https://doi.org/10.5281/zenodo.6386611)), and has grown a
 great deal of new work on top of it.
 
-Of this distribution's 146 source files, **35 are translations** of
-that project — the ray-tracing engine and its scene objects — and **111
+Of this distribution's 183 source files, **35 are translations** of
+that project — the ray-tracing engine and its scene objects — and **148
 were written for this project**: the analysis layer, the nonimaging design
 methods, the radiometric and photobiological layers, the agentic surface,
 and the tests and examples. Every file says which it is in its own header,

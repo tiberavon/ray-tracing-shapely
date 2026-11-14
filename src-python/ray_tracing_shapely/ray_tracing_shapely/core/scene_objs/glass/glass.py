@@ -23,10 +23,12 @@ if __name__ == "__main__":
     from ray_tracing_shapely.core.scene_objs.base_glass import BaseGlass
     from ray_tracing_shapely.core.constants import MIN_RAY_SEGMENT_LENGTH, EDGE_DETECTION_THRESHOLD_SQUARED
     from ray_tracing_shapely.core import geometry
+    from ray_tracing_shapely.core.glass_curves import curve_from_descriptor, transform_descriptor
 else:
     from ..base_glass import BaseGlass
     from ...constants import MIN_RAY_SEGMENT_LENGTH, EDGE_DETECTION_THRESHOLD_SQUARED
     from ... import geometry
+    from ...glass_curves import curve_from_descriptor, transform_descriptor
 
 if TYPE_CHECKING:
     from ...ray import Ray
@@ -35,7 +37,12 @@ if TYPE_CHECKING:
 
 class Glass(BaseGlass):
     """
-    Glass of arbitrary shape consisting of line segments and circular arcs.
+    Glass of arbitrary shape consisting of line segments, circular arcs, and
+    exact conic or spline edges.
+
+    A path entry with a ``curve`` descriptor (core.glass_curves) starts a
+    curve edge that ends at the next entry: an exact conic section or a
+    cubic Hermite spline, intersected exactly (core.glass_curves).
 
     The glass shape is defined by a path of points. Each point has coordinates (x, y)
     and an 'arc' flag. If path[i].arc is True, then the segment path[i-1]→path[i]→path[i+1]
@@ -163,6 +170,9 @@ class Glass(BaseGlass):
         for point in self.path:
             point['x'] += diff_x
             point['y'] += diff_y
+            if point.get('curve'):
+                point['curve'] = transform_descriptor(
+                    point['curve'], lambda q: (q[0] + diff_x, q[1] + diff_y), lambda v: v)
         return True
 
     def rotate(self, angle, center=None):
@@ -182,11 +192,15 @@ class Glass(BaseGlass):
         cos_a = math.cos(angle)
         sin_a = math.sin(angle)
 
+        def turn(q):
+            dx, dy = q[0] - center['x'], q[1] - center['y']
+            return (center['x'] + dx * cos_a - dy * sin_a, center['y'] + dx * sin_a + dy * cos_a)
+
         for point in self.path:
-            dx = point['x'] - center['x']
-            dy = point['y'] - center['y']
-            point['x'] = center['x'] + dx * cos_a - dy * sin_a
-            point['y'] = center['y'] + dx * sin_a + dy * cos_a
+            point['x'], point['y'] = turn((point['x'], point['y']))
+            if point.get('curve'):
+                point['curve'] = transform_descriptor(
+                    point['curve'], turn, lambda v: (v[0] * cos_a - v[1] * sin_a, v[0] * sin_a + v[1] * cos_a))
 
         return True
 
@@ -204,9 +218,14 @@ class Glass(BaseGlass):
         if center is None:
             center = self.get_default_center()
 
+        def stretch(q):
+            return (center['x'] + (q[0] - center['x']) * scale_factor,
+                    center['y'] + (q[1] - center['y']) * scale_factor)
+
         for point in self.path:
-            point['x'] = center['x'] + (point['x'] - center['x']) * scale_factor
-            point['y'] = center['y'] + (point['y'] - center['y']) * scale_factor
+            point['x'], point['y'] = stretch((point['x'], point['y']))
+            if point.get('curve'):
+                point['curve'] = transform_descriptor(point['curve'], stretch, lambda v: v, scale_factor)
 
         return True
 
@@ -273,6 +292,9 @@ class Glass(BaseGlass):
         next_i = (i + 1) % len(self.path)
         next_next_i = (i + 2) % len(self.path)
 
+        if self.path[i].get('curve') and not self.path[i].get('arc'):
+            # An exact conic or spline edge from path[i] to path[i+1]
+            return self._check_curve_intersection(ray, i, next_i)
         if self.path[next_i].get('arc') and not self.path[i].get('arc'):
             # Circular arc from path[i] through path[i+1] to path[i+2]
             return self._check_arc_intersection(ray, i, next_i, next_next_i)
@@ -315,6 +337,43 @@ class Glass(BaseGlass):
 
         return None
 
+    def _curve(self, i, next_i):
+        """The exact curve of the edge from path[i] to path[next_i] (cached per descriptor
+        and end points, which move, rotate and scale replace)."""
+        desc = self.path[i]['curve']
+        start = (self.path[i]['x'], self.path[i]['y'])
+        end = (self.path[next_i]['x'], self.path[next_i]['y'])
+        key = (id(desc), start, end)
+        cache = self.__dict__.setdefault('_curve_cache', {})
+        hit = cache.get(i)
+        if hit is None or hit[0] != key or hit[2] is not desc:
+            hit = (key, curve_from_descriptor(desc, start, end), desc)
+            cache[i] = hit
+        return hit[1]
+
+    def _curve_hits(self, ray_p1, ray_p2, i, next_i):
+        """Points where a ray meets the curve edge, farther than the minimum segment
+        length from its start, nearest first: [(dist_sq, point)]."""
+        curve = self._curve(i, next_i)
+        direction = (ray_p2.x - ray_p1.x, ray_p2.y - ray_p1.y)
+        min_seg_len_sq = MIN_RAY_SEGMENT_LENGTH ** 2 * self.scene.length_scale ** 2
+        out = []
+        for t, _ in curve.line_hits((ray_p1.x, ray_p1.y), direction, slack=1e-12):
+            if t <= 0.0:
+                continue
+            q = geometry.point(ray_p1.x + t * direction[0], ray_p1.y + t * direction[1])
+            dist_sq = geometry.distance_squared(ray_p1, q)
+            if dist_sq > min_seg_len_sq:  # per root: a ray starting on the curve keeps its far root
+                out.append((dist_sq, q))
+        return sorted(out, key=lambda h: h[0])
+
+    def _check_curve_intersection(self, ray, i, next_i):
+        """Nearest intersection of a ray with an exact curve edge, or None."""
+        ray_p1 = geometry.point(ray.p1['x'], ray.p1['y']) if isinstance(ray.p1, dict) else ray.p1
+        ray_p2 = geometry.point(ray.p2['x'], ray.p2['y']) if isinstance(ray.p2, dict) else ray.p2
+        hits = self._curve_hits(ray_p1, ray_p2, i, next_i)
+        return hits[0][1] if hits else None
+
     def _check_arc_intersection(self, ray, i, mid_i, next_i):
         """
         Check intersection with a circular arc.
@@ -346,9 +405,9 @@ class Glass(BaseGlass):
         ray_p1 = geometry.point(ray.p1['x'], ray.p1['y']) if isinstance(ray.p1, dict) else ray.p1
         ray_p2 = geometry.point(ray.p2['x'], ray.p2['y']) if isinstance(ray.p2, dict) else ray.p2
 
-        r = geometry.distance(center, p3)  # noqa: F841 -- POSSIBLE DEFECT, left for review: this computes a radius
-        # from p3, and the circle below is built from p2 instead. Either the
-        # radius is redundant or the circle is using the wrong point.
+        # The centre is equidistant from p1, p2 and p3 (it is where the
+        # perpendicular bisectors of p1-p3 and p2-p3 meet), so the circle
+        # through any one of them is the same circle.
         intersections = geometry.line_circle_intersections(
             geometry.line(ray_p1, ray_p2),
             geometry.circle(center, p2)
@@ -362,15 +421,22 @@ class Glass(BaseGlass):
         # Create a ray object with Point objects for geometry functions
         ray_line = geometry.line(ray_p1, ray_p2)
 
-        # Find nearest valid intersection on the arc
+        # Find nearest valid intersection on the arc. A root at the ray's own
+        # start (a ray that has just entered or left through this arc) is
+        # skipped here, root by root, as _process_arc_segment does: returning
+        # it as "the nearest" would make check_ray_intersects discard it as
+        # too short and lose the other root -- the arc's far side, where the
+        # ray really leaves. Whether that start root counts as on the ray is
+        # decided by rounding, so the loss came and went with the coordinates.
         nearest = None
         min_dist_sq = float('inf')
+        min_seg_len_sq = MIN_RAY_SEGMENT_LENGTH ** 2 * self.scene.length_scale ** 2
 
         for intersection in [intersections[1], intersections[2]]:
             if self._point_is_on_arc(intersection, center, p1, p2, p3):
                 if geometry.intersection_is_on_ray(intersection, ray_line):
                     dist_sq = geometry.distance_squared(ray_p1, intersection)
-                    if dist_sq < min_dist_sq:
+                    if min_seg_len_sq < dist_sq < min_dist_sq:
                         min_dist_sq = dist_sq
                         nearest = intersection
 
@@ -596,7 +662,10 @@ class Glass(BaseGlass):
             'ray2_intersect_count': 0
         }
 
-        if self.path[next_i].get('arc') and not self.path[i].get('arc'):
+        if self.path[i].get('curve') and not self.path[i].get('arc'):
+            # An exact conic or spline edge
+            self._process_curve_segment(ray, ray2, i, next_i, result)
+        elif self.path[next_i].get('arc') and not self.path[i].get('arc'):
             # Circular arc
             self._process_arc_segment(ray, ray2, i, next_i, next_next_i, result)
         elif not self.path[next_i].get('arc') and not self.path[i].get('arc'):
@@ -604,6 +673,36 @@ class Glass(BaseGlass):
             self._process_line_segment(ray, ray2, i, next_i, result)
 
         return result
+
+    def _process_curve_segment(self, ray, ray2, i, next_i, result):
+        """Process an exact curve edge for incident data.
+
+        The normal points back towards the side the ray comes from, as for a
+        line or an arc; a hit within the edge threshold of either end point
+        is flagged as near an edge; the test ray's crossings are counted for
+        the inside/outside parity.
+        """
+        ray_p1 = geometry.point(ray.p1['x'], ray.p1['y']) if isinstance(ray.p1, dict) else ray.p1
+        ray_p2 = geometry.point(ray.p2['x'], ray.p2['y']) if isinstance(ray.p2, dict) else ray.p2
+        hits = self._curve_hits(ray_p1, ray_p2, i, next_i)
+        if hits:
+            dist_sq, rp = hits[0]
+            result['point'] = rp
+            result['distance_sq'] = dist_sq
+            curve = self._curve(i, next_i)
+            _, param = curve.nearest((rp.x, rp.y))
+            nx, ny = curve.left_normal(param)
+            if nx * (ray_p2.x - ray_p1.x) + ny * (ray_p2.y - ray_p1.y) > 0.0:
+                nx, ny = -nx, -ny
+            result['normal_x'], result['normal_y'] = nx, ny
+            edge_threshold_sq = EDGE_DETECTION_THRESHOLD_SQUARED * self.scene.length_scale ** 2
+            for k in (i, next_i):
+                end = geometry.point(self.path[k]['x'], self.path[k]['y'])
+                if geometry.distance_squared(rp, end) < edge_threshold_sq:
+                    result['near_edge'] = True
+        r2p1 = geometry.point(ray2.p1['x'], ray2.p1['y']) if isinstance(ray2.p1, dict) else ray2.p1
+        r2p2 = geometry.point(ray2.p2['x'], ray2.p2['y']) if isinstance(ray2.p2, dict) else ray2.p2
+        result['ray2_intersect_count'] += len(self._curve_hits(r2p1, r2p2, i, next_i))
 
     def _process_line_segment(self, ray, ray2, i, next_i, result):
         """Process a line segment for incident data."""

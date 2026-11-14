@@ -31,7 +31,7 @@ import math
 from collections import defaultdict
 from typing import Any, Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
 
-from .bidirectional import extract_ranked_paths, _locate_on_surface, _surface_edges
+from .bidirectional import extract_ranked_paths, _locate_on_surface, _surface_spans
 
 if TYPE_CHECKING:
     from ..core.ray_lineage import RayLineage
@@ -488,10 +488,10 @@ def path_physical_summary(
 def _cumulative_arc_to_edge_start(obj: Any, edge_index: int) -> float:
     """Arc length from the surface's first vertex to the start of edge_index."""
     total = 0.0
-    for idx, a, b in _surface_edges(obj):
-        if idx == edge_index:
+    for span in _surface_spans(obj):
+        if span.index == edge_index:
             return total
-        total += math.hypot(b[0] - a[0], b[1] - a[1])
+        total += span.length
     raise ValueError(f"edge_index {edge_index} not found on surface")
 
 

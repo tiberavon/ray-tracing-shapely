@@ -392,9 +392,11 @@ class Beam(BaseSceneObj):
         new_rays = []
 
         if not self.random:
-            # Deterministic ray placement
-            # Use max(1, ...) to ensure at least 1 ray is generated
-            num_positions = max(1, int(n))
+            # Deterministic ray placement, counted as upstream does
+            # (for i = 0.5; i <= n; i++): floor(n + 0.5) positions, each at
+            # (i + 0.5) * step from p1 and so inside the segment. A beam
+            # shorter than half a ray spacing emits nothing (KW-CORE-02).
+            num_positions = int(math.floor(n + 0.5))
             for i in range(num_positions):
                 i_pos = i + 0.5  # Center ray within segment
                 x = self.p1['x'] + i_pos * step_x
@@ -420,8 +422,9 @@ class Beam(BaseSceneObj):
             size_x = self.p2['x'] - self.p1['x']
             size_y = self.p2['y'] - self.p1['y']
 
-            # Use max(1, ...) to ensure at least 1 ray is generated
-            num_random_rays = max(1, int(n * num_angled_rays))
+            # Counted as upstream does (for i = 0; i < n * m; i++):
+            # ceil(n * m) rays (KW-CORE-02)
+            num_random_rays = max(0, int(math.ceil(n * num_angled_rays)))
             for i in range(num_random_rays):
                 position = self.get_random(i * 2)
                 angle = self.get_random(i * 2 + 1)
@@ -437,6 +440,10 @@ class Beam(BaseSceneObj):
                         ray_density
                     )
                 )
+
+        if not new_rays:
+            self.warning = ('Beam is shorter than half a ray spacing at this ray density, '
+                            'so it emits no ray')
 
         # Calculate brightness scale
         actual_brightness = min(

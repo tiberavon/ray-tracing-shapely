@@ -9,7 +9,7 @@ viewpoint: structural
 status: documented
 failure_mode: silent
 checked_by: null
-witness: dev_doc/architecture/04_worked_example.md
+witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_signature_analysis.py::test_path_signature_and_spectrum
 tracked_by: null
 conflicts_with: null
 refines: null
@@ -23,6 +23,13 @@ since: 0.1
 curved surfaces into straight pieces the same way — same number of pieces,
 same starting point, same direction. The edge number in a signature is a
 position along that cut-up curve, not a coordinate.
+
+A surface stored as an exact curve — a circular arc, a conic or a spline
+edge — is not cut up: it is one edge, whatever number of points the outline
+uses to store it. Edge numbers count
+physical surfaces in outline order, so a lens face is one edge and is
+located on the curve itself. The assumption above is about curves a design
+chose to build from straight pieces.
 
 **Guarantees.** Given that, two designs' route tables can be compared
 entry by entry.

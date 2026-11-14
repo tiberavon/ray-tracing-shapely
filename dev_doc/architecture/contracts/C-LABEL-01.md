@@ -9,12 +9,12 @@ viewpoint: structural
 status: enforced
 failure_mode: loud
 checked_by: >-
-  src-python/ray_tracing_shapely/developer_tests/test_run_registry.py::test_persist_run_artifacts_writes_name_topology_fingerprint,
+  src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_run_registry.py::test_persist_run_artifacts_writes_name_topology_fingerprint,
   ::test_persist_run_artifacts_duplicate_name_raises,
   ::test_compare_runs_raises_on_swept_parameter_absorbed_into_name,
   ::test_compare_runs_raises_on_unnamed_objects,
   ::test_compare_runs_check_name_topology_false_bypasses_the_check
-witness: dev_doc/architecture/04_worked_example.md
+witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_signature_analysis.py::test_persist_and_compare_with_bidirectional_result
 tracked_by: null
 conflicts_with: null
 refines: null

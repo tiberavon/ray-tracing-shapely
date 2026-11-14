@@ -9,7 +9,7 @@ viewpoint: physical
 status: enforced
 failure_mode: loud
 checked_by: >-
-  src-python/ray_tracing_shapely/developer_tests/test_eye_safety.py::test_ael_class_1_uv_default_duration_matches_correct_time_base,
+  src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_eye_safety.py::test_ael_class_1_uv_default_duration_matches_correct_time_base,
   ::test_ael_class_1_visible_default_duration_unaffected,
   ::test_ael_class_3r_uv_default_duration_matches_correct_time_base,
   ::test_classify_measurement_uv_default_no_longer_silently_wrong

@@ -9,7 +9,7 @@ viewpoint: structural
 status: documented
 failure_mode: silent
 checked_by: null
-witness: dev_doc/architecture/04_worked_example.md
+witness: null
 tracked_by: null
 conflicts_with: null
 refines: null

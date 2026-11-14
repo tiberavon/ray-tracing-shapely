@@ -19,6 +19,8 @@ import svgwrite
 import math
 import random
 
+from .glass_spans import glass_spans
+
 
 # Standard wavelengths in nm for color simulation
 GREEN_WAVELENGTH = 546  # Mercury green line
@@ -815,6 +817,48 @@ class SVGRenderer:
                     text['id'] = f'label-line-{obj_uuid}'
             self.layer_labels.add(text)
 
+    def draw_polyline(self, points, color='gray', stroke_width=2, label=None,
+                      scene_obj=None, label_font_size='8px'):
+        """
+        Draw an open polyline (for curved optical elements such as a
+        ConicMirror, drawn from its ``sample_points()``). Unfilled.
+
+        Args:
+            points: Sequence of (x, y) pairs or dicts with 'x' and 'y' keys.
+            color, stroke_width, label, scene_obj, label_font_size: as for
+                draw_line_segment; the label goes at the middle point.
+        """
+        pts = [self._normalize_point(p if isinstance(p, dict) else {'x': p[0], 'y': p[1]})
+               for p in points]
+        poly = self.dwg.polyline(
+            points=[(p['x'], p['y']) for p in pts],
+            stroke=color,
+            stroke_width=stroke_width,
+            fill='none'
+        )
+        if scene_obj is not None:
+            self._attach_scene_obj_metadata(poly, scene_obj, css_class='polyline')
+        self.layer_objects.add(poly)
+
+        if label:
+            mid = pts[len(pts) // 2]
+            font_size = label_font_size
+            vertical_offset = float(font_size.replace('px', '').replace('pt', '')) * 0.35
+            text = self.dwg.text(
+                label,
+                insert=(self._normalize_coord(mid['x']), -self._normalize_coord(mid['y']) + vertical_offset),
+                fill=color,
+                font_size=font_size,
+                font_family='sans-serif',
+                text_anchor='middle',
+                transform='scale(1, -1)'  # Flip text back to be readable
+            )
+            if scene_obj is not None:
+                obj_uuid = getattr(scene_obj, 'uuid', None)
+                if obj_uuid:
+                    text['id'] = f'label-polyline-{obj_uuid}'
+            self.layer_labels.add(text)
+
     # =========================================================================
     # Diagram annotations -- pedagogical overlays, not physical scene
     # objects. Always land in layer_diagram_annotations (topmost layer, see
@@ -1002,10 +1046,10 @@ class SVGRenderer:
         command only takes two endpoints plus a (large-arc-flag,
         sweep-flag) pair and derives the center itself from them, which
         requires solving the flag combination that reproduces OUR already-
-        known `center` -- draw_glass_path()'s own arc segments (lines
-        950-966) sidestep this because their center comes from 3 already-
-        known path points via _calculate_arc_center(), not from an explicit
-        angle pair. Sampling the known circle directly avoids re-deriving
+        known `center` -- draw_glass_path()'s own arc segments get their
+        flags from the arc's span (core.glass_spans: direction and sweep),
+        which an explicit angle pair does not carry. Sampling the known
+        circle directly avoids re-deriving
         that flag-solving for an arbitrary angle1/angle2, at the cost of
         the arc being a fine polyline rather than a single path primitive
         -- invisible at n_segments=24 for the angle spans this is meant for.
@@ -1200,6 +1244,9 @@ class SVGRenderer:
 
         path_data = []
         n = len(path)
+        all_spans = glass_spans(path)
+        arc_spans = {span.path_indices[0]: span for span in all_spans if span.is_arc}
+        curve_spans = {span.path_indices[0]: span for span in all_spans if span.is_freeform}
 
         # Start at first point
         p0 = self._normalize_point(path[0])
@@ -1210,23 +1257,36 @@ class SVGRenderer:
             next_i = (i + 1) % n
             next_next_i = (i + 2) % n
 
-            p_current = self._normalize_point(path[i])
             p_next = self._normalize_point(path[next_i])
 
+            if i in curve_spans:
+                # An exact conic or spline edge: a polyline along the curve,
+                # at a sag of 1e-4 of its size (its chord would cut the glass)
+                span = curve_spans[i]
+                for q in span.coords(max_sag=span.scale * 1e-4)[1:]:
+                    q = self._normalize_point({'x': q[0], 'y': q[1]})
+                    path_data.append(f"L {q['x']},{q['y']}")
+                i = next_i
             # Check if next point defines an arc
-            if path[next_i].get('arc', False) and i != n - 1:
+            elif path[next_i].get('arc', False) and i != n - 1:
                 # Arc from path[i] through path[i+1] to path[i+2]
                 p_next_next = self._normalize_point(path[next_next_i])
 
-                # Calculate arc center and radius
-                center = self._calculate_arc_center(p_current, p_next, p_next_next)
+                # The arc's own geometry (core.glass_spans): radius, which way
+                # it turns, and whether it spans more than half a circle.
+                span = arc_spans.get(i)
 
-                if center:
-                    radius = math.sqrt((p_current['x'] - center['x'])**2 +
-                                     (p_current['y'] - center['y'])**2)
-
-                    # Use sweep-flag=1 for proper arc direction with Y-flip transform
-                    path_data.append(f"A {radius},{radius} 0 0 1 {p_next_next['x']},{p_next_next['y']}")
+                if span is not None:
+                    # A counter-clockwise arc (in scene coordinates) draws with
+                    # sweep-flag 1 under this renderer's Y-flip, a clockwise one
+                    # with 0. Hard-coding 1, as before, drew every concave face
+                    # bulging outward (a biconcave lens came out biconvex).
+                    large_arc = 1 if span.sweep > math.pi else 0
+                    sweep_flag = 1 if span.direction > 0 else 0
+                    path_data.append(
+                        f"A {span.radius},{span.radius} 0 {large_arc} {sweep_flag} "
+                        f"{p_next_next['x']},{p_next_next['y']}"
+                    )
 
                     # Skip the next point since we've already drawn to next_next
                     i = next_next_i
@@ -1380,6 +1440,16 @@ class SVGRenderer:
             )
             self.layer_labels.add(text)
 
+    def _edge_element(self, edge, **style):
+        """An SVG element tracing one glass edge: a line for a straight edge, a
+        polyline along the curve for an arc (its chord would cut across the
+        glass)."""
+        span = getattr(edge, 'span', None)
+        if span is not None and span.is_curved:
+            return self.dwg.polyline(points=span.coords(max_sag=span.scale * 1e-4),
+                                     fill='none', **style)
+        return self.dwg.line(start=(edge.p1.x, edge.p1.y), end=(edge.p2.x, edge.p2.y), **style)
+
     def draw_glass_edge_overlays(self, glass_obj, stroke: str = 'none',
                                  stroke_width: float = 0) -> bool:
         """
@@ -1412,12 +1482,7 @@ class SVGRenderer:
         edge_group['class'] = 'glass-edges'
 
         for edge in edges:
-            line = self.dwg.line(
-                start=(edge.p1.x, edge.p1.y),
-                end=(edge.p2.x, edge.p2.y),
-                stroke=stroke,
-                stroke_width=stroke_width,
-            )
+            line = self._edge_element(edge, stroke=stroke, stroke_width=stroke_width)
             line['id'] = f'{obj_uuid}-edge-{edge.index}'
             line['inkscape:label'] = edge.short_label or f'edge-{edge.index}'
             line['class'] = 'glass-edge'
@@ -1518,6 +1583,14 @@ class SVGRenderer:
                                     color='orange', radius=4,
                                     label=display_name, scene_obj=obj,
                                     label_font_size=object_label_font_size)
+                # Curved objects that draw themselves as a sampled curve
+                # (ConicMirror, ArcMirror): an open polyline
+                elif callable(getattr(obj, 'sample_points', None)):
+                    display_name = getattr(obj, 'get_display_name', lambda: None)() if draw_obj_labels else None
+                    self.draw_polyline(obj.sample_points(),
+                                       label=display_name, scene_obj=obj,
+                                       stroke_width=edge_stroke_width,
+                                       label_font_size=object_label_font_size)
                 # Line-based objects: have p1, p2 (mirrors, detectors, etc.)
                 elif hasattr(obj, 'p1') and hasattr(obj, 'p2'):
                     display_name = getattr(obj, 'get_display_name', lambda: None)() if draw_obj_labels else None
@@ -1771,9 +1844,8 @@ class SVGRenderer:
             for glass_name, edge_label in highlight_edge_specs:
                 glass = get_object_by_name(scene, glass_name)
                 edge = _resolve_edge(glass, edge_label)
-                line = self.dwg.line(
-                    start=(edge.p1.x, edge.p1.y),
-                    end=(edge.p2.x, edge.p2.y),
+                line = self._edge_element(
+                    edge,
                     stroke=edge_highlight_color,
                     stroke_width=edge_highlight_width,
                     stroke_opacity=0.9,

@@ -69,7 +69,10 @@ eye-safety = [
 # The agentic surface. The tools themselves need nothing extra; only the
 # kernel-embedded MCP server does.
 agentic = [
-    "mcp",
+    # mcp 2.x renamed FastMCP (mcp.server.fastmcp -> mcp.server.mcpserver.MCPServer)
+    # and changed other APIs; the server is written for 1.x and imports nothing
+    # under 2.x. Checked on 1.30.
+    "mcp>=1.2,<2",
 ]
 
 # Running the example and sweep notebooks.

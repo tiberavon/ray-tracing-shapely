@@ -10,7 +10,7 @@ viewpoint: numerical
 status: documented
 failure_mode: silent
 checked_by: null
-witness: dev_doc/architecture/04_worked_example.md
+witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_bidirectional.py::test_connection_tolerance_monotonic
 tracked_by: null
 conflicts_with: null
 refines: null

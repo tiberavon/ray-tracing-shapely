@@ -8,7 +8,7 @@ port: P-BEAM-CTOR
 viewpoint: physical
 status: enforced
 failure_mode: loud
-checked_by: src-python/ray_tracing_shapely/developer_tests/test_detector_hit_records.py::test_beam_negative_emis_angle_raises
+checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_detector_hit_records.py::test_beam_negative_emis_angle_raises
 witness: null
 tracked_by: null
 conflicts_with: null

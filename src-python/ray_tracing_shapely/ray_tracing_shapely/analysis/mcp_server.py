@@ -43,26 +43,7 @@ from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from .agentic_tools import (
-    check_energy_conservation,
-    describe_schema,
-    fresnel_transmittances_tool,
-    highlight_custom_rays_svg,
-    highlight_rays_by_polarization_svg,
-    highlight_rays_crossing_edge_svg,
-    highlight_rays_inside_glass_svg,
-    audit_bidirectional_paths,
-    list_detectors,
-    path_physical_summary_tool,
-    path_surfaces_tool,
-    paths_by_incidence_angle,
-    query_rays,
-    rank_bidirectional_paths,
-    rank_detector_paths,
-    rank_paths_by_energy,
-    render_scene_svg,
-    tir_analysis_tool,
-)
+from .tool_registry import get_exposed_tools
 
 # ---------------------------------------------------------------------------
 # Server instance
@@ -73,29 +54,27 @@ mcp = FastMCP("ray-tracing")
 # Register all agentic tools by reference. Because agentic_tools is the same
 # module object that the notebook imported, _CONTEXT is shared — the server
 # reads live simulation data without any serialisation step.
-_EXPOSED_TOOLS = [
-    query_rays,
-    describe_schema,
-    rank_paths_by_energy,
-    check_energy_conservation,
-    list_detectors,
-    rank_detector_paths,
-    paths_by_incidence_angle,
-    rank_bidirectional_paths,
-    path_surfaces_tool,
-    audit_bidirectional_paths,
-    path_physical_summary_tool,
-    fresnel_transmittances_tool,
-    tir_analysis_tool,
-    render_scene_svg,
-    highlight_rays_inside_glass_svg,
-    highlight_rays_crossing_edge_svg,
-    highlight_rays_by_polarization_svg,
-    highlight_custom_rays_svg,
-]
-
+# The exposed list is derived in tool_registry (every agentic tool not
+# withdrawn, C-AGENT-02), so it cannot drift from the agentic list.
+_EXPOSED_TOOLS = get_exposed_tools()
 for _fn in _EXPOSED_TOOLS:
     mcp.tool()(_fn)
+
+
+def expose(function: Any) -> bool:
+    """Publish one more tool. Called by ``tool_registry.register_tool``, not directly.
+
+    Returns:
+        True.
+
+    Raises:
+        RuntimeError: If the server is already running (see ``register_tool``).
+    """
+    if is_serving():
+        raise RuntimeError(f"cannot expose {function.__name__!r}: the MCP server is already running")
+    mcp.tool()(function)
+    _EXPOSED_TOOLS.append(function)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +88,11 @@ _thread: Optional[threading.Thread] = None
 # ---------------------------------------------------------------------------
 # Public control API
 # ---------------------------------------------------------------------------
+
+def is_serving() -> bool:
+    """Whether this process's server thread is running (``start_background`` was called)."""
+    return _thread is not None and _thread.is_alive()
+
 
 def is_running(port: int = 7654, host: str = '127.0.0.1') -> bool:
     """Return True if something is accepting connections on host:port."""

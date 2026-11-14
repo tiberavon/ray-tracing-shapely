@@ -79,6 +79,33 @@ Several decisions below that look like excess caution follow from that.
 | `C-EYE-05` | **Relies** on it. The state-machine flow's final result must equal what calling `classify_measurement` directly would give; the flow owns that promise. |
 | `C-EYE-06` | **Owns** it. The lamp standard's retinal-thermal risk-group comparison uses the standard's own table, after a transcription error was found and corrected against it. |
 
+## Known gaps, deliberately
+
+Five absences were disclosed to an external reviewer in a photobiological
+safety assessment of a red LED torch, and each has a decided disposition
+rather than an implicit one. Each is an entry in the project's register of
+known defects, cited here by id (`KD13`).
+
+**Open.** No photometric `V(λ)` table. The component carries the hazard
+weightings (`S`, `B`, `R`) only, because `V(λ)` is not a hazard weighting
+and feeds no exposure limit. It does have a consumer: the guide's
+luminance screen, and the limiting-aperture test that follows from it,
+need it to reach cd/m². In the torch assessment that one constant was
+transcribed by hand from the published CIE 1924 table into the
+calculation notebook, so **that screen is the only step in that report not
+reproducible from source**. Registered as `KW-EYE-01`; recommended for
+implementation.
+
+**Accepted as outside scope**, registered as `KW-EYE-02` with the trigger
+that would reverse each: multiple-pulse criteria for repetitively pulsed
+sources; ultrashort-pulse retinal-thermal brackets; the IRA-only
+short-pulse bracket; the "IR hazard without a strong visual stimulus"
+criterion. The first is the one with a foreseeable trigger — a
+**PWM-dimmed source cannot be assessed without it**, since peak and
+time-averaged emission then differ and the two retinal hazards need
+different numbers. Check that row before accepting a new source for
+assessment.
+
 ## How it is shipped
 
 Core package, under `optical_elements/eye_safety/`.

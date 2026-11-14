@@ -36,7 +36,9 @@ A blocker absorbs it. The engine never knows which of these it is talking to.
 | File | What it holds |
 |---|---|
 | `core/scene_objs/base_scene_obj.py` | `BaseSceneObj`: what every object has in common, including its `.name`. |
-| `core/scene_objs/base_glass.py`, `glass/` | Glass, ideal lens, spherical lens. `refract()` is here. |
+| `core/scene_objs/base_glass.py`, `glass/` | Glass, ideal lens, spherical lens. `refract()` is here. A glass's outline is straight edges, circular arcs, and exact conic, asphere or spline edges, each intersected exactly. |
+| `core/glass_spans.py` | A glass outline read as its physical surfaces: one span per straight edge, whole arc, or curve edge, numbered in outline order. Everything downstream that counts edges — the analysis layer, signatures, the profile export — counts these. |
+| `core/glass_curves.py` | The exact curve edges: `ConicCurve`, `AsphereCurve` (the even asphere: a conic plus a polynomial in s², coefficients in Zemax's and Optiland's order; a line's meeting points bracketed within the edge's sag bounds and refined, a grazing double crossing documented) and `SplineCurve` (a curve through given points with given directions). Where a ray meets one, its normal there, its length, and points along it. Plain geometry, no Shapely, so the glass can depend on it. |
 | `core/scene_objs/base_grin_glass.py` | Glass whose refractive index varies with position. |
 | `core/scene_objs/base_custom_surface.py`, `base_filter.py` | Surfaces defined by an equation; wavelength filters. |
 | `core/scene_objs/mirror/` | Mirror and ideal mirror. |

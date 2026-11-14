@@ -43,9 +43,29 @@ N = top (min Y), S = bottom (max Y), E = right (max X), W = left (min X).
 | `grazing_polarization_ratio_threshold` | T_p/T_s ratio above which a ray is flagged "grazing" |
 
 ## MCP agentic tools
-When a simulation is running in a Jupyter kernel and `set_context_from_result(scene, result)`
-has been called, 11 tools are available via the kernel-embedded MCP server on port 7654.
-Setup: run steps 1–3 in `notebooks/abbe_refractometer_llm_playground.ipynb`.
+When a simulation is running in a Jupyter kernel, the tools
+`analysis/tool_registry.py`'s `get_exposed_tools()` lists are available via the kernel-embedded MCP
+server on port 7654 (needs the `agentic` extra: `pip install "ray-tracing-shapely[agentic]"`).
+Setup, in the kernel, after running a simulation:
+
+```python
+from ray_tracing_shapely.analysis.agentic_tools import set_context_from_result
+from ray_tracing_shapely.analysis import mcp_server
+set_context_from_result(scene, result)   # result = simulator.run_with_result(...)
+mcp_server.start_background()            # http://127.0.0.1:7654/sse
+```
+
+For a 3D trace (the `ray_tracing_shapely_optiland` package), register its tools
+*before* starting the server, and set its context after each trace:
+
+```python
+from ray_tracing_shapely_optiland import agentic
+agentic.register()                       # adds the 3D tools to the same server
+agentic.set_nsq_context(nsq_scene, nsq_result)   # traced with record_paths=True
+agentic.set_comparison_context(cmp)      # a compare.compare_2d_3d result, if one was run
+```
+
+The groups below are a sample, not the full list.
 
 **SQL tools** (require simulation context):
 - `query_rays(sql)` — SELECT-only SQL against the ray database
@@ -56,6 +76,12 @@ Setup: run steps 1–3 in `notebooks/abbe_refractometer_llm_playground.ipynb`.
 - `check_energy_conservation()` — energy balance audit
 - `fresnel_transmittances_tool(n1, n2, theta_i_deg)` — Fresnel T_s/T_p (standalone, no context needed)
 - `tir_analysis_tool(glass_name)` — critical angle, Brewster angle per glass interface
+
+**3D tools** (after `agentic.register()` and `set_nsq_context`):
+- `describe_nsq_scene()` — solids and faces as the event log names them, sources, detectors
+- `query_nsq(sql)` — SELECT-only SQL against the 3D event log; `describe_nsq_schema()` for its columns
+- `nsq_path_spectrum(top_n)` — rays grouped by the faces they met and how they ended
+- `compare_2d_3d_summary(max_listed)` — the same rays in 2D and 3D: how many agree, the worst differences, the rays that differ (after `set_comparison_context`)
 
 **SVG rendering tools** (require context):
 - `render_scene_svg()` — full scene render

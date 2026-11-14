@@ -521,7 +521,7 @@ class Simulator:
                     # PYTHON-SPECIFIC FEATURE: Surface Hit Records (Step B, opt-in)
                     # =====================================================================
                     # Tell the object whether to record hit geometry. Objects that
-                    # compute a normal (Glass, Mirror, IdealMirror, custom surfaces)
+                    # compute a normal (Glass, Mirror, IdealMirror, Blocker, custom surfaces)
                     # write hit_point/hit_normal/incident_angle/hit_surface_uuid onto
                     # output_ray_geom when this flag is set; the simulator copies them
                     # onto the incident segment after on_ray_incident returns.

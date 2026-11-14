@@ -8,7 +8,7 @@ port: P-HAZARD-ROUTINES
 viewpoint: numerical
 status: enforced
 failure_mode: silent
-checked_by: src-python/ray_tracing_shapely/developer_tests/test_eye_safety.py (108 tests, incl. HeNe/therapy-laser/KrF-XeCl worked-example regressions)
+checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_eye_safety.py (108 tests, incl. HeNe/therapy-laser/KrF-XeCl worked-example regressions)
 witness: null
 tracked_by: null
 conflicts_with: null

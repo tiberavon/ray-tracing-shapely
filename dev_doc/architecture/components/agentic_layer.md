@@ -99,10 +99,10 @@ That single fact explains most of what is in here.
 
 | File | What it holds |
 |---|---|
-| `analysis/agentic_tools.py` | The tools themselves, the `_CONTEXT` store, and the two helpers that build an `ok` or an `error` answer. |
+| `analysis/agentic_tools.py` | The tools themselves, the `_CONTEXT` store (with `set_extension_context` and `get_extension_context`, a namespaced slot in it for a package outside the core), and the two helpers that build an `ok` or an `error` answer. |
 | `analysis/agentic_db.py` | Builds the seven-table database from a run, holds the column descriptions `describe_schema` returns, and refuses queries that would modify data. |
-| `analysis/tool_registry.py` | The list of tools with their descriptions and parameters, and the generators that write the paragraph a person pastes into the assistant's chat to announce them. |
-| `analysis/mcp_server.py` | The list of tools to publish, and the background server the assistant connects to. |
+| `analysis/tool_registry.py` | The catalogue of the Python API (`_REGISTRY`), the agent tools with their descriptions and parameter schemas (`get_agentic_tools`), the withdrawn ones with their reasons (`withdrawn_tools`), the list to publish derived from those two (`get_exposed_tools`), `register_tool` for a package outside the core, `check_tool_lists`, and the generators that write the paragraph a person pastes into the assistant's chat, which name exactly the published tools. |
+| `analysis/mcp_server.py` | The background server the assistant connects to, publishing `get_exposed_tools()`; `expose` for a tool registered after it was imported and before it starts. Written for `mcp` 1.x (the `agentic` extra pins `mcp<2`). |
 
 ## What it produces
 
@@ -138,7 +138,8 @@ checks it.
 | Contract | This component's part |
 |---|---|
 | `C-AGENT-01` | **Makes** it. Every tool answers with the `ok`/`error` shape; nothing raises an exception toward the assistant. |
-| `C-AGENT-02` | **Makes** it. A tool is reachable only if registered in all three places. |
+| `C-AGENT-02` | **Makes** it. The three lists agree: the published list is derived, and the agreement is tested. |
+| `C-AGENT-03` | **Makes** it, with `optiland_nsq_run_registry`. A package's tools join the same lists through `register_tool`, and its live objects the same registry through `set_extension_context`. |
 | `C-NSQ-RUN-03` | **Relies** on it. The query machinery does not care what the tables are called, so the 2D and 3D databases share one implementation. |
 | `C-UNITS-02` | **Relies** on it. The unit checking is done by `optical_elements_units`; this component only calls it. |
 

@@ -9,7 +9,7 @@ viewpoint: physical
 status: enforced
 failure_mode: silent
 checked_by: >-
-  src-python/ray_tracing_shapely/developer_tests/test_eye_safety.py::test_retinal_thermal_classification_limit_exempt_equals_rg1,
+  src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_eye_safety.py::test_retinal_thermal_classification_limit_exempt_equals_rg1,
   ::test_retinal_thermal_classification_limits_match_table_6_1,
   ::test_retinal_thermal_classification_limit_unknown_group_raises,
   ::test_risk_group_durations_no_longer_has_retinal_thermal_key,

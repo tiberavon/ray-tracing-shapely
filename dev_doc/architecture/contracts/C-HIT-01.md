@@ -9,7 +9,7 @@ viewpoint: radiometric
 status: enforced
 failure_mode: silent
 checked_by: >-
-  src-python/ray_tracing_shapely/developer_tests/test_detector_hit_records.py::test_wavelength_none_when_color_simulation_disabled,
+  src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_detector_hit_records.py::test_wavelength_none_when_color_simulation_disabled,
   ::test_wavelength_recorded_when_color_simulation_enabled,
   ::test_incident_angle_at_normal_incidence,
   ::test_incident_angle_at_45_degrees,

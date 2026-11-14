@@ -38,7 +38,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from shapely.geometry import Point, LineString
 
-from .glass_geometry import glass_to_polygon, get_edge_descriptions
+from .glass_geometry import glass_to_polygon, get_edge_descriptions, edge_linestring, edge_outward_normal
 from .ray_geometry_queries import _ray_endpoints
 
 if TYPE_CHECKING:
@@ -591,15 +591,26 @@ def _populate_glass_and_spatial(
         # Precompute ray-edge crossings with angle to normal
         cx, cy = centroid.x, centroid.y
         for ed in edge_descs:
-            edge_line = LineString([(ed.p1.x, ed.p1.y), (ed.p2.x, ed.p2.y)])
-            normal = _outward_normal(ed, cx, cy)
+            # The true curve for an arc (its chord would miss or invent crossings)
+            edge_line = edge_linestring(ed)
+            curved = ed.span is not None and ed.span.is_curved
+            normal = None if curved else _outward_normal(ed, cx, cy)
             for ray_uuid, ray_line, rdx, rdy in ray_lines:
-                if ray_line.intersects(edge_line):
-                    angle = _angle_between_ray_and_normal(rdx, rdy, normal)
-                    crossing_rows.append(
-                        (ray_uuid, glass_uuid, glass_name,
-                         ed.index, ed.short_label, angle)
-                    )
+                if curved:
+                    # Exact, against the circle (a segment ending on the true
+                    # curve misses a densified polyline); the normal is taken
+                    # where the ray meets the arc.
+                    hits = ed.span.intersect_segment(ray_line.coords[0], ray_line.coords[-1])
+                    if not hits:
+                        continue
+                    normal = edge_outward_normal(ed, poly, hits[0])
+                elif not ray_line.intersects(edge_line):
+                    continue
+                angle = _angle_between_ray_and_normal(rdx, rdy, normal)
+                crossing_rows.append(
+                    (ray_uuid, glass_uuid, glass_name,
+                     ed.index, ed.short_label, angle)
+                )
 
     conn.executemany(
         'INSERT INTO ray_glass_membership VALUES (?,?,?)',

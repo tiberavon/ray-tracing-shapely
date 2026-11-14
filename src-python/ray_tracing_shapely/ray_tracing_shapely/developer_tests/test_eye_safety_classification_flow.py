@@ -619,6 +619,81 @@ def test_checked_radiance_from_irradiance_rejects_length_as_solid_angle():
     _assert_raises(ValueError, checked_radiance_from_irradiance, Q(3, "mW/m^2"), Q(0.055, "m"))
 
 
+# --- the solid-angle slot's own kind-check (KW-UNITS-01, C-UNITS-02) ----
+#
+# The two wrappers once checked their solid-angle argument for
+# dimensionality only, which under Pint's dimensionless radian/steradian
+# accepts a plane angle and a bare magnitude. The length test above is not
+# enough to catch that: metre is a genuinely different dimensionality, so
+# it was rejected by the loose check too. These tests pin the three inputs
+# that were silently accepted.
+
+
+def test_checked_radiance_from_irradiance_accepts_prefixed_steradian():
+    """msr is a solid angle and must still pass -- the kind check
+    tightens the *kind*, not the prefix."""
+    result = checked_radiance_from_irradiance(Q(188, "W/m^2"), Q(3.025, "msr"))
+    assert math.isclose(result.to("W/(m^2*sr)").magnitude, 62148.76, rel_tol=1e-5)
+    assert result.check(RADIANCE)
+
+
+def test_checked_radiance_from_irradiance_rejects_plane_angle_as_solid_angle():
+    """mrad in the solid-angle slot must be rejected *even though it
+    returns the right number*.
+
+    This is the case that let the gap outlive the whole suite: Pint reduces both 3.025 mrad and 3.025 msr to the same
+    dimensionless 0.003025, so the wrong unit produced the correct
+    radiance and nothing ever failed. The assertion is therefore about the
+    unit being wrong, not about the answer being wrong -- do not weaken
+    this test to an approximate-value check.
+    """
+    _assert_raises(
+        ValueError, checked_radiance_from_irradiance, Q(188, "W/m^2"), Q(3.025, "mrad"),
+    )
+    _assert_raises(
+        ValueError, checked_radiance_from_irradiance, Q(188, "W/m^2"), Q(0.003025, "rad"),
+    )
+
+
+def test_checked_radiance_from_irradiance_rejects_degrees_as_solid_angle():
+    """deg is the case that was both accepted and wrong: 0.1733 deg where
+    3.025 msr was meant returned 17x low, with no warning."""
+    _assert_raises(
+        ValueError, checked_radiance_from_irradiance, Q(188, "W/m^2"), Q(0.1733, "deg"),
+    )
+
+
+def test_checked_radiance_from_irradiance_rejects_dimensionless_solid_angle():
+    """A dimensionless magnitude is what Pint reduces every angle to, so
+    it must not be accepted as one."""
+    _assert_raises(
+        ValueError, checked_radiance_from_irradiance, Q(188, "W/m^2"), Q(3.025, ""),
+    )
+
+
+def test_checked_irradiance_from_radiance_rejects_plane_angle_as_solid_angle():
+    """The inverse wrapper had the identical hole, on the same line."""
+    _assert_raises(
+        ValueError, checked_irradiance_from_radiance, Q(188, "W/(m^2*sr)"), Q(3.025, "mrad"),
+    )
+    _assert_raises(
+        ValueError, checked_irradiance_from_radiance, Q(188, "W/(m^2*sr)"), Q(0.1733, "deg"),
+    )
+    _assert_raises(
+        ValueError, checked_irradiance_from_radiance, Q(188, "W/(m^2*sr)"), Q(3.025, ""),
+    )
+
+
+def test_checked_conversion_solid_angle_rejects_bad_unit_as_string_too():
+    """Both wrappers accept Pint-formatted strings as well as Quantity, so
+    the string path needs the same guard."""
+    _assert_raises(ValueError, checked_radiance_from_irradiance, "188 W/m^2", "3.025 mrad")
+    _assert_raises(ValueError, checked_radiance_from_irradiance, "188 W/m^2", "0.1733 deg")
+    _assert_raises(ValueError, checked_irradiance_from_radiance, "188 W/(m^2*sr)", "3.025 mrad")
+    result = checked_radiance_from_irradiance("188 W/m^2", "3.025 msr")
+    assert math.isclose(result.to("W/(m^2*sr)").magnitude, 62148.76, rel_tol=1e-5)
+
+
 def test_checked_irradiance_from_radiance_is_the_inverse():
     l = checked_radiance_from_irradiance(Q(3, "mW/m^2"), Q(0.055, "sr"))
     e = checked_irradiance_from_radiance(l, Q(0.055, "sr"))

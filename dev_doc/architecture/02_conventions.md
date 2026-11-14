@@ -62,10 +62,12 @@ Cite the **key**, then name the concrete thing in this component that the
 concept accounts for — a function, a field, a check, a failure that has
 happened. Not a restatement of the concept, and not a slogan.
 
-> **KA7** — a tool appears in `agentic_tools`, in `tool_registry`'s
-> `_REGISTRY`, and in `mcp_server._EXPOSED_TOOLS`. Tools have been
-> advertised in a prompt fragment while missing from the third, and failed
-> as though they did not exist. The count is asserted in a test.
+> **KA7** — a tool is defined in `agentic_tools`, catalogued with its
+> schema in `tool_registry`, and published by `mcp_server` from
+> `get_exposed_tools()`, which derives the list rather than keeping it by
+> hand. Tools have been advertised in a prompt fragment while the server did
+> not publish them, and failed as though they did not exist.
+> `check_tool_lists` is asserted empty in a test.
 
 Not:
 

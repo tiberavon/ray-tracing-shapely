@@ -9,9 +9,9 @@ viewpoint: agentic
 status: documented
 failure_mode: loud
 checked_by: >-
-  src-python/ray_tracing_shapely/developer_tests/test_phase2_schemas_and_lineage.py::test_fresnel_ill_typed_args,
+  src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_phase2_schemas_and_lineage.py::test_fresnel_ill_typed_args,
   ::test_rank_paths_ill_typed_top_n
-witness: src-python/ray_tracing_shapely/developer_tests/test_bidirectional.py::test_bidirectional_tool_no_detector
+witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_bidirectional.py::test_bidirectional_tool_no_detector
 tracked_by: null
 conflicts_with: null
 refines: null

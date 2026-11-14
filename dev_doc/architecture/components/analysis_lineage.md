@@ -34,6 +34,7 @@ travelled, and in what direction it finally left.
 | File | What it holds |
 |---|---|
 | `analysis/lineage_analysis.py` | Six functions: energy ranking, branching statistics, trap detection, angular distribution and its histogram, energy conservation; plus the two path-length functions. |
+| `analysis/irradiance.py` | Where the light that left crosses a plane square to an axis, the plane named in the 2D scene's frame (`ExitPlane`: u across the axis in the 2D plane, v out of it). `irradiance_map` (3D rays: flux per mm² on a grid, `section` along u or v over a band of rows, `radial_profile` the flux per mm of radius) and `line_profile` (2D rays: flux per mm along the line, `folded` about the axis). A 2D section carries the flux per mm of radius, not the irradiance, so `radial_profile` is what to lay over it. A plane that cuts the optic is reported (`rays_past_plane`); `exit_rays_2d` takes a 2D run's last segments that end on nothing, and refuses a run without recorded surface hits. Every result has `summary()` and `to_dict()`, plain JSON, for a tool to return. numpy only. |
 
 ## What it produces
 

@@ -15,6 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import math
 
 # Handle both relative imports (when used as a module) and absolute imports (when run as script)
 if __name__ == "__main__":
@@ -166,6 +167,29 @@ class Blocker(LineObjMixin, BaseFilter):
             inc_y = incident_point['y'] if isinstance(incident_point, dict) else incident_point.y
             print(f"  Incident point: ({inc_x:.4f}, {inc_y:.4f})")
             print("  Ray absorbed by blocker")
+
+        # =====================================================================
+        # PYTHON-SPECIFIC FEATURE: Surface Hit Records (Step B, opt-in)
+        # =====================================================================
+        # As Mirror does: record where the absorbed ray met the blocker, so a
+        # ray's path ends at the blocker it was absorbed by rather than nowhere.
+        # The normal is perpendicular to the segment; the incident direction is
+        # incident_point - ray.p1. CONTRIBUTING.md acos clamp rule applies.
+        if getattr(ray, 'record_surface_hits', False):
+            def _xy(pt):
+                return (pt.x, pt.y) if hasattr(pt, 'x') else (pt['x'], pt['y'])
+            (ax, ay), (bx, by) = _xy(self.p1), _xy(self.p2)
+            (ix, iy), (sx, sy) = _xy(incident_point), _xy(ray.p1)
+            mx, my = bx - ax, by - ay
+            dx, dy = ix - sx, iy - sy
+            m_len, d_len = math.hypot(mx, my), math.hypot(dx, dy)
+            if m_len > 0 and d_len > 0:
+                nx, ny = -my / m_len, mx / m_len
+                cos_inc = abs((dx * nx + dy * ny) / d_len)
+                ray.hit_surface_uuid = self._uuid
+                ray.hit_point = {'x': ix, 'y': iy}
+                ray.hit_normal = {'x': nx, 'y': ny}
+                ray.incident_angle = math.acos(max(-1.0, min(1.0, cos_inc)))
 
         return {
             'isAbsorbed': True

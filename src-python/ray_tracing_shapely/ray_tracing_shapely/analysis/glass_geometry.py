@@ -38,6 +38,8 @@ from typing import List, Tuple, Optional, TYPE_CHECKING
 from shapely.geometry import Polygon, LineString, Point, MultiLineString, GeometryCollection
 from shapely.ops import unary_union
 
+from ..core.glass_spans import DEFAULT_MAX_SAG, GlassSpan, glass_spans, outline_coords
+
 if TYPE_CHECKING:
     from ..core.scene import Scene
     from ..core.scene_objs.base_glass import BaseGlass
@@ -60,6 +62,9 @@ class EdgeType(Enum):
     LINE = "line"           # Straight line segment
     CIRCULAR = "circular"   # Circular arc (defined by 'arc' flag in path)
     EQUATION = "equation"   # Parametric equation (from ParamCurveObjMixin)
+    CONIC = "conic"         # Exact conic section (a path entry's 'curve' descriptor)
+    ASPHERE = "asphere"     # Exact even asphere (a path entry's 'curve' descriptor)
+    SPLINE = "spline"       # Exact cubic Hermite spline (a path entry's 'curve' descriptor)
 
 
 @dataclass
@@ -71,15 +76,23 @@ class EdgeDescription:
     useful for identifying specific edges (e.g., shortest, longest,
     or by cardinal direction) and for debugging/visualization.
 
+    An edge is one physical surface: a straight edge, or a whole circular
+    arc (three path entries). For an outline with no arcs, edge ``i`` is path
+    entry ``i`` to ``i + 1``, exactly as before; with arcs, each arc is one
+    edge, numbered in path order (see ``core.glass_spans``).
+
     Attributes:
-        index: Edge index (0-based, corresponding to path segment)
+        index: Edge index (0-based, one per physical surface, in path order)
         edge_type: Type of edge geometry (line, circular, equation)
         p1: Start point as Shapely Point
         p2: End point as Shapely Point
-        midpoint: Midpoint of the edge as Shapely Point
-        length: Length of the edge in scene units
+        midpoint: The point halfway along the edge (on the curve, for an arc)
+        length: Length of the edge in scene units (arc length, for an arc)
         short_label: Short label for the edge (e.g., "N", "E", or "0")
         long_label: Long descriptive name (e.g., "North Edge", or "0")
+        span: The exact surface (``core.glass_spans.GlassSpan``): use it, or
+            ``edge_linestring`` / ``edge_outward_normal``, rather than a line
+            from ``p1`` to ``p2``, which is only the chord of a curved edge.
     """
     index: int
     edge_type: EdgeType
@@ -89,6 +102,7 @@ class EdgeDescription:
     length: float
     short_label: str
     long_label: str
+    span: Optional[GlassSpan] = field(default=None, repr=False, compare=False)
 
     def __repr__(self) -> str:
         return (f"EdgeDescription(index={self.index}, type={self.edge_type.value}, "
@@ -128,33 +142,15 @@ def get_edge_descriptions(glass: 'BaseGlass') -> List[EdgeDescription]:
         return []
 
     descriptions = []
-    path = glass.path
-    n = len(path)
-
-    for i in range(n):
-        # Get start and end points (wrapping around for closed polygon)
-        p1_dict = path[i]
-        p2_dict = path[(i + 1) % n]
-
-        p1 = Point(p1_dict['x'], p1_dict['y'])
-        p2 = Point(p2_dict['x'], p2_dict['y'])
-
-        # Calculate midpoint
-        mid_x = (p1_dict['x'] + p2_dict['x']) / 2
-        mid_y = (p1_dict['y'] + p2_dict['y']) / 2
-        midpoint = Point(mid_x, mid_y)
-
-        # Calculate length
-        dx = p2_dict['x'] - p1_dict['x']
-        dy = p2_dict['y'] - p1_dict['y']
-        length = math.sqrt(dx * dx + dy * dy)
-
-        # Determine edge type
-        # Check if the next point (p2) has arc=True, which means this segment
-        # is part of a circular arc
-        next_point = path[(i + 1) % n]
-        if next_point.get('arc', False):
+    for span in glass_spans(glass.path):
+        if span.is_arc:
             edge_type = EdgeType.CIRCULAR
+        elif span.kind == "conic":
+            edge_type = EdgeType.CONIC
+        elif span.kind == "asphere":
+            edge_type = EdgeType.ASPHERE
+        elif span.kind == "spline":
+            edge_type = EdgeType.SPLINE
         elif hasattr(glass, 'pieces'):
             # Has parametric equation pieces (from ParamCurveObjMixin)
             edge_type = EdgeType.EQUATION
@@ -162,22 +158,23 @@ def get_edge_descriptions(glass: 'BaseGlass') -> List[EdgeDescription]:
             edge_type = EdgeType.LINE
 
         # Get labels from the glass object
-        label = glass.get_edge_label(i)
+        label = glass.get_edge_label(span.index)
         if label:
             short_label, long_label = label
         else:
-            short_label = str(i)
-            long_label = str(i)
+            short_label = str(span.index)
+            long_label = str(span.index)
 
         descriptions.append(EdgeDescription(
-            index=i,
+            index=span.index,
             edge_type=edge_type,
-            p1=p1,
-            p2=p2,
-            midpoint=midpoint,
-            length=length,
+            p1=Point(*span.start),
+            p2=Point(*span.end),
+            midpoint=Point(*span.midpoint),
+            length=span.length,
             short_label=short_label,
-            long_label=long_label
+            long_label=long_label,
+            span=span,
         ))
 
     return descriptions
@@ -493,7 +490,7 @@ def _describe_prism_text(prism: 'BaseGlass') -> str:
     # Edges section - combine functional and cardinal labels
     lines.append("\nEdges:")
     if hasattr(prism, '_functional_labels') and prism.path:
-        n_edges = len(prism.path)
+        n_edges = prism._get_edge_count()  # one per physical surface (core.glass_spans)
         for i in range(n_edges):
             func_label = prism._functional_labels.get(i, (str(i), f"Edge {i}"))
             card_label = prism.get_edge_label(i) if hasattr(prism, 'get_edge_label') else None
@@ -640,7 +637,7 @@ def _describe_prism_xml(prism: 'BaseGlass') -> str:
     # Edges section
     lines.append('  <edges>')
     if hasattr(prism, '_functional_labels') and prism.path:
-        n_edges = len(prism.path)
+        n_edges = prism._get_edge_count()  # one per physical surface (core.glass_spans)
         for i in range(n_edges):
             func_label = prism._functional_labels.get(i, (str(i), f"Edge {i}"))
             card_label = prism.get_edge_label(i) if hasattr(prism, 'get_edge_label') else None
@@ -745,14 +742,73 @@ def glass_to_polygon(glass: 'BaseGlass') -> Polygon:
                a list of points with 'x' and 'y' keys.
 
     Returns:
-        A Shapely Polygon representing the glass boundary.
-
-    Note:
-        This currently ignores 'arc' flags in the path points.
-        Arc segments would need special handling for curved glass surfaces.
+        A Shapely Polygon representing the glass boundary. Circular arcs are
+        followed as polylines within ``DEFAULT_MAX_SAG`` of the true curve, so
+        area, containment and centroid are those of the real outline -- not of
+        a polygon through the arcs' through-points, which is what this
+        returned before arcs were handled (16% too small for a test lens).
     """
-    coords = [(p['x'], p['y']) for p in glass.path]
-    return Polygon(coords)
+    return Polygon(outline_coords(glass.path))
+
+
+def edge_linestring(edge: EdgeDescription, max_sag: float = DEFAULT_MAX_SAG) -> LineString:
+    """The edge as a Shapely LineString: its two ends for a straight edge, the
+    curve (within ``max_sag``) for an arc."""
+    if edge.span is None:
+        return LineString([(edge.p1.x, edge.p1.y), (edge.p2.x, edge.p2.y)])
+    return LineString(edge.span.coords(max_sag))
+
+
+def edge_point_at(edge: EdgeDescription, fraction: float) -> Tuple[float, float]:
+    """The point a fraction of the way along the edge, measured along the curve."""
+    if edge.span is None:
+        return (edge.p1.x + fraction * (edge.p2.x - edge.p1.x),
+                edge.p1.y + fraction * (edge.p2.y - edge.p1.y))
+    return edge.span.point_at(fraction)
+
+
+def edge_outward_normal(
+    edge: EdgeDescription,
+    polygon: Polygon,
+    point: Optional[Tuple[float, float]] = None,
+) -> Tuple[float, float]:
+    """Unit normal of an edge, pointing out of the glass.
+
+    A straight edge has one normal; the one pointing away from the polygon's
+    centroid is chosen, as this layer always has. An arc's normal depends on
+    where on it you are: it is taken at the point of the arc nearest
+    ``point`` (default: the edge's midpoint) and pointed away from the glass
+    by testing which side of the curve is inside ``polygon``.
+
+    Args:
+        edge: The edge.
+        polygon: The owning glass's outline (``glass_to_polygon``).
+        point: Where on the edge, for an arc.
+
+    Returns:
+        (nx, ny), or (0.0, 0.0) for a degenerate edge.
+    """
+    if edge.span is not None and edge.span.is_curved:
+        span = edge.span
+        where = point if point is not None else span.midpoint
+        _, s = span.locate(where)
+        bx, by = span.point_at(s / span.length if span.length else 0.0)
+        nx, ny = span.normal_at((bx, by))
+        eps = 1e-6 * max(1.0, span.scale)
+        if polygon.contains(Point(bx + eps * nx, by + eps * ny)):
+            nx, ny = -nx, -ny
+        return (nx, ny)
+    dx = edge.p2.x - edge.p1.x
+    dy = edge.p2.y - edge.p1.y
+    length = math.sqrt(dx * dx + dy * dy)
+    if length < 1e-12:
+        return (0.0, 0.0)
+    n1 = (-dy / length, dx / length)
+    n2 = (dy / length, -dx / length)
+    centroid = polygon.centroid
+    to_cx = centroid.x - edge.midpoint.x
+    to_cy = centroid.y - edge.midpoint.y
+    return n1 if n1[0] * to_cx + n1[1] * to_cy < 0 else n2
 
 
 @dataclass

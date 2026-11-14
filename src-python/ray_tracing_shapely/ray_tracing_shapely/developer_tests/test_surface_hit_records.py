@@ -36,6 +36,7 @@ Core (Python API)
   - test_glass_incident_angle_known_geometry     (0deg / 30deg / 45deg)
   - test_hit_normal_is_unit
   - test_mirror_hit_records
+  - test_blocker_hit_records
   - test_children_have_no_hit_data
   - test_tir_segment_incident_angle_exceeds_critical
   - test_backward_compatible_when_flag_off
@@ -228,6 +229,28 @@ def test_mirror_hit_records():
     assert s.hit_surface_uuid == mirror.uuid
 
 
+def test_blocker_hit_records():
+    """A ray absorbed by a blocker ends on it: 30 deg incidence onto a vertical blocker."""
+    from ray_tracing_shapely.core.scene_objs.blocker.blocker import Blocker
+
+    scene = Scene()
+    blocker = Blocker(scene, {'p1': {'x': 200, 'y': 100}, 'p2': {'x': 200, 'y': 300}})
+    scene.add_object(blocker)
+    t = math.radians(30.0)
+    ray = Ray(p1={'x': 150, 'y': 200}, p2={'x': 150 + math.cos(t), 'y': 200 + math.sin(t)},
+              brightness_s=1.0, brightness_p=0.0)
+    _, segments = _run(scene, ray, record=True)
+
+    (s,) = segments
+    assert s.hit_surface_uuid == blocker.uuid
+    assert abs(math.degrees(s.incident_angle) - 30.0) < 1e-9
+    assert abs(s.hit_point['x'] - 200.0) < 1e-9 and abs(s.hit_point['y'] - (200 + 50 * math.tan(t))) < 1e-9
+    assert abs(abs(s.hit_normal['x']) - 1.0) < 1e-12
+
+    _, segments = _run(scene, Ray(p1={'x': 150, 'y': 200}, p2={'x': 250, 'y': 200}), record=False)
+    assert segments[0].hit_surface_uuid is None
+
+
 # ---------------------------------------------------------------------------
 # Core: TIR
 # ---------------------------------------------------------------------------
@@ -352,6 +375,7 @@ def _run_all() -> int:
         test_hit_normal_is_unit,
         test_children_have_no_hit_data,
         test_mirror_hit_records,
+        test_blocker_hit_records,
         test_tir_segment_incident_angle_exceeds_critical,
         test_db_has_incidence_columns,
         test_db_incidence_null_when_flag_off,

@@ -65,9 +65,10 @@ Minimum n for TIR:
 from __future__ import annotations
 
 import math
-from typing import Any, ClassVar, Dict, List, Tuple, Union, TYPE_CHECKING
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 from .base_prism import BasePrism
+from ..roles import Role, Mechanism
 
 if TYPE_CHECKING:
     from ...core.scene import Scene
@@ -104,12 +105,26 @@ class RightAnglePrism(BasePrism):
         Edge 2: Exit Face (X) | facing West Edge (W)
     """
 
-    # Functional labels for edges (in path order)
-    _edge_roles: ClassVar[List[Tuple[str, str]]] = [
-        ("E", "Entrance Face"),
-        ("H", "Hypotenuse"),
-        ("X", "Exit Face"),
+    # Functional labels for edges (in path order), each with a Role tag.
+    # Tagged for the 90-degree fold this class is named for: enter one leg,
+    # TIR at the hypotenuse, leave by the other leg. The hypotenuse is a
+    # WALL -- a surface that redirects light inside the device.
+    _edge_roles: ClassVar[List[Tuple[str, str, Role]]] = [
+        ("E", "Entrance Face", Role.ENTRANCE),
+        ("H", "Hypotenuse", Role.WALL),
+        ("X", "Exit Face", Role.EXIT),
     ]
+
+    # Mechanism per edge, keyed by short functional label. Read by
+    # profile_export for the spans' mechanism field. H's TIR is the design
+    # mechanism and holds only for n >= sqrt(2) (MIN_N_FOR_TIR); below that
+    # the hypotenuse transmits instead, and the declared mechanism does not
+    # change with n.
+    _edge_mechanisms: ClassVar[Dict[str, Optional[Mechanism]]] = {
+        "E": Mechanism.REFRACT,
+        "H": Mechanism.TIR,
+        "X": Mechanism.REFRACT,
+    }
 
     # Labels for vertices (in path order)
     _vertex_roles: ClassVar[List[Tuple[str, str]]] = [

@@ -54,7 +54,7 @@ explaining what each field is and giving an example.
 
 | File | What it holds |
 |---|---|
-| `flow_base.py` | `ObservableFlow`: the generic machine. Takes a table of boxes and arrows, records every move as an event, owns `reset` and `explain_current_state()`. |
+| `flow_base.py` | `ObservableFlow`: the generic machine. Takes a table of boxes and arrows, records every move as an event, owns `reset` and `explain_current_state()`. `nonimaging_design`'s rayfile slicing flow is a machine of it too. |
 | `iec62471_flow.py`, `iec60825_1_flow.py` | One table each — the boxes and arrows for the lamp standard and the laser standard. Two tables, one machine class. |
 | `intake_flow.py` | Two more tables, for gathering inputs field by field before launching the matching classification. |
 | `dimensional_checks.py` | The `validate_dimensions` step: is each input the right kind of quantity. |

@@ -44,9 +44,11 @@ carried.
 ## What it produces
 
 - **`P-SIGNATURE`** — the *(surface name, edge index, interaction)* tuple.
-  The edge index is a position along a curved surface that was approximated
-  by straight segments, so two designs can only be compared if they were
-  discretised the same way.
+  The edge index counts physical surfaces in outline order: a straight edge,
+  a whole arc, or an exact conic or spline edge is one index. Only a curve
+  that a design chose to build from straight pieces is one index per piece,
+  and two such designs can only be compared if they were cut up the same
+  way (`C-SIG-01`).
 - **`P-SIGNATURE-SPECTRUM`** — the saved table, `signature_spectrum.json`.
   Its energies rank routes against each other; they are not calibrated
   amounts of light unless something else calibrates them.

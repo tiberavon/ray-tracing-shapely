@@ -4,11 +4,16 @@ Registering this project's designed profiles with Optiland as a native
 geometry type, so that a curved surface built here can be traced there
 without being approximated by flat facets.
 
-**Planned, not built.** The scene bridge handles straight-edged profiles by
-building one flat face per span. A curved profile — an RR lens or an RXI —
-would need many facets to approximate, and the approximation is itself a
-source of error. Optiland has a plugin interface for geometry types; this
-component would use it to hand over the exact curve.
+**Planned, not built.** The scene bridge already builds exact surfaces
+for much of what is designed here: an extruded prism's flat faces, and,
+for an element of revolution, conic faces and designed spline faces
+(`SplineRevolutionGeometry`) revolved about the axis. What it cannot hand
+over is a curved surface that is not a surface of revolution — a freeform
+face, an SMS lens extruded or cut into segments. And its spline geometry
+is computed in NumPy only and cannot be differentiated, so a designed face
+built through it can be traced and checked in 3D but not polished there
+(`C-3D-01`). Optiland has a plugin interface for geometry types; this
+component would use it for both.
 
 ## Concepts this component realises
 
@@ -33,9 +38,10 @@ None yet.
 
 ## What it needs from elsewhere
 
-- **`P-PROFILE`** from `nonimaging_design` — which cannot yet export a
-  curved profile, because the curved classes do not carry role and
-  mechanism tags. That is the actual blocker.
+- **`P-PROFILE`** from `nonimaging_design` — which exports curved profiles
+  for the lenses, collimators and mirrors, but not yet for the SMS-family
+  classes, because they do not carry role and mechanism tags. For an SMS
+  design that is the actual blocker.
 
 ## Promises this component makes and relies on
 

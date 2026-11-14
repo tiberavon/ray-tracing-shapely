@@ -42,6 +42,9 @@ from .glass_geometry import (
     EdgeDescription,
     get_edge_descriptions,
     describe_edges,
+    edge_linestring,
+    edge_point_at,
+    edge_outward_normal,
     # Prism description (Python-specific)
     describe_prism,
 )
@@ -81,6 +84,10 @@ from .fresnel_utils import (
 from .tool_registry import (
     list_available_tools,
     get_agentic_tools,
+    get_exposed_tools,
+    register_tool,
+    withdrawn_tools,
+    check_tool_lists,
     generate_tool_note_for_solveit_notebook,
     generate_tool_note_for_copilot,
 )
@@ -89,6 +96,8 @@ from .agentic_tools import (
     set_context_from_result,
     get_context,
     clear_context,
+    set_extension_context,
+    get_extension_context,
     # Phase 1: SQL query tools
     query_rays,
     describe_schema,
@@ -129,6 +138,9 @@ __all__ = [
     'EdgeDescription',
     'get_edge_descriptions',
     'describe_edges',
+    'edge_linestring',
+    'edge_point_at',
+    'edge_outward_normal',
     # Prism description (Python-specific)
     'describe_prism',
     # Ray data export and statistics
@@ -161,6 +173,10 @@ __all__ = [
     # Tool discovery (Python-specific)
     'list_available_tools',
     'get_agentic_tools',
+    'get_exposed_tools',
+    'register_tool',
+    'withdrawn_tools',
+    'check_tool_lists',
     'generate_tool_note_for_solveit_notebook',
     'generate_tool_note_for_copilot',
     # Agentic tools -- JSON-serializable wrappers (Python-specific)
@@ -168,6 +184,8 @@ __all__ = [
     'set_context_from_result',
     'get_context',
     'clear_context',
+    'set_extension_context',
+    'get_extension_context',
     'query_rays',
     'describe_schema',
     'rank_paths_by_energy',
