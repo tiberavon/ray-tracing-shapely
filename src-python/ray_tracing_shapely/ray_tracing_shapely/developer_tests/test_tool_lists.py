@@ -50,6 +50,10 @@ PUBLISHED_BEFORE = [
     'highlight_rays_crossing_edge_svg', 'highlight_rays_by_polarization_svg', 'highlight_custom_rays_svg',
 ]
 
+#: Published since: the context registry's tools.
+ADDED_SINCE = ['list_contexts', 'set_active_context', 'load_run_context', 'save_context_tool',
+               'compare_persisted_runs_tool', 'list_sources', 'drop_context']
+
 
 @pytest.fixture
 def clean_lists(monkeypatch):
@@ -66,7 +70,8 @@ def test_the_three_lists_agree():
 
 def test_exposed_is_agentic_minus_withdrawn_and_unchanged():
     exposed = [f.__name__ for f in get_exposed_tools()]
-    assert exposed == PUBLISHED_BEFORE
+    assert [n for n in exposed if n not in ADDED_SINCE] == PUBLISHED_BEFORE
+    assert sorted(set(exposed) - set(PUBLISHED_BEFORE)) == sorted(ADDED_SINCE)
     agentic = [t['name'] for t in get_agentic_tools()]
     assert sorted(set(agentic) - set(exposed)) == sorted(withdrawn_tools())
     assert sorted(withdrawn_tools()) == ['find_rays_by_angle_to_edge_xml', 'find_rays_by_polarization_xml',
@@ -77,7 +82,7 @@ def test_the_paste_in_notes_announce_only_published_tools():
     """The incident C-AGENT-02 records: tools announced to the assistant that
     the server does not publish. The notes now name exactly the published list."""
     for note in (generate_tool_note_for_copilot(), generate_tool_note_for_solveit_notebook()):
-        for name in PUBLISHED_BEFORE:
+        for name in PUBLISHED_BEFORE + ADDED_SINCE:
             assert name in note
         for name in withdrawn_tools():
             assert name not in note

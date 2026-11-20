@@ -1,6 +1,6 @@
 # Component map
 
-Eighteen components in five groups, and what each one is an instance of.
+Nineteen components in five groups, and what each one is an instance of.
 
 ## Reading this map
 
@@ -33,11 +33,13 @@ Post-hoc, over a completed run. Reads the core; never modifies it.
 
 ## The agentic layer
 
-The one boundary whose caller cannot be trusted to satisfy a precondition.
+The one boundary whose caller cannot be trusted to satisfy a precondition,
+and the procedures a caller drives step by step.
 
 | Component | Realises | What it is |
 |---|---|---|
 | `agentic_layer` | `KA9` `KA4` `KA3` `KA2` `KA5` `KA6` `KA7` `KA8` | Tools, the SQL surface, the context registry, MCP exposure. |
+| `flows` | `KD10` `KA4` `KA9` `KC7` | The observable state machine any multi-step procedure is built on: questions as data, long steps through executors, fixed ends; a run's record, the run list, the dashboard; nine generic agent tools. |
 
 ## The physical layer
 
@@ -48,8 +50,8 @@ Above the simulator. Turns dimensionless brightness into physical quantity.
 | `optical_elements_physics` | `KC1` `KC4` `KD3` | `PhysicalScene`, projection models, photoconversion. |
 | `optical_elements_units` | `KC4` `KA9` `KA3` | One registry, one parser, one validator, named dimensionalities. |
 | `eye_safety` | `KC5` `KC6` `KD5` `KD13` | Hazard evaluation against two standards. |
-| `eye_safety_classification_flow` | `KD10` `KD4` `KA9` | The observable state machine over classification, and intake. |
-| `nonimaging_design` | `KC2` `KD5` `KD9` | CPC, DTIRC, RXI, RR, RX construction from design methods; labelled lenses, LED collimators, aspheres and exact curved mirrors, exportable as profiles; light sources described once for both engines; measured LEDs (rayfiles: reading, slicing, radiation plot); scanned lens faces, fitted. |
+| `eye_safety_classification_flow` | `KD10` `KD4` `KA9` | The classification and intake flows over both standards. |
+| `nonimaging_design` | `KC2` `KD5` `KD9` | CPC, DTIRC, RXI, RR, RX, XR construction from design methods; labelled lenses, LED collimators, aspheres and exact curved mirrors, exportable as profiles; light sources described once for both engines; measured LEDs (rayfiles: reading, slicing, radiation plot); scanned lens faces, fitted. |
 
 ## Rendering and 3D
 

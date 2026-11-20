@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ray-tracing-shapely"
-version = "0.2.0"
+version = "0.3.0"
 description = "Python ray tracing library using Shapely for computational geometry"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -51,19 +51,24 @@ radiometry = [
     "pint>=0.24",
 ]
 
-# Photobiological safety: both standards, and the observable classification
-# flow over them. Depends on radiometry for its dimensional checks -- see
-# concept KC4; duplicating that check here instead is what C-UNITS-02
-# exists to prevent.
+# The observable flow machine (ray_tracing_shapely.flows): a procedure as a
+# fixed diagram, every move an event and a heartbeat.
 #
 # transitions is pinned bare (no [diagrams] extra, which pulls in pygraphviz,
 # a C extension painful to build on Windows) plus the pure-Python graphviz
 # bindings, which shell out to the `dot` executable instead. The `dot` binary
 # is a separate per-machine OS-level install, not pip.
-eye-safety = [
-    "ray-tracing-shapely[radiometry]",
+flows = [
     "transitions>=0.9",
     "graphviz>=0.20",
+]
+
+# Photobiological safety: both standards, and the observable classification
+# flow over them. Depends on radiometry for its dimensional checks -- see
+# concept KC4; duplicating that check here instead is what C-UNITS-02
+# exists to prevent.
+eye-safety = [
+    "ray-tracing-shapely[radiometry,flows]",
 ]
 
 # The agentic surface. The tools themselves need nothing extra; only the
@@ -75,6 +80,14 @@ agentic = [
     "mcp>=1.2,<2",
 ]
 
+# Jobs on Modal (flows.modal_executor): the client is imported only when a
+# ModalExecutor is made, so the rest of flows runs without it. Written and
+# checked against the 1.6 client.
+modal = [
+    "ray-tracing-shapely[flows]",
+    "modal>=1.6",
+]
+
 # Running the example and sweep notebooks.
 notebook = [
     "jupyterlab",
@@ -82,7 +95,7 @@ notebook = [
 ]
 
 all = [
-    "ray-tracing-shapely[radiometry,eye-safety,agentic,notebook]",
+    "ray-tracing-shapely[radiometry,flows,eye-safety,agentic,notebook,modal]",
 ]
 
 # What CI installs to run the suite. Deliberately narrower than `dev`:
@@ -90,7 +103,7 @@ all = [
 # classification flows), and no test imports jupyterlab or papermill, which
 # `all` would drag in on every matrix job.
 test = [
-    "ray-tracing-shapely[radiometry,eye-safety,agentic]",
+    "ray-tracing-shapely[radiometry,flows,eye-safety,agentic]",
     "pytest>=7.0.0",
 ]
 

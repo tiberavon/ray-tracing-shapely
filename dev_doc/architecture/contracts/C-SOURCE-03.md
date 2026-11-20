@@ -2,13 +2,13 @@
 id: C-SOURCE-03
 title: A rayfile slice turns each ray about the axis into the 2D plane with its direction kept exactly, keeps the rays whose line passes within a stated distance of the axis, and reports the share of the flux it could not keep
 parties:
-  provides: nonimaging_design (optical_elements.sources.rayfile_slice: slice_rayfile, RayfileSlice); optiland_scene_bridge (compare.compare_slice_3d)
+  provides: 'nonimaging_design (optical_elements.sources.rayfile_slice: slice_rayfile, RayfileSlice); optiland_scene_bridge (compare.compare_slice_3d; as a flow, C-BRIDGE-16)'
   relies:   whoever lights a 2D section of a rotationally symmetric optic with a measured LED
 port: P-RAYFILE
 viewpoint: physical
 status: enforced
 failure_mode: silent
-checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_rayfile_slice.py::test_meridional_rays_are_all_kept_unchanged_but_for_the_turn; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_rayfile_slice.py::test_a_skew_ray_reports_its_distance_from_the_axis_and_keeps_its_direction; src-python/ray_tracing_shapely_optiland/tests/test_rayfile_slice_3d.py::test_meridional_records_trace_the_same_in_2d_and_3d; src-python/ray_tracing_shapely_optiland/tests/test_rayfile_slice_3d.py::test_the_difference_grows_with_the_skew_offset; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_radiation_plot.py::test_a_lambertian_point_and_its_slice; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_radiation_plot.py::test_the_cross_sections_follow_the_roll; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_rayfile_slicing_flow.py::test_the_table_of_a_four_die_emitter
+checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_rayfile_slice.py::test_meridional_rays_are_all_kept_unchanged_but_for_the_turn; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_rayfile_slice.py::test_a_skew_ray_reports_its_distance_from_the_axis_and_keeps_its_direction; src-python/ray_tracing_shapely_optiland/tests/test_rayfile_slice_3d.py::test_meridional_records_trace_the_same_in_2d_and_3d; src-python/ray_tracing_shapely_optiland/tests/test_rayfile_slice_3d.py::test_the_difference_grows_with_the_skew_offset; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_radiation_plot.py::test_a_lambertian_point_and_its_slice; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_radiation_plot.py::test_the_cross_sections_follow_the_roll; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_rayfile_slicing_flow.py::test_the_table_of_a_four_die_emitter; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_rayfile_slicing_flow.py::test_the_source_is_written_into_the_profile
 witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_rayfile_slice.py::test_the_skew_share_quantiles_and_the_2d_source; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_radiation_plot.py::test_a_slice_of_an_extended_emitter_is_scaled_to_the_whole_flux
 tracked_by: null
 conflicts_with: null
@@ -56,7 +56,10 @@ The rayfile is placed as `rayfile_frame` places it: its z along the axis.
     kept at the package's half diagonal in equal steps, and the limits that
     keep the ends of a stated range of the flux, exactly: the flux-weighted
     quantiles of |h|. The flow refuses a footprint the rays do not start
-    inside.
+    inside. The choice is asked of the caller, as a kept share (its limit
+    is then the exact quantile) or as a limit, and written, if asked, into
+    a `profile.json` as a `rayfile` source with its slice, the rayfile's
+    path relative to the profile's folder.
 - **In 2D.** `source_2d` emits the kept rays as a `RaySetSource`, the
   brightest at 1, with `flux_per_brightness` the flux of brightness 1.
 
@@ -99,3 +102,7 @@ pattern is its half averages, bin for bin.
 - **The table, on a synthetic four-die emitter:** limits in equal steps to
   the half diagonal, kept shares rising to 1, the limits at 50% and 75%
   equal to the quantiles of |h|.
+- **The choice and the profile:** a share of 75% gives the 75% quantile; a
+  profile written by the flow holds the source with that slice, a path
+  that resolves from the profile's folder, and replaces a source of the
+  same name; a profile below schema 1.4 is refused.

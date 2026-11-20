@@ -28,7 +28,10 @@ its question, with the reason.
 
 from __future__ import annotations
 
+import json
 import math
+import os
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -38,8 +41,10 @@ pytest.importorskip("pint")
 
 from ray_tracing_shapely.optical_elements.eye_safety_classification_flow.persistence import (read_events,
                                                                                             read_result)
-from ray_tracing_shapely.optical_elements.sources import read_rayfile, slice_rayfile, write_tm25
-from ray_tracing_shapely.optical_elements.sources.rayfile_slicing_flow import RayfileSlicingFlow
+from ray_tracing_shapely.optical_elements.sources import (profile_sources, read_rayfile, slice_rayfile,  # noqa: E402
+                                                          spec_rayfile, write_tm25)
+from ray_tracing_shapely.optical_elements.sources import rayfile_slicing_flow as slicing_flow  # noqa: E402
+from ray_tracing_shapely.optical_elements.sources.rayfile_slicing_flow import RayfileSlicingFlow  # noqa: E402
 
 
 def _four_dies(path, n=8000, centre=(0.0, 0.0), seed=7):
@@ -61,6 +66,8 @@ def _through(flow, path, width="3 mm", length="3 mm"):
     flow.provide_package_length(length)
     flow.provide_n_slices()
     flow.provide_kept_range()
+    flow.provide_choice(0.6)
+    flow.provide_profile()
 
 
 def test_the_table_of_a_four_die_emitter(tmp_path):
@@ -110,7 +117,17 @@ def test_wrong_answers_go_back_to_their_question(tmp_path):
     with pytest.raises(ValueError, match="kept_range"):
         flow.provide_kept_range((0.8, 0.5))
     flow.provide_kept_range((0.6, 0.9))
-    assert flow.state == "done" and len(flow.result["rows"]) == 4 and flow.result["kept_range"] == [0.6, 0.9]
+    assert flow.state == "awaiting_choice" and len(flow.result["rows"]) == 4 and flow.result["kept_range"] == [0.6, 0.9]
+    for bad, match in ((0.0, "in \\(0, 1\\]"), (1.5, "in \\(0, 1\\]"), (True, "kept share or a limit"),
+                       ("0.8", "a length with its unit"), ([0.6], "a kept share")):
+        with pytest.raises(ValueError, match=match):
+            flow.provide_choice(bad)
+    assert flow.state == "awaiting_choice" and flow.choice is None
+    flow.provide_choice("0.08 cm")
+    assert flow.choice["max_offset_mm"] == pytest.approx(0.8) and flow.state == "awaiting_profile"
+    flow.provide_profile(False)
+    assert flow.state == "done" and flow.result["choice"]["max_offset_mm"] == pytest.approx(0.8)
+    assert flow.result["profile"] is None
 
 
 def test_warnings_and_reset(tmp_path):
@@ -141,3 +158,65 @@ def test_the_chosen_limit_becomes_a_source_spec(tmp_path):
     assert by_limit["slice"]["max_offset_mm"] == 0.5
     with pytest.raises(ValueError, match="exactly one"):
         flow.source_spec("led", (0.0, 0.0), 0.0, kept_share=0.5, max_offset_mm=1.0)
+
+
+def _profile(path, version="1.5", sources=()):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"schema_version": version, "sources": list(sources)}), encoding="utf-8")
+    return path
+
+
+def test_the_choice_is_made_from_the_table_in_the_context(tmp_path):
+    path = _four_dies(tmp_path / "dies.TM25RAY")
+    flow = RayfileSlicingFlow(tmp_path / "runs", render_svg=False)
+    for answer in (path, "3 mm", "3 mm", 10, [0.5, 0.75]):
+        flow.answer(str(answer) if isinstance(answer, Path) else answer)
+    q = flow.question_state()
+    assert q["question"]["name"] == "choice" and q["context"]["table"] == flow.table_markdown()
+    limits = flow.result["limit_for_kept_share_mm"]
+    assert f"h <= {limits['50%']:.3g} mm" in q["question"]["example"]
+    flow.answer(0.75)
+    assert flow.choice["max_offset_mm"] == pytest.approx(limits["75%"])
+    assert flow.choice["kept_share"] == pytest.approx(0.75, abs=2.0 / flow.rayfile.n_rays)
+    assert flow.question_state()["context"]["choice"] == flow.choice
+    flow.answer_default()                                        # no profile
+    assert flow.state == "done" and flow.question_state()["context"] is None
+    events = [e for e in read_events(tmp_path / "runs", flow.run_id) if e["state"] == "writing_profile"]
+    assert events and "nothing to write" in events[0]["message"]
+
+
+def test_the_source_is_written_into_the_profile(tmp_path, monkeypatch):
+    (tmp_path / "leds").mkdir()
+    path = _four_dies(tmp_path / "leds" / "dies.TM25RAY")
+    profile = _profile(tmp_path / "optic" / "profile.json",
+                       sources=[{"name": "LED", "kind": "pencil", "position": [0, 0], "direction_deg": 90}])
+    flow = RayfileSlicingFlow(tmp_path / "runs", render_svg=False)
+    for answer in (str(path), "3 mm", "3 mm", 10, [0.5, 0.75], 0.6):
+        flow.answer(answer)
+    place = {"path": str(profile), "name": "LED", "position": [1.0, 2.0], "direction_deg": 90}
+    for bad, reason in (({**place, "path": str(tmp_path / "none.json")}, "export the optic"),
+                        ({**place, "path": str(_profile(tmp_path / "old.json", "1.3"))}, "needs 1.4"),
+                        ({"path": str(profile)}, "missing"), ({**place, "extra": 1}, "unknown"),
+                        ({**place, "position": [1.0]}, "position"), (None, "takes false or an object")):
+        out = flow.answer(bad)
+        assert not out["accepted"] and reason in out["reason"], (bad, out["reason"])
+    assert flow.state == "awaiting_profile"
+    # a write that fails sends the flow back to the question, saying why, and leaves the file as it was
+    before = profile.read_text()
+    def full(*_args):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(slicing_flow, "_write_atomic", full)
+    back = flow.answer(place)
+    assert back["accepted"] and back["sent_back"]["to"] == "profile" and "disk full" in back["sent_back"]["reason"]
+    assert profile.read_text() == before
+    monkeypatch.undo()
+    done = flow.answer(place)
+    assert done["finished"] and flow.result["profile"]["replaced"]          # the pencil of the same name
+    written = profile_sources(json.loads(profile.read_text()))
+    assert [s["name"] for s in written] == ["LED"] and written[0]["kind"] == "rayfile"
+    spec = written[0]
+    assert spec["rayfile"]["path"] == os.path.join("..", "leds", "dies.TM25RAY")
+    assert spec["slice"]["max_offset_mm"] == pytest.approx(flow.choice["max_offset_mm"])
+    assert spec["position"] == [1.0, 2.0, 0.0] and spec["direction_deg"] == 90.0
+    assert spec_rayfile(spec, base_dir=profile.parent).n_rays == flow.rayfile.n_rays   # the path resolves

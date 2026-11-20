@@ -108,6 +108,25 @@ def test_rr_lens_is_a_valid_simple_polygon():
     return True
 
 
+# Example 9.1's lists, every fourth point and the last (the book: 26 points on each surface)
+BOOK_UPPER = [(0.721303, -0.620433), (0.655161, -0.558134), (0.598783, -0.521426), (0.526741, -0.468696),
+              (0.415674, -0.404434), (0.287099, -0.345448), (0.0887252, -0.290082), (0.0355541, -0.284913)]
+BOOK_LOWER = [(0.673162, -0.917437), (0.60077, -0.95003), (0.541026, -0.965332), (0.466905, -0.992482),
+              (0.364609, -1.02189), (0.238675, -1.05321), (0.0776509, -1.08122), (0.036766, -1.08407)]
+
+
+def test_rr_lens_reproduces_example_9_1_complete_lists():
+    """One chain from every point of both fans, as the book grows them: the book's 26 points on each
+    surface, to its six printed digits, and no point it does not list."""
+    scene, lens = _build_example_9_1_lens()
+    upper = [q.p for q in lens.n_surface_points]
+    lower = [q.p for q in lens.x_surface_points]
+    assert (len(upper), len(lower)) == (26, 26)
+    for book, ours in ((BOOK_UPPER, upper), (BOOK_LOWER, lower)):
+        for b in book:
+            assert min(math.hypot(b[0] - p[0], b[1] - p[1]) for p in ours) < 1e-5, b
+
+
 def test_rr_lens_chain_reaches_axis():
     """The ping-pong chain on both surfaces terminates at (or just past) the symmetry axis."""
     scene, lens = _build_example_9_1_lens()
@@ -179,6 +198,7 @@ def run_all_tests():
     tests = [
         ("RRLens matches Example 9.1's seed points and OPLs", test_rr_lens_matches_example_9_1_seed_and_opl),
         ("RRLens matches Example 9.1's CO_1/CO_2 points", test_rr_lens_matches_example_9_1_co1_co2_points),
+        ("RRLens reproduces Example 9.1's complete lists", test_rr_lens_reproduces_example_9_1_complete_lists),
         ("RRLens is a valid simple CCW polygon", test_rr_lens_is_a_valid_simple_polygon),
         ("RRLens chain reaches the axis", test_rr_lens_chain_reaches_axis),
         ("RRLens edge rays land on receiver (crossed condition)", test_rr_lens_edge_rays_land_on_receiver),

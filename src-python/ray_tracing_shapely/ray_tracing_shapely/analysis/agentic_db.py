@@ -37,7 +37,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from shapely.geometry import Point, LineString
+from shapely.prepared import prep
 
+from ..core.glass_spans import DEFAULT_MAX_SAG
 from .glass_geometry import glass_to_polygon, get_edge_descriptions, edge_linestring, edge_outward_normal
 from .ray_geometry_queries import _ray_endpoints
 
@@ -289,6 +291,8 @@ _COLUMN_DESCRIPTIONS: Dict[str, List[Dict[str, str]]] = {
         {"name": "angle_to_normal", "type": "REAL",
          "description": "Angle between ray direction and edge outward normal in degrees "
                         "(0 = head-on / perpendicular to edge, 90 = grazing / parallel to edge). "
+                        "On a curved edge the normal is the one the simulator used at the hit, "
+                        "when the run recorded it. "
                         "Note: multiple ray segments can cross the same edge (e.g. an interior "
                         "refracted ray crosses both its entry and exit edges). Join with the rays "
                         "table and filter by interaction_type to isolate a specific segment."},
@@ -396,6 +400,8 @@ def create_database(
     scene: 'Scene',
     segments: List['Ray'],
     db_path: Optional[Path] = None,
+    detector_hits: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    recompute_angles: bool = False,
 ) -> sqlite3.Connection:
     """
     Create and populate a SQLite database from simulation data.
@@ -414,6 +420,17 @@ def create_database(
             speed. A file-backed database keeps SQLite's normal durability
             defaults instead -- those pragmas are safe for a connection that
             vanishes with the process, not for one meant to outlive it.
+        detector_hits: The detectors' hit records by detector uuid, as a
+            SimulationResult keeps them (``detector_hits``). None (the
+            default): each detector's own, which are the scene's last run's.
+        recompute_angles: How ``ray_edge_crossing.angle_to_normal`` gets a curved edge's
+            normal. False (the default): the normal the simulator recorded at the hit
+            (``Simulator(record_surface_hits=True)``), where the crossing is that hit, and
+            recomputed from the edge where it is not (no hit recorded, another point, an
+            edge's corner). True: always recomputed from the edge. The two agree to
+            rounding (the last bits of the angle); the recorded normal is the one the
+            physics used, and reusing it spares a nearest-point search on the curve per
+            crossing. Straight edges are the same either way.
 
     Returns:
         A sqlite3.Connection with all tables populated.
@@ -433,8 +450,8 @@ def create_database(
     conn.executescript(_SCHEMA_DETECTOR_HITS)
 
     _populate_rays(conn, segments)
-    _populate_glass_and_spatial(conn, scene, segments)
-    _populate_detectors(conn, scene)
+    _populate_glass_and_spatial(conn, scene, segments, recompute_angles=recompute_angles)
+    _populate_detectors(conn, scene, detector_hits)
 
     conn.commit()
     return conn
@@ -514,10 +531,45 @@ def _populate_rays(
     )
 
 
+def _recorded_hit(ray: Any) -> Optional[tuple]:
+    """``(surface uuid, x, y, nx, ny)`` of the hit the simulator recorded on a segment, or None."""
+    if ray is None:
+        return None
+    point, normal = getattr(ray, 'hit_point', None), getattr(ray, 'hit_normal', None)
+    surface = getattr(ray, 'hit_surface_uuid', None)
+    if not point or not normal or surface is None:
+        return None
+    length = math.hypot(normal['x'], normal['y'])
+    if length == 0.0:
+        return None
+    return (surface, point['x'], point['y'], normal['x'] / length, normal['y'] / length)
+
+
+def _recorded_normal(candidates: Optional[List[tuple]], glass_uuid: str, point: tuple, span: Any) -> Optional[tuple]:
+    """The normal the simulator recorded where a segment meets a curved edge, or None.
+
+    A recorded hit is this crossing when it is on the same glass at the same point. At an
+    edge's end the point is shared with the next edge, and the hit may belong to either:
+    there, None, and the normal is computed from this edge.
+    """
+    if not candidates:
+        return None
+    tol = 1e-7 * max(1.0, span.scale)
+    px, py = point
+    for corner in (span.start, span.end):
+        if math.hypot(px - corner[0], py - corner[1]) <= tol:
+            return None
+    for surface, hx, hy, nx, ny in candidates:
+        if surface == glass_uuid and math.hypot(hx - px, hy - py) <= tol:
+            return (nx, ny)
+    return None
+
+
 def _populate_glass_and_spatial(
     conn: sqlite3.Connection,
     scene: 'Scene',
     segments: List['Ray'],
+    recompute_angles: bool = False,
 ) -> None:
     """
     Populate glass_objects, edges, and precompute spatial join tables.
@@ -531,7 +583,7 @@ def _populate_glass_and_spatial(
     glasses = [obj for obj in scene.objs if isinstance(obj, BaseGlass)]
 
     # Precompute ray geometries once
-    # ray_lines stores (uuid, LineString, unit_dx, unit_dy) for angle computation
+    # ray_lines stores (uuid, LineString, unit_dx, unit_dy, bounds) for angle computation and the box test
     ray_mids: List[tuple] = []
     ray_lines: List[tuple] = []
     for ray in segments:
@@ -546,7 +598,19 @@ def _populate_glass_and_spatial(
             rdx, rdy = 0.0, 0.0
         else:
             rdx, rdy = dx / ray_len, dy / ray_len
-        ray_lines.append((ray.uuid, LineString([(p1x, p1y), (p2x, p2y)]), rdx, rdy))
+        ray_lines.append((ray.uuid, LineString([(p1x, p1y), (p2x, p2y)]), rdx, rdy,
+                          (min(p1x, p2x), min(p1y, p2y), max(p1x, p2x), max(p1y, p2y))))
+
+    # The hits the simulator recorded that each segment touches: its own (where it ends)
+    # and its parent's (where it starts), for the curved edges' normals (recompute_angles)
+    recorded: Dict[str, List[tuple]] = {}
+    if not recompute_angles:
+        by_uuid = {ray.uuid: ray for ray in segments}
+        for ray in segments:
+            found = [h for h in (_recorded_hit(ray), _recorded_hit(by_uuid.get(getattr(ray, 'parent_uuid', None))))
+                     if h is not None]
+            if found:
+                recorded[ray.uuid] = found
 
     membership_rows: List[tuple] = []
     crossing_rows: List[tuple] = []
@@ -583,9 +647,10 @@ def _populate_glass_and_spatial(
                  ed.midpoint.x, ed.midpoint.y, ed.length),
             )
 
-        # Precompute ray-glass membership (containment)
+        # Precompute ray-glass membership (containment); a prepared polygon answers the same, faster
+        prepared = prep(poly)
         for ray_uuid, mid in ray_mids:
-            if poly.contains(mid):
+            if prepared.contains(mid):
                 membership_rows.append((ray_uuid, glass_uuid, glass_name))
 
         # Precompute ray-edge crossings with angle to normal
@@ -595,15 +660,26 @@ def _populate_glass_and_spatial(
             edge_line = edge_linestring(ed)
             curved = ed.span is not None and ed.span.is_curved
             normal = None if curved else _outward_normal(ed, cx, cy)
-            for ray_uuid, ray_line, rdx, rdy in ray_lines:
+            # A segment whose box misses the edge's cannot meet it, and is skipped before the
+            # exact test. A curve lies within DEFAULT_MAX_SAG of its polyline, so its box is
+            # padded by that, and by the exact test's tolerance.
+            pad = 2.0 * DEFAULT_MAX_SAG + 1e-9 * max(1.0, ed.span.scale) if curved else 0.0
+            bx0, by0, bx1, by1 = edge_line.bounds
+            bx0, by0, bx1, by1 = bx0 - pad, by0 - pad, bx1 + pad, by1 + pad
+            for ray_uuid, ray_line, rdx, rdy, (rx0, ry0, rx1, ry1) in ray_lines:
+                if rx1 < bx0 or rx0 > bx1 or ry1 < by0 or ry0 > by1:
+                    continue
                 if curved:
                     # Exact, against the circle (a segment ending on the true
                     # curve misses a densified polyline); the normal is taken
-                    # where the ray meets the arc.
+                    # where the ray meets the arc: the one the simulator recorded
+                    # there, if it did, else computed from the edge.
                     hits = ed.span.intersect_segment(ray_line.coords[0], ray_line.coords[-1])
                     if not hits:
                         continue
-                    normal = edge_outward_normal(ed, poly, hits[0])
+                    normal = _recorded_normal(recorded.get(ray_uuid), glass_uuid, hits[0], ed.span)
+                    if normal is None:
+                        normal = edge_outward_normal(ed, prepared, hits[0])
                 elif not ray_line.intersects(edge_line):
                     continue
                 angle = _angle_between_ray_and_normal(rdx, rdy, normal)
@@ -622,7 +698,11 @@ def _populate_glass_and_spatial(
     )
 
 
-def _populate_detectors(conn: sqlite3.Connection, scene: 'Scene') -> None:
+def _populate_detectors(
+    conn: sqlite3.Connection,
+    scene: 'Scene',
+    detector_hits: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+) -> None:
     """
     Populate detectors and detector_hits from Detector objects in the scene
     (ray-lineage Step A: see core/scene_objs/other/detector.py hit_records).
@@ -643,7 +723,9 @@ def _populate_detectors(conn: sqlite3.Connection, scene: 'Scene') -> None:
             obj.p1['x'], obj.p1['y'], obj.p2['x'], obj.p2['y'],
             obj.bin_size,
         ))
-        for record in obj.get_hit_records():
+        records = (detector_hits[obj.uuid] if detector_hits is not None and obj.uuid in detector_hits
+                   else obj.get_hit_records())
+        for record in records:
             if record['ray_uuid'] is None:
                 continue
             hit_rows.append((

@@ -2,7 +2,7 @@
 id: C-SOURCE-01
 title: A source specification builds one source in both engines, the 2D source being the exact section of the 3D one by the scene plane, with the same emission law
 parties:
-  provides: nonimaging_design (optical_elements.sources: validate_source_spec, build_source_2d, RaySetSource); optiland_scene_bridge (sources: build_source_3d)
+  provides: 'nonimaging_design (optical_elements.sources: validate_source_spec, build_source_2d, RaySetSource); optiland_scene_bridge (sources: build_source_3d)'
   relies:   whoever compares a 2D trace with a 3D trace of the same design, or reads a profile's sources
 port: P-PROFILE
 viewpoint: structural

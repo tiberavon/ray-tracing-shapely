@@ -98,6 +98,15 @@ def _private_members_for(modname: str) -> list[str]:
     return [n for n in _PRIVATE_CITED if hasattr(mod, n)]
 
 
+def _is_alias(modname: str) -> bool:
+    """A module kept at an old path as another module's alias (it replaces
+    itself in ``sys.modules``) is documented once, at its new path."""
+    try:
+        return importlib.import_module(modname).__name__ != modname
+    except Exception:
+        return False
+
+
 def _generate_api() -> None:
     api = DOCS / "reference" / "api"
     if api.exists():
@@ -116,6 +125,8 @@ def _generate_api() -> None:
             print(f"[conf.py] skipping {pkg_name}: {e}", file=sys.stderr)
             continue
         for mod, is_package in mods:
+            if _is_alias(mod):
+                continue
             page = api / (mod + ".md")
             priv = _private_members_for(mod)
             if is_package:

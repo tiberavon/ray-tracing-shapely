@@ -782,7 +782,8 @@ def edge_outward_normal(
 
     Args:
         edge: The edge.
-        polygon: The owning glass's outline (``glass_to_polygon``).
+        polygon: The owning glass's outline (``glass_to_polygon``), or the
+            same prepared (``shapely.prepared.prep``): only ``contains`` is asked.
         point: Where on the edge, for an arc.
 
     Returns:

@@ -30,10 +30,11 @@ were built by the bridge, so each keeps its `profile`.
   adds nothing. One server publishes the 2D and 3D tools together.
 - **One registry.** `set_nsq_context(scene, result)` keeps the scene, the
   result, the solids' profiles and the event-log database under one key,
-  `optiland.nsq`, in the core's own context (`set_extension_context`).
-  `set_comparison_context(comparison)` keeps a 2D-against-3D comparison
-  (`C-BRIDGE-14`) under `optiland.compare`. The core's `clear_context`
-  clears both and closes the database.
+  `optiland.nsq`, in the core's own context (`set_extension_context`): the
+  active one, or the one named by `context_name`, beside that context's 2D
+  run (`C-AGENT-04`). `set_comparison_context(comparison)` keeps a
+  2D-against-3D comparison (`C-BRIDGE-14`) under `optiland.compare`. The
+  core's `clear_context` clears both and closes the database.
 - **Names as the log has them.** `describe_nsq_scene` names each face
   `<solid>.<span label>`, as the event log does, with the span's role and
   mechanism from the profile and the kind of surface it became. A source

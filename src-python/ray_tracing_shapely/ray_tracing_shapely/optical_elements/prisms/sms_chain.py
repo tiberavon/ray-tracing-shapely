@@ -419,4 +419,466 @@ def build_sms_chain(
     )
 
 
-__all__ = ['SMSPoint', 'reflect', 'sms_chain_step', 'seed_arc', 'build_sms_chain']
+def grow_sms_chains(
+    seed: List[SMSPoint],
+    seed_step: Callable[[SMSPoint], Optional[SMSPoint]],
+    other_step: Callable[[SMSPoint], Optional[SMSPoint]],
+    max_steps: int = 1000,
+    outward: Optional[Callable[[SMSPoint, SMSPoint], bool]] = None,
+) -> Tuple[List[SMSPoint], List[SMSPoint]]:
+    """
+    The SMS chains as the book grows them: one chain from every seed point (Chaves Ch. 9,
+    Example 9.2: "this process must now be repeated for all other points of c and then for
+    the new points"). Each chain alternates a point on the other surface (``seed_step``) and
+    one back on the seed's surface (``other_step``) until a step returns None (the surface's
+    physical end, decided by the caller) or raises ValueError (no solution: total internal
+    reflection, or no point at the required optical path length).
+
+    The chains interleave: the points of all of them, on each surface, sample one curve.
+
+    ``outward(new, previous)``, if given, is asked of each new point against the chain's
+    previous point on the same surface; False ends the chain there. A surface that turns
+    back on itself (a top surface turned vertical, no longer facing the light) ends where it
+    turns.
+
+    Returns:
+        ``(seed_surface_points, other_surface_points)``: the seed, then every chain's points,
+        in the order computed (the caller orders them along each surface).
+    """
+    seed_points: List[SMSPoint] = list(seed)
+    other_points: List[SMSPoint] = []
+    for start in seed:
+        current, last_other = start, None
+        for _ in range(max_steps):
+            try:
+                other = seed_step(current)
+            except ValueError:
+                break
+            if other is None or (outward and last_other is not None and not outward(other, last_other)):
+                break
+            other_points.append(other)
+            last_other = other
+            try:
+                nxt = other_step(other)
+            except ValueError:
+                break
+            if nxt is None or (outward and not outward(nxt, current)):
+                break
+            seed_points.append(nxt)
+            current = nxt
+        else:
+            raise RuntimeError(f"grow_sms_chains: a chain did not end within max_steps={max_steps}")
+    return seed_points, other_points
+
+
+# ---------------------------------------------------------------------------
+# Targets through a refracting curve: the wavefronts after a surface already built
+# ---------------------------------------------------------------------------
+
+def _bisect(f: Callable[[float], float], a: float, b: float, tol: float = 1e-14) -> float:
+    """A root of f in [a, b], where f changes sign."""
+    fa = f(a)
+    if fa == 0.0:
+        return a
+    if (fa > 0.0) == (f(b) > 0.0):
+        raise ValueError("_bisect: no sign change")
+    for _ in range(200):
+        m = 0.5 * (a + b)
+        fm = f(m)
+        if fm == 0.0 or b - a < tol:
+            return m
+        if (fm > 0.0) == (fa > 0.0):
+            a, fa = m, fm
+        else:
+            b = m
+    return 0.5 * (a + b)
+
+
+def curve_through(points: List[Point], normals: List[Point]):
+    """A cubic Hermite spline through ``points`` in order, perpendicular to ``normals`` there
+    (a ``SplineCurve``, parameter 0 at the first point, 1 at the next...)."""
+    from ...core.glass_curves import SplineCurve
+
+    tangents = []
+    for k, (n_k) in enumerate(normals):
+        t = (-n_k[1], n_k[0])
+        a, b = points[max(k - 1, 0)], points[min(k + 1, len(points) - 1)]
+        if _dot(t, (b[0] - a[0], b[1] - a[1])) < 0.0:
+            t = _neg(t)
+        tangents.append(t)
+    return SplineCurve(points, tangents, 0.0, float(len(points) - 1))
+
+
+class RefractedEikonal:
+    """
+    The optical path from a source to a point P through one refracting curve, and the ray's
+    direction at P: the eikonal of the source's wavefront after the curve.
+
+    An SMS chain targets a point (ccoptpt) or a flat wavefront (coptsl). After a curved surface
+    the wavefront is neither; it is carried as what it is, the optical path from the source
+    through the curve. Evaluating it at P finds the curve point X where the source's ray,
+    refracted, passes through P: a one-dimensional root in the curve's parameter, scanned over
+    each knot span and refined. (Chaves Ch. 9 section 9.7: the wavefronts w3 and w4 of the
+    rays from the receiver edges R1 and R2 "propagated through the cavity", and the input
+    wavefronts w1 and w2 after the RXI's top surface.)
+
+    Args:
+        curve: The refracting curve (a ``Curve`` of ``core.glass_curves``: ``point``, ``deriv``,
+            ``line_hits``), traversed from parameter ``s_range[0]`` to ``s_range[1]``.
+        source: ``("point", S0)`` for rays from the point S0, or ``("plane", v)`` for a flat
+            wavefront travelling along the unit vector v (its optical path to X is n1 v.X, up to
+            a constant that cancels in every SMS path-length difference).
+        n1, n2: Refractive indices before and after the curve.
+        side: +1 if the n2 medium lies on the left of the curve's traversal, -1 if on its
+            right. A ray that meets the curve from the n2 side is not one of this source's
+            rays there, and is skipped.
+        s_range: The part of the curve the rays may cross (default: all of it).
+
+    A ray counts only if it meets the curve once: from a point source to X and from X to P
+    the segment crosses the curve nowhere else. Where several rays reach P (a fold in the
+    wavefront), ``hint`` picks the one crossing nearest it; without one, the shortest path.
+    """
+
+    def __init__(self, curve, source, n1: float, n2: float, side: float = 1.0,
+                 s_range: Optional[Tuple[float, float]] = None, per_span: int = 16) -> None:
+        if source[0] not in ("point", "plane"):
+            raise ValueError(f"RefractedEikonal: source is ('point', P) or ('plane', v), got {source[0]!r}")
+        self.curve, self.source, self.n1, self.n2, self.side = curve, source, n1, n2, side
+        self.lo, self.hi = s_range if s_range is not None else (min(curve.p_start, curve.p_end),
+                                                                max(curve.p_start, curve.p_end))
+        self.per_span = per_span
+        self._last: Optional[float] = None
+
+    def _arrival(self, X: Point) -> Tuple[Point, float]:
+        kind, s0 = self.source
+        if kind == "point":
+            d = (X[0] - s0[0], X[1] - s0[1])
+            return _nrm(d), self.n1 * math.hypot(*d)
+        return s0, self.n1 * _dot(X, s0)
+
+    def normal(self, s: float) -> Point:
+        d = self.curve.deriv(s)
+        return _nrm((-d[1], d[0]))
+
+    def refracted(self, s: float) -> Tuple[Point, Optional[Point], float]:
+        """The curve point at s, the source's ray refracted there (None if it meets the curve
+        from the n2 side), and the optical path to the curve point."""
+        X = self.curve.point(s)
+        d, opl = self._arrival(X)
+        nn = self.normal(s)
+        if _dot(d, nn) * self.side <= 0.0:
+            return X, None, opl
+        return X, rfr(_neg(d), nn if _dot(d, nn) > 0.0 else _neg(nn), self.n1, self.n2), opl
+
+    def _clear(self, X: Point, P: Point, s: float) -> bool:
+        segments = [(X, P)]
+        if self.source[0] == "point":
+            segments.append((self.source[1], X))
+        for a, b in segments:
+            for t, p in self.curve.line_hits(a, (b[0] - a[0], b[1] - a[1])):
+                if 1e-7 < t < 1.0 - 1e-7 and abs(p - s) > 1e-6:
+                    return False
+        return True
+
+    def _grid(self, lo: float, hi: float) -> List[float]:
+        xs, k = [], math.floor(lo)
+        while k < hi:
+            a, b = max(lo, k), min(hi, k + 1.0)
+            if b > a:
+                xs.extend(a + (b - a) * j / self.per_span for j in range(self.per_span))
+            k += 1
+        xs.append(hi)
+        return xs
+
+    def rays(self, P: Point, near: Optional[float] = None) -> List[Tuple[float, Point, float]]:
+        """The rays reaching P: ``(optical path, unit direction at P, curve parameter)``. With
+        ``near``, only those crossing the curve within two knot spans of it."""
+        lo, hi = self.lo, self.hi
+        if near is not None:
+            lo, hi = max(lo, near - 2.0), min(hi, near + 2.0)
+        def miss(s: float) -> float:
+            X, t, _ = self.refracted(s)
+            if t is None:
+                raise ValueError
+            return t[0] * (P[1] - X[1]) - t[1] * (P[0] - X[0])
+
+        roots, prev = [], None
+        for s in self._grid(lo, hi):
+            try:
+                v = miss(s)
+            except ValueError:
+                prev = None
+                continue
+            if v == 0.0 or (prev is not None and (prev[1] > 0.0) != (v > 0.0)):
+                roots.append(s if v == 0.0 else _bisect(miss, prev[0], s))
+            prev = (s, v)
+        for s in (lo, hi):                      # a ray exactly through an end of the range
+            try:
+                if abs(miss(s)) < 1e-9 and all(abs(s - r) > 1e-9 for r in roots):
+                    roots.append(s)
+            except ValueError:
+                pass
+        found = []
+        for s in roots:
+            X, t, opl = self.refracted(s)
+            to_p = (P[0] - X[0], P[1] - X[1])
+            if t is not None and _dot(t, to_p) > 0.0 and self._clear(X, P, s):
+                found.append((opl + self.n2 * math.hypot(*to_p), _nrm(to_p), s))
+        return found
+
+    def __call__(self, P: Point, hint: Optional[float] = None) -> Tuple[float, Point, float]:
+        """``(optical path, unit direction at P, curve parameter)`` of the ray reaching P.
+
+        The search looks first within two knot spans of ``hint`` (or, without one, of the last
+        ray found: an SMS step asks along one ray, point after nearby point), and over the
+        whole curve only if no ray crosses there.
+
+        Raises:
+            ValueError: If no ray of the source reaches P through the curve.
+        """
+        near = hint if hint is not None else self._last
+        found = self.rays(P, near) if near is not None else []
+        if not found:
+            found = self.rays(P)
+        if not found:
+            raise ValueError("RefractedEikonal: no ray reaches the point through the curve")
+        best = min(found, key=lambda f: abs(f[2] - hint)) if hint is not None else min(found)
+        self._last = best[2]
+        return best
+
+
+def eikonal_reflect_step(
+    known_point: Point,
+    known_normal: Point,
+    incident: Point,
+    path_to_known: float,
+    target: Callable[[Point], Tuple[float, Point, float]],
+    S: float,
+    n: float,
+    t_max: float,
+    n_scan: int = 64,
+) -> Tuple[SMSPoint, float]:
+    """
+    One SMS step between two reflecting surfaces in one medium of index n, toward a target
+    given as an optical path: reflect the ray arriving at ``known_point`` (unit direction
+    ``incident``, optical path ``path_to_known`` from its source), and find the point P along
+    the reflected ray at which ``path_to_known + n [known, P] + target(P) = S``.
+
+    ``target(P)`` returns ``(optical path from P on, unit direction of the target's ray at P,
+    its curve parameter)``, as a ``RefractedEikonal`` does; its ray at P is the light's own
+    direction there, reversed. The new normal reflects the ray into it. This is the step of
+    Chaves Ch. 9 section 9.7 whose target is a wavefront after a curve ("through the cavity
+    to R1"); with a target that is a point it reduces to ccoptpt's.
+
+    The target need not reach every point of the ray (the cavity hides some of the glass from
+    a receiver edge). The path-length mismatch is scanned over (0, t_max] where it exists,
+    each covered stretch opened at its exact edge, and the first sign change refined: the
+    mismatch rises along the ray, by n (1 + cos) >= 0 per unit length.
+
+    Returns:
+        ``(new point with its normal, its target's curve parameter)``.
+
+    Raises:
+        ValueError: If no point of the ray up to ``t_max`` has the optical path S.
+    """
+    d = reflect(incident, _orient_toward_travel(known_normal, incident))
+
+    def at(t: float) -> Point:
+        return (known_point[0] + d[0] * t, known_point[1] + d[1] * t)
+
+    def mismatch(t: float) -> float:
+        return path_to_known + n * t + target(at(t))[0] - S
+
+    def value(t: float) -> Optional[float]:
+        """The mismatch at t, or None where the target does not reach."""
+        try:
+            return mismatch(t)
+        except ValueError:
+            return None
+
+    ts = [t_max * (k / n_scan) ** 2 for k in range(1, n_scan + 1)]
+    prev = None
+    for k, t in enumerate(ts):
+        v = value(t)
+        if v is None:
+            prev = None
+            continue
+        if prev is None and k > 0:
+            a, b, vb = ts[k - 1], t, v
+            for _ in range(40):             # the edge of the stretch the target reaches
+                m = 0.5 * (a + b)
+                vm = value(m)
+                if vm is None:
+                    a = m
+                else:
+                    b, vb = m, vm
+            prev = (b, vb)
+        if prev is None:
+            prev = (t, v)
+            continue
+        if (prev[1] < 0.0) != (v < 0.0):
+            t0 = _bisect(mismatch, prev[0], t)
+            P = at(t0)
+            _, ray, s = target(P)
+            out = _neg(ray)
+            return SMSPoint(P, _nrm((out[0] - d[0], out[1] - d[1]))), s
+        prev = (t, v)
+    raise ValueError("eikonal_reflect_step: no point of the reflected ray has the optical path S")
+
+
+class SurfaceLabel(NamedTuple):
+    """One designed surface of an SMS element: its labels, role and mechanism, and its points
+    (on one side of the symmetry axis; the other side is their mirror image in x)."""
+
+    short: str
+    long: str
+    role: Optional[object]
+    mechanism: Optional[object]
+    points: List[Point]
+
+
+def label_sms_edges(vertices, surfaces, rim: SurfaceLabel, tol: float = 1e-9):
+    """Label each edge of an SMS element's outline by the designed surface it lies on.
+
+    Edge i runs from vertex i to vertex i + 1 (the last closes the outline). It belongs to a
+    surface when both its ends are among that surface's points, on either side of the y-axis;
+    any other edge (one joining two surfaces) is ``rim``'s. A surface drawn as several edges
+    numbers them from the axis outward (``N1``, ``N2``...), the same on both halves.
+
+    Returns:
+        ``(functional_labels, role_tags, mechanisms)``: by edge index ``{i: (short, long)}`` and
+        ``{i: role}``, and by short label ``{short: mechanism}``, as ``BasePrism`` keeps them.
+    """
+    def key(p):
+        return (round(p[0] / tol), round(p[1] / tol))
+
+    members = []
+    for surface in surfaces:
+        keys = {key(p) for p in surface.points} | {key((-p[0], p[1])) for p in surface.points}
+        members.append((surface, keys))
+    n = len(vertices)
+    owners = []
+    for i in range(n):
+        a, b = key(vertices[i]), key(vertices[(i + 1) % n])
+        owners.append(next((sf for sf, keys in members if a in keys and b in keys), rim))
+    # A surface drawn as several edges numbers them outward from the axis, by the distance of
+    # each edge's midpoint from it: the two halves share the numbers, and every edge of one half
+    # has its own label, which a revolved half-section needs.
+    mid_r = [round(abs(vertices[i][0] + vertices[(i + 1) % n][0]) / 2.0 / tol) for i in range(n)]
+    labels, roles, mechanisms = {}, {}, {}
+    for sf in {o.short: o for o in owners}.values():
+        edges = [i for i in range(n) if owners[i] is sf]
+        ranks = {r: k + 1 for k, r in enumerate(sorted({mid_r[i] for i in edges}))}
+        for i in edges:
+            numbered = len(ranks) > 1
+            short = f"{sf.short}{ranks[mid_r[i]]}" if numbered else sf.short
+            labels[i] = (short, f"{sf.long}, segment {ranks[mid_r[i]]} from the axis" if numbered else sf.long)
+            roles[i] = sf.role
+            mechanisms[short] = sf.mechanism
+    return labels, roles, mechanisms
+
+
+def spline_outline(vertices, surfaces, tol: float = 1e-9):
+    """An SMS element's polyline outline turned into a glass path whose designed surfaces are
+    exact splines.
+
+    Consecutive vertices that lie on one designed surface (either half; a surface given as the
+    points of one side) become a single spline edge through them, its tangents the chain's
+    normals turned by 90 degrees (``collimator_design.spline_descriptor``), so the edge passes
+    through every chain point with the chain's own normal there. A point without a chain normal
+    (a corner added by the assembly) takes its tangent from its neighbours. Any other edge (one
+    joining two surfaces) stays straight. A surface is split where it turns sharply (a corner,
+    such as the direct RXI's top at C): a smooth spline across a corner would overshoot it.
+
+    Args:
+        vertices: The polyline outline, in order.
+        surfaces: Per designed surface, its points: ``SMSPoint`` (with normals) or bare points.
+        tol: How close a vertex must be to a surface point to be on it.
+
+    Returns:
+        The path: ``{"x", "y", "arc": False}`` per vertex kept, with ``"curve"`` on a spline
+        edge's first vertex.
+    """
+    from ..lenses.collimator_design import spline_descriptor  # noqa: PLC0415
+
+    def key(p):
+        return (round(p[0] / tol), round(p[1] / tol))
+
+    member, normal = {}, {}
+    for k, surface in enumerate(surfaces):
+        for q in surface:
+            pt, nv = (q.p, q.n) if isinstance(q, SMSPoint) else (q, None)
+            for mx in (1.0, -1.0):
+                kk = key((mx * pt[0], pt[1]))
+                member.setdefault(kk, k)
+                if nv is not None:
+                    normal.setdefault(kk, (mx * nv[0], nv[1]))
+    n = len(vertices)
+    owner = [member.get(key(v)) for v in vertices]
+    start = next((i for i in range(n) if owner[i] != owner[i - 1]), None)
+    if start is None:
+        if owner[0] is None:              # no designed surface at all: keep it as it is
+            return [{"x": float(x), "y": float(y), "arc": False} for x, y in vertices]
+        # every vertex on one surface (a lens closed by one straight edge, the XR's dielectric):
+        # the surface runs from the first vertex to the last, and the closing edge stays straight
+        start = 0
+    order = [(start + i) % n for i in range(n)]
+    runs, cur = [], [order[0]]
+    for i in order[1:]:
+        if owner[i] is not None and owner[i] == owner[cur[-1]]:
+            cur.append(i)
+        else:
+            runs.append(cur)
+            cur = [i]
+    runs.append(cur)
+    def corner(pts, j) -> bool:
+        """Whether the surface turns sharply at its interior point j: a chord to a neighbour more
+        than 30 degrees off the tangent the chain's normal there gives, or, without a normal,
+        the chords turning by more than 30 degrees."""
+        a, p, b = pts[j - 1], pts[j], pts[j + 1]
+        c1, c2 = (p[0] - a[0], p[1] - a[1]), (b[0] - p[0], b[1] - p[1])
+        l1, l2 = math.hypot(*c1), math.hypot(*c2)
+        nv = normal.get(key(p))
+        if nv is not None:
+            ln = math.hypot(*nv)
+            return any(abs(c[0] * nv[0] + c[1] * nv[1]) / (lc * ln) > 0.5 for c, lc in ((c1, l1), (c2, l2)))
+        return (c1[0] * c2[0] + c1[1] * c2[1]) / (l1 * l2) < math.cos(math.radians(30.0))
+
+    pieces = []                           # each run split at its corners; a corner ends one piece, starts the next
+    for run in runs:
+        pts = [vertices[i] for i in run]
+        cur = [run[0]]
+        for j in range(1, len(run)):
+            cur.append(run[j])
+            if j < len(run) - 1 and corner(pts, j):
+                pieces.append(cur)
+                cur = [run[j]]
+        pieces.append(cur)
+    path = []
+    for k, run in enumerate(pieces):
+        if k + 1 < len(pieces) and pieces[k + 1][0] == run[-1]:
+            run_end_shared = True         # the next piece starts at this piece's last point
+        else:
+            run_end_shared = False
+        pts = [vertices[i] for i in run]
+        if len(run) >= 3 and owner[run[0]] is not None:
+            nrms = []
+            for j, q in enumerate(pts):
+                nv = normal.get(key(q))
+                if nv is None:                # from the neighbours: the chord turned by 90 degrees
+                    a, b = pts[max(j - 1, 0)], pts[min(j + 1, len(pts) - 1)]
+                    nv = (-(b[1] - a[1]), b[0] - a[0])
+                nrms.append(nv)
+            path.append({"x": float(pts[0][0]), "y": float(pts[0][1]), "arc": False,
+                         "curve": spline_descriptor([tuple(map(float, q)) for q in pts], nrms)})
+            if not run_end_shared:
+                path.append({"x": float(pts[-1][0]), "y": float(pts[-1][1]), "arc": False})
+        else:
+            path.extend({"x": float(q[0]), "y": float(q[1]), "arc": False}
+                        for q in (pts[:-1] if run_end_shared else pts))
+    return path
+
+
+__all__ = ['RefractedEikonal', 'SMSPoint', 'SurfaceLabel', 'build_sms_chain', 'curve_through',
+           'eikonal_reflect_step', 'grow_sms_chains', 'label_sms_edges', 'reflect', 'seed_arc',
+           'sms_chain_step', 'spline_outline']

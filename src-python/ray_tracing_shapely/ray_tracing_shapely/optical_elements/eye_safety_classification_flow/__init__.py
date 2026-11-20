@@ -22,6 +22,11 @@ dev_doc/architecture/components/eye_safety_classification_flow.md and
 dev_doc/architecture/contracts/C-EYE-05.md. Design rationale:
 dev_doc/architecture/components/eye_safety_classification_flow.md.
 
+The machine itself (`ObservableFlow`), a run's record (`persistence`), the
+question record (`FieldExplanation`) and the dashboard are generic, and live
+in `ray_tracing_shapely.flows`; they are re-exported here, and their old
+module paths still work, for one release.
+
 Not folded into `eye_safety` itself: two new dependencies (`transitions`,
 `graphviz`) that the pure-math `eye_safety` package -- and its own test
 suite, which asserts exact numeric agreement with published worked
@@ -31,7 +36,7 @@ duplicates or modifies their formulas.
 ===============================================================================
 """
 
-from .persistence import (
+from ...flows.persistence import (
     STALENESS_S,
     make_run_id,
     run_dir,
@@ -47,7 +52,7 @@ from .persistence import (
     read_heartbeats,
     is_stale,
 )
-from .flow_base import ObservableFlow, graphviz_available
+from ...flows.flow_base import ObservableFlow, graphviz_available
 from .dimensional_checks import (
     expected_dimensionality_for_hazard,
     checked_hazard_value,

@@ -78,8 +78,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..units import (
+from ..units import (  # noqa: F401  (checked_scalar moved to units; re-exported)
     Quantity,
+    checked_scalar,
     ensure_quantity,
     parse_quantity,
     ensure_radiometric_quantity,
@@ -166,50 +167,6 @@ def checked_hazard_value(hazard_key: str, value: Any, alpha_rad: float, *, name:
     else:
         q = ensure_radiometric_quantity(value, expected, name=name)
     return q.to(expected).magnitude
-
-
-def checked_scalar(value: Any, expected_unit: str, *, name: str) -> float:
-    """Like `checked_hazard_value`, for a single quantity with no
-    radiometric irradiance/radiance ambiguity to worry about (power,
-    length, time, plane angle, ...) -- ordinary
-    `ensure_quantity`/`parse_quantity` dimensionality checking is
-    sufficient for these. Used by both flows' `alpha_rad`, and
-    `iec60825_1_flow.py`'s
-    `measured_power_W`/`wavelength_nm`/`duration_s_class1`.
-
-    **"Sufficient" here means: none of these expectations is a solid
-    angle.** An earlier version of this docstring justified the ordinary
-    check by saying that "only steradian-bearing quantities have the
-    'dimensionless in Pint' problem" -- correct, and it is exactly why
-    anything whose *expected* unit is `sr` must not come through here.
-    `alpha_rad` is a plane angle and is safe: a caller who supplies `deg`
-    gets it converted correctly, and `sr` in an `alpha_rad` slot is a
-    units error this check cannot see but which no caller has a reason to
-    make. A solid-angle expectation is the reverse case and goes through
-    `_as_radiometric_quantity` instead: the two conversion wrappers'
-    `solid_angle` argument was once routed here by this same reasoning
-    (`KW-UNITS-01`, closed; `C-UNITS-02`).
-
-    **Mandatory**: `value` must be a `pint.Quantity` or a Pint-formatted
-    string -- see `checked_hazard_value`'s own docstring for why a bare
-    number is rejected rather than trusted.
-
-    Raises:
-        ValueError: `value` is a bare `int`/`float` (or any other
-            non-Quantity, non-string type), has the wrong dimensionality,
-            or is an unparseable string.
-    """
-    if isinstance(value, bool) or not isinstance(value, (Quantity, str)):
-        raise ValueError(
-            f"{name} must be a pint.Quantity or a Pint-formatted string "
-            f"(e.g. \"1 {expected_unit}\") -- a bare number is not accepted, "
-            f"so its unit is never assumed. Got {type(value).__name__}: {value!r}."
-        )
-    if isinstance(value, str):
-        q = parse_quantity(value, expected_unit)
-    else:
-        q = ensure_quantity(value, expected_unit, name=name)
-    return q.to(expected_unit).magnitude
 
 
 def checked_radiance_from_irradiance(irradiance: Any, solid_angle: Any) -> 'Quantity':

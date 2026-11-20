@@ -59,6 +59,7 @@ from .angle_transformer import build_angle_transformer
 from .rxi import RXIOptic
 from .rr_lens import RRLens
 from .rx_concentrator import RXConcentrator
+from .xr_concentrator import XRConcentrator
 from .rxi_direct import RXIOpticDirect
 
 # Import utility modules
@@ -265,6 +266,7 @@ __all__ = [
     'RXIOptic',
     'RRLens',
     'RXConcentrator',
+    'XRConcentrator',
     'RXIOpticDirect',
     # Factory functions
     'equilateral_prism',

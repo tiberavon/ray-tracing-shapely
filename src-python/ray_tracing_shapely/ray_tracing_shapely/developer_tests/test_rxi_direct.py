@@ -15,161 +15,260 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ===============================================================================
-RXIOPTICDIRECT TESTS
+RXIOPTICDIRECT TESTS: the complete RXI of Chaves Ch. 9, Figure 9.70
 ===============================================================================
-RXIOpticDirect is the package's highest-risk, least-validated class: no
-numeric worked example exists anywhere in the source book for section 9.7
-(every "EXAMPLE" in the chapter was checked), and this implementation adds
-a new, undocumented-in-the-book pin (point D's placement) on top of the
-method's six free choices. These tests check what CAN be checked without a book
-oracle: internal geometric consistency and that construction succeeds
-for the shipped default parameters -- not that the resulting device is a
-physically optimal or even complete RXI (the receiver cavity MN is
-computed but not yet stitched into the assembled polygon; see the class
-docstring). [KD5: with no external oracle, these tests guard against
-change, not against being wrong.]
+The book gives section 9.7's construction but no worked example, so these tests
+check what defines the design rather than published numbers: every surface keeps
+the optical path it was built on, M is where R2's ray meets the top at the critical
+angle, and the edge rays reach the receiver's edges in the simulator.
 
 Run with:
-    python developer_tests/test_rxi_direct.py
-Or with pytest:
     pytest developer_tests/test_rxi_direct.py -v
 ===============================================================================
 """
 
 import math
-import sys
-from pathlib import Path
 
-src_path = Path(__file__).parent.parent
-if str(src_path) not in sys.path:
-    sys.path.insert(0, str(src_path))
+import pytest
+
+from ray_tracing_shapely.core.scene import Scene
+from ray_tracing_shapely.core.scene_objs.blocker.blocker import Blocker
+from ray_tracing_shapely.core.scene_objs.light_source.single_ray import SingleRay
+from ray_tracing_shapely.core.simulator import Simulator
+from ray_tracing_shapely.optical_elements.prisms.nonimaging_geometry import rfr
+from ray_tracing_shapely.optical_elements.prisms.rxi_direct import RXIOpticDirect
+from ray_tracing_shapely.optical_elements.prisms.sms_chain import RefractedEikonal, curve_through, reflect
 
 R1, R2 = (-1.0, 0.0), (1.0, 0.0)
+THETA = 10.0
+N = 1.5
 
 
-def _build_default_rxi():
-    from ray_tracing_shapely.core.scene import Scene
-    from ray_tracing_shapely.optical_elements.prisms.rxi_direct import RXIOpticDirect
+def _make(scene, **kw):
+    return RXIOpticDirect(scene, R1, R2, theta_deg=THETA, n=N, **kw)
 
+
+@pytest.fixture(scope="module")
+def rxi():
+    return _make(Scene())
+
+
+def _unit(v):
+    m = math.hypot(v[0], v[1])
+    return (v[0] / m, v[1] / m)
+
+
+def _dist(a, b):
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def _dot(a, b):
+    return a[0] * b[0] + a[1] * b[1]
+
+
+def _refract(d, n, n1, n2):
+    if _dot(d, n) < 0.0:
+        n = (-n[0], -n[1])
+    return rfr((-d[0], -d[1]), n, n1, n2)
+
+
+def landings(starts, direction, receiver=(-1.5, 1.5)):
+    """Where the brightest branch of each ray last meets the receiver's line: one RXI, one scene."""
     scene = Scene()
-    rxi = RXIOpticDirect(scene, R1, R2, theta_deg=30.0, n=1.5)
-    return scene, rxi
+    scene.add_object(_make(scene))
+    scene.add_object(Blocker(scene, {"p1": {"x": receiver[0], "y": R1[1]}, "p2": {"x": receiver[1], "y": R1[1]}}))
+    for x, y in starts:
+        scene.add_object(SingleRay(scene, {"p1": {"x": x, "y": y},
+                                           "p2": {"x": x + direction[0], "y": y + direction[1]}}))
+    segments = Simulator(scene, max_rays=20000).run_with_result(name="rxi landings").segments
+    children = {}
+    for g in segments:
+        children.setdefault(g.parent_uuid, []).append(g)
+    out = {}
+    for root in children[None]:
+        branch, g = [], root
+        while True:
+            branch.append(g)
+            nxt = children.get(g.uuid)
+            if not nxt:
+                break
+            g = max(nxt, key=lambda c: c.total_brightness)
+        found = None
+        for k, g in enumerate(branch):
+            a, b = (g.p1["x"], g.p1["y"]), (g.p2["x"], g.p2["y"])
+            if abs(b[1] - a[1]) < 1e-15:
+                continue
+            t = (R1[1] - a[1]) / (b[1] - a[1])
+            if t >= -1e-12 and (t <= 1.0 + 1e-12 or k == len(branch) - 1):
+                found = a[0] + t * (b[0] - a[0])
+        out[round(root.p1["x"], 9)] = found
+    return out
 
 
-def test_rxi_direct_constructs_without_error():
-    """The class builds successfully with its own documented default parameters."""
-    scene, rxi = _build_default_rxi()
-    assert len(rxi.path) >= 3
-    print(f"  PASS: RXIOpticDirect constructs ({len(rxi.path)} vertices)")
-    return True
+# ---------------------------------------------------------------------------
+# The start (Figures 9.62-9.64)
+# ---------------------------------------------------------------------------
+
+def test_the_virtual_aperture_comes_from_etendue(rxi):
+    assert _dist(rxi.Q, rxi.Q_star) * math.sin(math.radians(THETA)) == pytest.approx(_dist(R1, R2), abs=1e-12)
+    # A lies on r2 (perpendicular to w2) through Q, above it; B on r1 through Q, on AC
+    u = _unit((rxi.Q[0] - rxi.A[0], rxi.Q[1] - rxi.A[1]))
+    assert u[0] == pytest.approx(rxi.v2[0], abs=1e-12) and u[1] == pytest.approx(rxi.v2[1], abs=1e-12)
+    u = _unit((rxi.Q[0] - rxi.B[0], rxi.Q[1] - rxi.B[1]))
+    assert u[0] == pytest.approx(rxi.v1[0], abs=1e-12) and u[1] == pytest.approx(rxi.v1[1], abs=1e-12)
+    ac, ab = _unit((rxi.C[0] - rxi.A[0], rxi.C[1] - rxi.A[1])), _unit((rxi.B[0] - rxi.A[0], rxi.B[1] - rxi.A[1]))
+    assert ac[0] * ab[1] - ac[1] * ab[0] == pytest.approx(0.0, abs=1e-12)
 
 
-def test_rxi_direct_de_fan_snell_consistency():
-    """Every DE point's normal is unit length and satisfies the defining Cartesian oval equation."""
-    scene, rxi = _build_default_rxi()
-
-    n = rxi.n_lens  # noqa: F841 -- INCOMPLETE TEST, left for review: this function is
-    # named ..._snell_consistency and its docstring promises the defining
-    # Cartesian oval equation, but the body only checks that normals are
-    # unit length. `n` is the refractive index that check would need.
-    for p in rxi.DE:
-        mag = math.hypot(p.n[0], p.n[1])
-        assert abs(mag - 1.0) < 1e-9, f"DE normal not unit length: {p.n}"
-    print(f"  PASS: all {len(rxi.DE)} DE points carry unit-length normals")
-    return True
+def test_de_reflects_every_ray_headed_to_q_onto_c(rxi):
+    """Each ray headed to Q, refracted at AB and reflected at DE, reaches C with the path S_CQ."""
+    for I, J in zip(rxi.AB_points, rxi.DE):
+        v = _refract(_unit((rxi.Q[0] - I[0], rxi.Q[1] - I[1])), rxi.ac_normal, 1.0, N)
+        assert _unit((J.p[0] - I[0], J.p[1] - I[1]))[0] == pytest.approx(v[0], abs=1e-9)
+        out = reflect(v, J.n)
+        to_c = _unit((rxi.C[0] - J.p[0], rxi.C[1] - J.p[1]))
+        assert out[0] == pytest.approx(to_c[0], abs=1e-9) and out[1] == pytest.approx(to_c[1], abs=1e-9)
+        path = N * _dist(rxi.C, J.p) + N * _dist(J.p, I) - _dist(I, rxi.Q)
+        assert path == pytest.approx(rxi.S_CQ, abs=1e-9)
+    assert rxi.DE[0].p == rxi.D and rxi.E[0] < rxi.D[0]
 
 
-def test_rxi_direct_ac_segment_is_straight_with_consistent_normal():
-    """A, C, and the AC segment's geometric normal are mutually consistent (pin 4)."""
-    from ray_tracing_shapely.optical_elements.prisms.rxi_direct import _nrm, _rot90, _neg
+# ---------------------------------------------------------------------------
+# The cavity (Figure 9.65)
+# ---------------------------------------------------------------------------
 
-    scene, rxi = _build_default_rxi()
-    ac_dir = _nrm((rxi.C[0] - rxi.A[0], rxi.C[1] - rxi.A[1]))
-    expected_normal = _rot90(ac_dir)
-    if expected_normal[1] < 0:
-        expected_normal = _neg(expected_normal)
-    # DE[0] (== D) was built by refracting through this exact normal;
-    # confirm it is perpendicular to A->C (a straight segment's normal
-    # is always perpendicular to the segment itself).
-    dot = expected_normal[0] * ac_dir[0] + expected_normal[1] * ac_dir[1]
-    assert abs(dot) < 1e-9, f"AC normal not perpendicular to AC: dot={dot}"
-    print("  PASS: AC's normal is perpendicular to the A-C segment, as a straight seed requires")
-    return True
-
-
-def test_rxi_direct_is_a_valid_simple_polygon():
-    """The assembled Glass polygon (top + DE-family bottom, per the class's documented simplification) is CCW and simple."""
-    from shapely.geometry import Polygon
-
-    scene, rxi = _build_default_rxi()
-    pts = [(v['x'], v['y']) for v in rxi.path]
-    poly = Polygon(pts)
-    assert poly.is_valid, "RXIOpticDirect polygon is not a valid simple polygon for its own default parameters"
-    signed_area = 0.5 * sum(
-        pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
-        for i in range(len(pts))
-    )
-    assert signed_area > 0, f"RXIOpticDirect polygon is not CCW (signed area {signed_area})"
-    print(f"  PASS: RXIOpticDirect polygon is valid, simple, CCW ({len(pts)} vertices) for its default parameters")
-    return True
+def test_mn_takes_the_cone_reflected_at_c_to_r1(rxi):
+    for q in rxi.MN:
+        assert N * _dist(rxi.C, q.p) + _dist(q.p, R1) == pytest.approx(rxi.S_CR1, abs=1e-9)
+        out = _refract(_unit((q.p[0] - rxi.C[0], q.p[1] - rxi.C[1])), q.n, N, 1.0)
+        to_r1 = _unit((R1[0] - q.p[0], R1[1] - q.p[1]))
+        assert out[0] == pytest.approx(to_r1[0], abs=1e-9) and out[1] == pytest.approx(to_r1[1], abs=1e-9)
+    # M, MN's lower end, on the receiver's line; N above it, nearer the axis
+    assert rxi.M_cav[1] == pytest.approx(R1[1], abs=1e-9)
+    assert rxi.N[1] > rxi.M_cav[1] and 0.0 < rxi.N[0] < rxi.M_cav[0]
+    # the cavity's two halves mirror each other, and through C it carries R1's path S_CR1
+    assert rxi.w3(rxi.C, hint=rxi._s_N)[0] == pytest.approx(rxi.S_CR1, abs=1e-9)
 
 
-def test_rxi_direct_receiver_cavity_is_computed():
-    """
-    The receiver cavity MN is computed (even though not yet stitched into
-    the assembled polygon -- see the class's own documented
-    simplification) and every point satisfies the Cartesian oval's own
-    defining property: n*[C,P] + n*[P,R1] == S_CR1.
-    """
-    scene, rxi = _build_default_rxi()
-    assert len(rxi.MN) > 0, "expected at least one receiver-cavity point"
-    n = rxi.n_lens
-    S_CR1 = rxi.s_cr1_margin * n * math.hypot(*(rxi.C[0] - R1[0], rxi.C[1] - R1[1]))
-    for p in rxi.MN:
-        lhs = n * math.hypot(p.p[0] - rxi.C[0], p.p[1] - rxi.C[1]) + n * math.hypot(p.p[0] - R1[0], p.p[1] - R1[1])
-        assert abs(lhs - S_CR1) < 1e-6, f"MN point {p.p} does not satisfy n*[C,P]+n*[P,R1]==S_CR1"
-    print(f"  PASS: all {len(rxi.MN)} receiver-cavity points satisfy their own Cartesian oval equation")
-    return True
+# ---------------------------------------------------------------------------
+# The chain (Figures 9.66-9.69)
+# ---------------------------------------------------------------------------
+
+def test_every_chain_point_keeps_its_optical_path_and_its_law(rxi):
+    """Each top point: w2, through the top, reflected at the bottom point it was made from, then at
+    the top point to R1 through the cavity, at the path S23. Each bottom point: w4 (from R2 through
+    the cavity) reflected at the top point, then at the bottom point up through the top to w1,
+    at S14. At each new point the normal reflects the one ray into the other."""
+    top = rxi.top_points
+    top_c = curve_through([q.p for q in top], [q.n for q in top])
+    w2_in = RefractedEikonal(top_c, ("plane", rxi.v2), 1.0, N)
+    w1_in = RefractedEikonal(top_c, ("plane", rxi.v1), 1.0, N)
+    assert len(rxi.links) >= 4 * rxi.n_points
+    for kind, K, P in rxi.links:
+        if kind == "top":
+            before, ray, _ = w2_in(K.p)
+            after, back, _ = rxi.w3(P.p, hint=rxi._s1[P.p])
+            S = rxi.S23
+        else:
+            before, ray, _ = rxi.w4(K.p, hint=rxi._s2[K.p])
+            after, back, _ = w1_in(P.p)
+            S = rxi.S14
+        d = reflect(ray, K.n)
+        along = _unit((P.p[0] - K.p[0], P.p[1] - K.p[1]))
+        assert along[0] == pytest.approx(d[0], abs=1e-9) and along[1] == pytest.approx(d[1], abs=1e-9)
+        assert before + N * _dist(K.p, P.p) + after == pytest.approx(S, abs=1e-9)
+        out = reflect(d, P.n)
+        assert out[0] == pytest.approx(-back[0], abs=1e-7) and out[1] == pytest.approx(-back[1], abs=1e-7)
 
 
-def run_all_tests():
-    tests = [
-        ("RXIOpticDirect constructs without error", test_rxi_direct_constructs_without_error),
-        ("RXIOpticDirect DE fan Snell consistency", test_rxi_direct_de_fan_snell_consistency),
-        ("RXIOpticDirect AC segment normal consistency", test_rxi_direct_ac_segment_is_straight_with_consistent_normal),
-        ("RXIOpticDirect is a valid simple CCW polygon", test_rxi_direct_is_a_valid_simple_polygon),
-        ("RXIOpticDirect receiver cavity is computed", test_rxi_direct_receiver_cavity_is_computed),
-    ]
-
-    passed = 0
-    failed = 0
-    errors = []
-
-    for name, test_func in tests:
-        print(f"\nTEST: {name}")
-        try:
-            test_func()
-            passed += 1
-        except Exception as e:
-            failed += 1
-            errors.append((name, str(e)))
-            print(f"  FAILED: {name}")
-            print(f"    Error: {e}")
-
-    print("\n" + "=" * 78)
-    print(f"SUMMARY: {passed}/{len(tests)} tests passed")
-    print("=" * 78)
-
-    if errors:
-        print("\nFailed tests:")
-        for name, error in errors:
-            print(f"  - {name}: {error}")
-        return False
-
-    print("\nAll tests passed!")
-    return True
+def test_the_chain_grows_inward(rxi):
+    xs = [q.p[0] for q in rxi.top_points]
+    assert all(b < a for a, b in zip(xs, xs[1:]))
+    assert xs[-1] < rxi.M[0]                               # the top reaches inside M
+    assert rxi.bottom_points[0].p == rxi.D
 
 
-if __name__ == "__main__":
-    success = run_all_tests()
-    sys.exit(0 if success else 1)
+# ---------------------------------------------------------------------------
+# The mirrors (Figure 9.70)
+# ---------------------------------------------------------------------------
+
+def test_r2s_ray_meets_the_top_at_m_at_the_critical_angle(rxi):
+    """At M the ray from R2 (the book's r3) meets the top at the critical angle; R1's (r4) at a
+    wider one; nearer the axis TIR fails, further out it holds."""
+    def incidence(s, eikonal, hint):
+        P = rxi.top_curve.point(s)
+        d = rxi.top_curve.deriv(s)
+        normal = _unit((-d[1], d[0]))
+        _, ray, _ = eikonal(P, hint=hint)
+        return math.acos(abs(_dot(ray, normal)))
+
+    s = rxi.mirror_parameter
+    h2, h1 = rxi._s2[rxi.top_points[int(s)].p], rxi._s1[rxi.top_points[int(s)].p]
+    assert incidence(s, rxi.w4, h2) == pytest.approx(rxi.alpha_c, abs=1e-9)
+    assert incidence(s, rxi.w3, h1) > rxi.alpha_c
+    assert incidence(s + 0.5, rxi.w4, h2) < rxi.alpha_c < incidence(s - 0.5, rxi.w4, h2)
+
+
+def test_the_labels_and_the_coatings(rxi):
+    labels = [rxi.get_functional_label(s.index)[0] for s in rxi.spans]
+    assert labels == ["TOP", "MT", "TOP", "RIM", "MB", "FOOT", "CAV", "FOOT", "MB", "RIM"]
+    reflects = {lab: rxi.edge_reflects(s.path_indices[0]) for lab, s in zip(labels, rxi.spans)}
+    assert reflects == {"TOP": False, "MT": True, "RIM": False, "MB": True, "FOOT": False, "CAV": False}
+    # the top is one spline, cut at M and M*: three domains of the same curve
+    top = [s for s, lab in zip(rxi.spans, labels) if lab in ("TOP", "MT")]
+    assert len({str(rxi.path[s.path_indices[0]]["curve"]["points"]) for s in top}) == 1
+
+
+def test_the_old_form_is_refused():
+    for old in ({"c_height_fraction": 0.4}, {"n_stages": 2}, {"s_cr1_margin": 1.3}, {"n_points_de": 6}):
+        with pytest.raises(TypeError):
+            RXIOpticDirect(Scene(), R1, R2, theta_deg=THETA, **old)
+
+
+# ---------------------------------------------------------------------------
+# The edge rays, in the simulator
+# ---------------------------------------------------------------------------
+
+W2_ON_R1 = [0.65, 0.7, 0.75, 0.8, 0.9, 0.95]
+W1_ON_R2 = [0.4, 0.5, 0.6, 0.7, 0.8]
+
+
+def test_the_edge_rays_reach_the_receiver_edges(rxi):
+    """The bundle perpendicular to w2 (toward -x) lands on R1, the one perpendicular to w1 on R2,
+    over the aperture outside the central shadow and the start's portion."""
+    half = rxi.half_aperture
+    y = max(q.p[1] for q in rxi.top_points) + 1.0
+    on_r1 = landings([(f * half, y) for f in W2_ON_R1], rxi.v2)
+    on_r2 = landings([(f * half, y) for f in W1_ON_R2], rxi.v1)
+    assert all(v is not None and abs(v - R1[0]) < 2e-3 for v in on_r1.values()), on_r1
+    assert all(v is not None and abs(v - R2[0]) < 2e-3 for v in on_r2.values()), on_r2
+
+
+def test_the_central_mirror_shades_the_centre(rxi):
+    """Light arriving on m_T from outside is reflected away: nothing reaches the receiver."""
+    half = rxi.half_aperture
+    y = max(q.p[1] for q in rxi.top_points) + 1.0
+    xs = [f * rxi.mirror_x for f in (0.2, 0.5, 0.8)]
+    out = landings([(x, y) for x in xs], (0.0, -1.0))
+    assert all(v is None or abs(v) > 1.5 for v in out.values()), out
+    assert rxi.mirror_x < 0.5 * half
+
+
+def test_the_rxi_accepts_inside_its_angle_and_not_outside(rxi):
+    """Of a bundle filling the aperture, more than half reaches the receiver at 0 and at half the
+    acceptance angle (m_T shades the central 36 %; 54 % and 56 % measured), and almost none at
+    1.25 times it (none measured)."""
+    rim = rxi.top_points[0].p
+    y = max(q.p[1] for q in rxi.top_points) + 1.0
+    xs = [-rim[0] + 2.0 * rim[0] * (k + 0.5) / 41 for k in range(41)]
+
+    def reaching(factor):
+        th = math.radians(factor * THETA)
+        d = (math.sin(th), -math.cos(th))
+        starts = [(x - (y - rim[1]) * math.tan(th), y) for x in xs]   # across the rim's width
+        out = landings(starts, d)
+        return sum(1 for v in out.values() if v is not None and R1[0] <= v <= R2[0]) / len(xs)
+
+    assert reaching(0.0) > 0.5
+    assert reaching(0.5) > 0.5
+    assert reaching(1.25) < 0.05

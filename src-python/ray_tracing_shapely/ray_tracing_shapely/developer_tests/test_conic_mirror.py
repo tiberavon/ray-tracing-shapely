@@ -15,7 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ConicMirror / ArcMirror, exact curved mirrors in 2D, and the
-sheet export.
+sheet export, and its inverse (mirrors_from_sheet_profile).
 
 Every optical check is a property with an exact answer, so a sampled or
 approximate curve fails it: a conic sends a ray from one focus through the
@@ -32,8 +32,10 @@ from ray_tracing_shapely.core.scene import Scene
 from ray_tracing_shapely.core.scene_objs.light_source.single_ray import SingleRay
 from ray_tracing_shapely.core.scene_objs.mirror.mirror import Mirror
 from ray_tracing_shapely.core.simulator import Simulator
-from ray_tracing_shapely.optical_elements.mirrors import ArcMirror, ConicMirror
+from ray_tracing_shapely.optical_elements.mirrors import ArcMirror, ConicMirror, mirrors_from_sheet_profile
 from ray_tracing_shapely.optical_elements.prisms.profile_export import export_sheet_profile
+from ray_tracing_shapely.optical_elements.lenses import SingletLens
+from ray_tracing_shapely.optical_elements.prisms.profile_export import export_profile
 from ray_tracing_shapely.optical_elements.roles import Role
 
 TOL = 1e-11
@@ -274,3 +276,73 @@ def test_the_svg_renderer_draws_a_conic_mirror_as_its_curve():
     assert max(math.dist(a, b) for a, b in zip(drawn, expected)) < 1e-6
     assert len(re.findall(r"<line ", svg)) == 1           # the flat mirror, still a line
     assert ">P<" in svg                                    # the curved mirror's label
+
+
+# --- the sheet rebuild ------------------------------------------------------------------
+
+
+def _exported_sheet(mirrors, axis_point, axis, **symmetry):
+    return export_sheet_profile(mirrors, symmetry={"kind": "revolve", "axis": {"point": list(axis_point),
+                                                                               "direction": list(axis)},
+                                                   **symmetry}, physical_params={}, numerical_params={})
+
+
+@pytest.mark.parametrize("angle", [0.0, 37.0, -100.0])
+def test_a_rebuilt_paraboloid_is_one_mirror_with_its_focus(angle):
+    vertex, axis, at = _frame(angle)
+    R = 40.0
+    profile = _exported_sheet([ConicMirror(Scene(), vertex, axis, R, -1.0, semi_diameter=15.0, name="P")], vertex, axis)
+    (m,) = mirrors_from_sheet_profile(Scene(), profile)
+    assert type(m) is ConicMirror and m.name == "P" and m.role is Role.WALL
+    assert m.extent == pytest.approx((-15.0, 15.0), abs=1e-9)
+    want = ConicMirror(Scene(), vertex, axis, R, -1.0, semi_diameter=1.0).descriptor()
+    got = m.descriptor()
+    assert got["vertex"] == pytest.approx(want["vertex"]) and got["axis"] == pytest.approx(want["axis"])
+    assert (got["radius"], got["conic"]) == pytest.approx((want["radius"], want["conic"]))
+    for h in (-14.0, -6.0, 0.5, 12.0):
+        scene = Scene()
+        scene.add_object(mirrors_from_sheet_profile(scene, profile)[0])
+        segs = _trace(scene, at(h, 60.0), (-axis[0], -axis[1]))
+        assert len(segs) == 2 and _line_distance(at(0.0, R / 2), segs[1]) < TOL
+
+
+def test_a_zone_comes_back_in_two_and_a_cut_sheet_in_one_half():
+    vertex, axis, _ = _frame(0.0)
+    zone = ConicMirror(Scene(), vertex, axis, 30.0, -0.5, extent=(4.0, 20.0), name="Z")
+    image = ConicMirror(Scene(), vertex, axis, 30.0, -0.5, extent=(-20.0, -4.0), name="Z_far")
+    whole = mirrors_from_sheet_profile(Scene(), _exported_sheet([zone, image], vertex, axis))
+    assert [x for m in sorted(whole, key=lambda m: m.extent) for x in m.extent] == pytest.approx(
+        [-20.0, -4.0, 4.0, 20.0], abs=1e-9)
+    (half,) = mirrors_from_sheet_profile(Scene(), _exported_sheet([zone], vertex, axis, azimuth_deg=[-90, 90]))
+    assert half.extent == pytest.approx((4.0, 20.0), abs=1e-9)
+
+
+def test_a_sphere_and_a_flat_mirror_across_the_axis_are_joined():
+    sphere = ArcMirror(Scene(), (40.0, 0.0), (1.0, 0.0), -40.0, semi_diameter=20.0, name="S")
+    flat = Mirror(Scene(), {"p1": {"x": -5.0, "y": -3.0}, "p2": {"x": -5.0, "y": 3.0}})
+    flat.name = "F"
+    cone = Mirror(Scene(), {"p1": {"x": 0.0, "y": 0.0}, "p2": {"x": 10.0, "y": 5.0}})     # from the axis, slanted
+    cone.name = "C"
+    cone_image = Mirror(Scene(), {"p1": {"x": 0.0, "y": 0.0}, "p2": {"x": 10.0, "y": -5.0}})
+    cone_image.name = "C_far"
+    s, f, c, c_image = mirrors_from_sheet_profile(Scene(), _exported_sheet([sphere, flat, cone, cone_image], (0.0, 0.0),
+                                                                  (1.0, 0.0)))
+    assert type(s) is ArcMirror and s.extent == pytest.approx((-20.0, 20.0)) and s.center == pytest.approx((0.0, 0.0))
+    assert sorted((f.p1["y"], f.p2["y"])) == pytest.approx([-3.0, 3.0]) and f.name == "F"
+    assert {(c.p2["y"]), (c_image.p2["y"])} == {5.0, -5.0} and c.name == c_image.name == "C"
+
+
+def test_the_sheet_rebuild_refuses_what_is_not_a_exported_sheet():
+    lens = SingletLens(Scene(), radius_front=60.0, radius_back=-20.0, thickness=5.0, semi_diameter=10.0, n=1.5)
+    solid = export_profile(lens, symmetry={"kind": "revolve", "axis": lens.revolve_axis()},
+                           physical_params={}, numerical_params={})
+    with pytest.raises(ValueError, match="from_profile"):
+        mirrors_from_sheet_profile(Scene(), solid)
+    vertex, axis, _ = _frame(0.0)
+    sheet = _exported_sheet([ConicMirror(Scene(), vertex, axis, 40.0, -1.0, semi_diameter=15.0, name="P")], vertex, axis)
+    moved = {**sheet, "points": [[x + 1e-3, y] for x, y in sheet["points"]]}
+    with pytest.raises(ValueError, match="from the vertex branch"):
+        mirrors_from_sheet_profile(Scene(), moved)
+    refracting = {**sheet, "spans": [{**sheet["spans"][0], "mechanism": "refract"}]}
+    with pytest.raises(ValueError, match="reflect"):
+        mirrors_from_sheet_profile(Scene(), refracting)

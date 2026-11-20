@@ -9,7 +9,7 @@ viewpoint: structural
 status: enforced
 failure_mode: loud
 checked_by: src-python/ray_tracing_shapely_optiland/tests/test_end_caps_and_import.py::test_round_trip_reads_live_geometry_and_keeps_labels
-witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_profile_export.py::test_from_profile_round_trips_export; test_from_profile_keeps_labels_addressable_unlike_from_vertices
+witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_profile_export.py::test_from_profile_round_trips_export; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_profile_export.py::test_from_profile_keeps_labels_addressable_unlike_from_vertices
 tracked_by: null
 conflicts_with: null
 refines: C-LABEL-02

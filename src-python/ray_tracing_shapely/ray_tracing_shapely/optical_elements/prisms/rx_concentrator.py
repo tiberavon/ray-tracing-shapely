@@ -14,30 +14,32 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-Python translation Copyright 2026 ray-tracing-shapely authors and contributors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
 ===============================================================================
-RX CONCENTRATOR -- Miñano-Benítez RX SMS Optic
+RX CONCENTRATOR -- Miñano-Benítez RX SMS Optic (Chaves Ch. 9, §9.4, eq. 9.34)
 ===============================================================================
-Single Glass polygon: a refractive top surface (facing the receiver) and a
-mirror-coated bottom surface, built with the shared sms_chain engine
-(sms_chain.py) -- the same "one engine, four device families" architecture
-Chaves Ch. 9's own text establishes (§9.4 lines 647/743/826).
+One dielectric: light refracts in at its top surface (R), reflects off its
+mirror-coated bottom (X), and reaches the receiver R1R2, immersed in the
+glass between them and facing down. Rays perpendicular to wavefront w2 are
+concentrated onto R1, rays perpendicular to w1 onto R2.
 
-No RX-specific worked numeric example exists in the source book (confirmed
-by reading all of Chaves Ch. 9's Examples 9.1-9.3); this class's
-construction sequence instead reproduces Example 9.2's (XR, the same
-shared engine's mechanism='reflect' code path) equation by equation
-(eq. 9.67-9.79), generalized to arbitrary r1/r2/n/theta_deg/p0/n0 rather
-than that example's own fixed numbers -- see
-developer_tests/test_sms_chain.py's own Example-9.2 validation of the
-exact primitives this class calls.
+The construction (Figures 9.38-9.39):
+  1. P0 on the axis, on the top surface, a height above the receiver; its
+     normal is vertical (symmetry).
+  2. The ray r1 of w2 refracts into the glass at P0; P1 lies along it, at a
+     chosen depth. n1 reflects it to R1. This fixes the optical path length
+     S = [W2, P0] + n[P0, P1] + n[P1, R1] (eq. 9.34), the same from w1 to R2.
+  3. The mirror between Q1 (P1's mirror image) and P1 is a circle, centred
+     where the axis meets P1's normal line.
+  4. From every point of that circle, a chain: a ray from R2 reflects at the
+     mirror point and fixes the top's next point, which refracts it out
+     perpendicular to w1; a ray of w2 refracts at that top point and fixes
+     the mirror's next point, which reflects it to R1; and so on outward.
+  5. A chain ends where the surfaces meet: a ray from R2 reflected at the
+     mirror no longer rises to the top, or the mirror would rise above the
+     top. The top curves down to meet the mirror at the rim.
+
+The chain from Q1 returns to P0 exactly (the symmetric image of r1's path):
+a check of the construction, kept in the tests.
 
 See dev_doc/architecture/components/nonimaging_design.md
 ===============================================================================
@@ -49,13 +51,8 @@ import math
 from typing import ClassVar, List, Optional, Tuple, TYPE_CHECKING
 
 from .base_prism import BasePrism
-from .nonimaging_geometry import Point, rfr, rfxnrm
-from .sms_chain import (
-    SMSPoint,
-    build_sms_chain,
-    seed_arc,
-    sms_chain_step,
-)
+from .nonimaging_geometry import Point, isl, rfr, rfxnrm
+from .sms_chain import SMSPoint, grow_sms_chains, seed_arc, sms_chain_step
 
 if TYPE_CHECKING:
     from ...core.scene import Scene
@@ -66,59 +63,29 @@ def _nrm(v: Point) -> Point:
     return (v[0] / m, v[1] / m)
 
 
-def _neg(v: Point) -> Point:
-    return (-v[0], -v[1])
-
-
-def _sub(a: Point, b: Point) -> Point:
-    return (a[0] - b[0], a[1] - b[1])
-
-
 class RXConcentrator(BasePrism):
     """
-    RX SMS optic (Chaves Ch. 9 §9.4, lines 741-784): a refractive top
-    surface (R) and a mirror-coated bottom surface (X), with the receiver
-    R1R2 immersed in the dielectric near the refractive surface. Built by
-    generalizing Example 9.2's (XR) own construction sequence
-    (eq. 9.67-9.79) -- the shared engine's mechanism='reflect' code path,
-    the exact code this class depends on.
+    RX SMS optic (Chaves Ch. 9 §9.4, eq. 9.34, Figures 9.37-9.39): a refracting top surface
+    (R) and a mirror-coated bottom (X), one dielectric, with the receiver R1R2 immersed
+    between them, facing down.
 
     Args:
-        r1, r2: Receiver edge points, immersed in the medium of index n.
-        n: Refractive index of the dielectric.
-        theta_deg: Half-angle of the two input wavefronts w1/w2
-            (Chaves Ch. 9's own theta).
-        p0, n0: A seed point and its normal on the refractive top surface
-            (Chaves Ch. 9's own free choice -- the simpler
-            P0-seeded variant, matching how the book's own RX-family
-            example (9.2, structurally XR) is described, rather than the
-            hyperbola-seeded variant RRLens uses -- there is no RX-specific
-            worked example to instead match the other variant against).
-        p1_extension: Distance along the refracted ray from p0 to place
-            the mirror seed point P1 (Chaves Ch. 9 eq. 9.68's own free
-            "10" multiplier, exposed as a parameter rather than hardcoded).
-        wavefront_offset: Distance along s1/s2 from P1 to place the
-            wavefront reference points W1/W2 (eq. 9.69's own free "15").
-        n_points_on_seed_circle: Points sampled on the initial mirror
-            seed circle between Q1 and P1, INCLUSIVE of both endpoints
-            (Chaves Ch. 9's own N_p=5 refers to the count AFTER dropping
-            the repeated P1 endpoint, line 1970 -- pass 6 here to
-            reproduce the book's own 5-point list exactly, confirmed
-            against its published values).
-        n_stages: Number of alternating refract/reflect stages to grow
-            outward from the seed circle before stopping (a fixed,
-            finite bound -- Chaves Ch. 9's own termination is physical,
-            not numerical (line 1979's critical-angle crossover), which
-            this class does not attempt to derive analytically; see
-            RXIOpticDirect's docstring for the same pin applied there).
-        n: Refractive index of the dielectric (default 1.5).
+        r1, r2: The receiver's edges (r1 left of r2, the same height), immersed in the glass.
+        theta_deg: The acceptance half-angle: the bundles perpendicular to w1 and w2 are
+            tilted by +theta and -theta from the vertical.
+        n: The dielectric's refractive index.
+        top_height: How far P0, the top surface's centre, lies above the receiver.
+        mirror_depth: How far P1, the mirror's seed point, lies from P0 along the ray
+            refracted there (the book's free choice).
+        n_seed: Points on the seed circle Q1P1, both ends included: one chain from each.
+        max_steps: A safety bound on each chain's length; a chain ends where the surfaces
+            meet, well before it.
+        edges: ``"spline"`` (each surface one exact spline through its points, with their
+            normals) or ``"polyline"``.
 
     Reference:
-        Chaves, J., Introduction to Nonimaging Optics, 2nd ed., CRC Press,
-        Ch. 9 "Miñano-Benítez Design Method", §9.4, lines 741-784, eq.
-        9.34, Figures 9.37-9.39; Example 9.2 (structurally XR, lines
-        1909-2025) supplies this class's only available numeric
-        cross-check, for the shared engine's mechanism='reflect' path.
+        Chaves, J., Introduction to Nonimaging Optics, 2nd ed., CRC Press, Ch. 9
+        "Miñano-Benítez Design Method", §9.4, eq. 9.34, Figures 9.37-9.39.
     """
 
     _edge_roles: ClassVar[List[Tuple[str, str]]] = []
@@ -133,26 +100,26 @@ class RXConcentrator(BasePrism):
         r1: Point,
         r2: Point,
         theta_deg: float,
-        p0: Point,
-        n0: Point,
         n: float = 1.5,
-        p1_extension: float = 10.0,
-        wavefront_offset: float = 15.0,
-        n_points_on_seed_circle: int = 6,
-        n_stages: int = 4,
+        top_height: float = 2.0,
+        mirror_depth: float = 12.0,
+        n_seed: int = 6,
+        max_steps: int = 1000,
         name: Optional[str] = None,
+        edges: str = "spline",
     ) -> None:
+        if abs(r1[1] - r2[1]) > 1e-12 or r1[0] >= r2[0]:
+            raise ValueError("RXConcentrator: r1 and r2 at one height, r1 left of r2")
+        if top_height <= 0.0 or mirror_depth <= top_height:
+            raise ValueError("RXConcentrator: top_height > 0, and the mirror below the receiver "
+                             "(mirror_depth > top_height)")
         self.r1, self.r2 = r1, r2
         self.theta_deg = theta_deg
-        self.p0, self.n0 = p0, n0
         self.n_lens = n
-        self.n_stages = n_stages
+        self.top_height = top_height
+        self.mirror_depth = mirror_depth
 
-        (
-            self.mirror_points, self.lens_points,
-            self.C, self.W1, self.W2, self.S,
-        ) = self._build_profile(p1_extension, wavefront_offset, n_points_on_seed_circle)
-
+        self._build_profile(n_seed, max_steps)
         vertices = self._assemble_vertices()
 
         from ...core.scene_objs.glass.glass import Glass
@@ -162,141 +129,123 @@ class RXConcentrator(BasePrism):
         self._rotation = 0.0
         self._anchor = 'centroid'
         self.refIndex = n
-        self.path = [{'x': x, 'y': y, 'arc': False} for x, y in vertices]
-        self._functional_labels = {
-            i: (str(i), f"Edge {i}") for i in range(len(vertices))
-        }
-        self._vertex_labels = {
-            i: (str(i), f"Vertex {i}") for i in range(len(vertices))
-        }
+        if edges not in ("spline", "polyline"):
+            raise ValueError(f"edges is 'spline' or 'polyline', got {edges!r}")
+        self.edges = edges
+        self.polyline_vertices = vertices
+        if edges == "spline":
+            from .sms_chain import spline_outline
+            self.path = spline_outline(vertices, [self.lens_points, self.mirror_points])
+            vertices = [(v['x'], v['y']) for v in self.path]
+        else:
+            self.path = [{'x': x, 'y': y, 'arc': False} for x, y in vertices]
+        from ..roles import Mechanism, Role
+        from .sms_chain import SurfaceLabel, label_sms_edges
+
+        (self._functional_labels, self._edge_role_tags,
+         self._edge_mechanisms) = label_sms_edges(vertices, [
+            SurfaceLabel("R", "R surface (refracting)", Role.ENTRANCE, Mechanism.REFRACT,
+                         [p.p for p in self.lens_points]),
+            SurfaceLabel("X", "X surface (mirror-coated)", Role.WALL, Mechanism.REFLECT,
+                         [p.p for p in self.mirror_points]),
+        ], rim=SurfaceLabel("RIM", "Rim", None, Mechanism.REFRACT, []))
+        self._vertex_labels = {i: (str(i), f"Vertex {i}") for i in range(len(vertices))}
         self.auto_label_cardinal()
         if name is not None:
             self.name = name
+        self._mirrors: List[object] = []   # the coating is the glass's own: X reflects
 
-        self._mirrors = self._add_mirror_coating(scene)
+    # ------------------------------------------------------------------
+    def _build_profile(self, n_seed: int, max_steps: int) -> None:
+        r1, r2, n = self.r1, self.r2, self.n_lens
+        th = math.radians(self.theta_deg)
+        cx = 0.5 * (r1[0] + r2[0])
+        # The bundles travel down: w2's toward -x (to R1), w1's toward +x (to R2).
+        d2 = (-math.sin(th), -math.cos(th))
+        d1 = (math.sin(th), -math.cos(th))
+        self.d1, self.d2 = d1, d2
 
-    def _build_profile(self, p1_extension, wavefront_offset, n_points_on_seed_circle):
-        r1, r2, n, theta = self.r1, self.r2, self.n_lens, math.radians(self.theta_deg)
-        p0, n0 = self.p0, self.n0
+        # eq. 9.34: P0, the ray r1 refracted there, P1 and its normal
+        P0 = (cx, r1[1] + self.top_height)
+        t0 = rfr((-d2[0], -d2[1]), (0.0, -1.0), 1.0, n)
+        P1 = (P0[0] + self.mirror_depth * t0[0], P0[1] + self.mirror_depth * t0[1])
+        n1 = rfxnrm(t0, _nrm((r1[0] - P1[0], r1[1] - P1[1])))
+        # the wavefronts: lines perpendicular to each bundle, through a point up-ray from P0
+        lead = self.top_height + self.mirror_depth
+        W2 = (P0[0] - lead * d2[0], P0[1] - lead * d2[1])
+        W1 = (2.0 * cx - W2[0], W2[1])
+        v2 = (-d2[1], d2[0])
+        S = lead + n * math.hypot(P1[0] - P0[0], P1[1] - P0[1]) + n * math.hypot(r1[0] - P1[0], r1[1] - P1[1])
+        self.P0, self.P1, self.W1, self.W2, self.S = P0, P1, W1, W2, S
 
-        # eq. 9.67-9.71: seed mirror point P1, its normal, the seed circle
-        # center C, wavefront reference points, and the shared OPL S.
-        t = rfr(_neg(_nrm(_sub(p0, r2))), n0, n, 1.0)
-        p1 = (p0[0] + p1_extension * t[0], p0[1] + p1_extension * t[1])
-        s1 = (math.cos(math.pi / 2 + theta), math.sin(math.pi / 2 + theta))
-        n1 = rfxnrm(t, s1)
+        Q1 = (2.0 * cx - P1[0], P1[1])
+        nq1 = (-n1[0], n1[1])
+        seed = seed_arc(Q1, nq1, P1, n1, n_seed)
+        self.C = isl((cx, 0.0), (0.0, 1.0), P1, n1)
 
-        w1 = (p1[0] + wavefront_offset * s1[0], p1[1] + wavefront_offset * s1[1])
-        v1 = (math.cos(theta), math.sin(theta))  # noqa: F841 -- completes the w1/v1 pair beside w2/v2; only the w2 bundle
-        # is traced, the w1 side entering through the path length S
-        w2 = (-w1[0], w1[1])
-        v2 = (math.cos(-theta), math.sin(-theta))
+        centre = (cx, r1[1])
 
-        S = math.hypot(*_sub(w1, p1)) + math.hypot(*_sub(p1, p0)) + n * math.hypot(*_sub(p0, r2))
+        def faces(T: SMSPoint, d: Point) -> bool:
+            # the top at T faces a bundle travelling along d: d meets its outward side
+            out = T.n
+            if out[0] * (T.p[0] - centre[0]) + out[1] * (T.p[1] - centre[1]) < 0.0:
+                out = (-out[0], -out[1])
+            return d[0] * out[0] + d[1] * out[1] < 0.0
 
-        q1 = (-p1[0], p1[1])
-        n1_mirrored = (-n1[0], n1[1])
-        from .nonimaging_geometry import isl as _isl
-        center = _isl((0.0, 0.0), (0.0, 1.0), p1, n1)
-        seed_circle = seed_arc(q1, n1_mirrored, p1, n1, n_points_on_seed_circle)
-        # Drop the last point (== p1) to avoid a repeated point in the
-        # chain, matching Chaves Ch. 9's own stated practice.
-        mirror_seed = seed_circle[:-1]
+        def mirror_step(X: SMSPoint) -> Optional[SMSPoint]:
+            # a ray from R2 reflects at X; the top's point refracts it out, perpendicular to w1
+            T = sms_chain_step(X.p, X.n, r2, n, n, W1, (-d1[0], -d1[1]), 1.0,
+                               S - n * math.hypot(X.p[0] - r2[0], X.p[1] - r2[1]), 'reflect', 'refract')
+            # the top ends where it no longer faces both bundles: turned past them, it is in its
+            # own shadow
+            return T if T.p[1] > X.p[1] and faces(T, d1) and faces(T, d2) else None
 
-        s2 = (-v2[1], v2[0])  # ray direction of the w2 bundle: v2 rotated +90deg
+        def top_step(T: SMSPoint) -> Optional[SMSPoint]:
+            # a ray of w2 refracts at T; the mirror's point reflects it to R1
+            src = isl(T.p, (-d2[0], -d2[1]), W2, v2)
+            X = sms_chain_step(T.p, T.n, src, 1.0, n, r1, None, n,
+                               S - math.hypot(T.p[0] - src[0], T.p[1] - src[1]), 'refract', 'reflect')
+            return None if X.p[1] >= T.p[1] else X
 
-        from .nonimaging_geometry import isl
+        def outward(new: SMSPoint, previous: SMSPoint) -> bool:
+            # the chains grow left of the axis: each surface's next point further left
+            return new.p[0] < previous.p[0] - 1e-12
 
-        def step_fn(current: SMSPoint, tag: str):
-            if tag == 'seed':
-                # On the mirror: ray from w2 -> reflect -> new lens point, focus R1.
-                p_w2 = isl(current.p, s2, w2, v2)
-                S_here = S - math.hypot(*_sub(current.p, p_w2))
-                new = sms_chain_step(
-                    known_point=current.p, known_normal=current.n, ray_source=p_w2,
-                    n_before=1.0, n_after=1.0, target=r1, target_n=None, n_target=n,
-                    S=S_here, mechanism='reflect', new_mechanism='refract',
-                )
-                return new, 'other'
-            else:
-                # On the lens: ray from r2 -> refract -> new mirror point, focus w1.
-                S_here = S - n * math.hypot(*_sub(r2, current.p))
-                new = sms_chain_step(
-                    known_point=current.p, known_normal=current.n, ray_source=r2,
-                    n_before=n, n_after=1.0, target=w1, target_n=s1, n_target=1.0,
-                    S=S_here, mechanism='refract', new_mechanism='reflect',
-                )
-                return new, 'seed'
+        mirror, top = grow_sms_chains(seed, mirror_step, top_step, max_steps=max_steps, outward=outward)
+        self.seed_points = seed
+        self.mirror_points = self._left_half_outward(mirror)
+        self.lens_points = self._left_half_outward(top)
 
-        stage_count = [0]
-
-        def stop_condition(_point):
-            stage_count[0] += 1
-            return stage_count[0] >= self.n_stages
-
-        mirror_points = list(mirror_seed)
-        lens_points: List[SMSPoint] = []
-        try:
-            grown_mirror, grown_lens = build_sms_chain(
-                seed=mirror_seed, step_fn=step_fn, stop_condition=stop_condition,
-                max_steps=self.n_stages + 1,
-            )
-            mirror_points = grown_mirror
-            lens_points = grown_lens
-        except RuntimeError:
-            pass
-
-        return mirror_points, lens_points, center, w1, w2, S
+    def _left_half_outward(self, points: List[SMSPoint]) -> List[SMSPoint]:
+        """The points on the left of the axis (the chains grow there; the right half is their
+        mirror image), each once, from the axis outward."""
+        cx = 0.5 * (self.r1[0] + self.r2[0])
+        kept, seen = [], set()
+        for q in points:
+            if q.p[0] > cx + 1e-9:
+                continue
+            k = (round(q.p[0], 9), round(q.p[1], 9))
+            if k not in seen:
+                seen.add(k)
+                kept.append(q)
+        return sorted(kept, key=lambda q: -q.p[0])
 
     def _assemble_vertices(self) -> List[Tuple[float, float]]:
-        """
-        Assemble a closed polygon. The chain grows in one direction only
-        (matching Chaves Ch. 9's own Example 9.2 point list, which is
-        predominantly negative-x -- confirmed empirically: seeding
-        build_sms_chain from the seed circle's own last point pushes the
-        chain toward the SAME side that point is already on, not outward
-        symmetrically in both directions), so the canonical half built
-        here is "everything at x <= 0" -- the seed circle's own
-        right-of-axis points (x > 0) are discarded from this half and
-        regenerated by mirroring the left half instead, exactly like
-        RRLens's own single-sided-growth-plus-mirror assembly (rr_lens.py
-        _assemble_vertices), just with the opposite sign convention since
-        this device grows outward from a central seed rather than inward
-        toward a symmetry axis.
-        """
-        lens_left = sorted(
-            (p.p for p in self.lens_points if p.p[0] <= 1e-9), key=lambda p: p[0]
-        )
-        mirror_left = sorted(
-            (p.p for p in self.mirror_points if p.p[0] <= 1e-9), key=lambda p: p[0]
-        )
-        lens_right = [(-x, y) for x, y in reversed(lens_left)]
-        mirror_right = [(-x, y) for x, y in reversed(mirror_left)]
+        """Counter-clockwise: the top from its right rim to its left, then the mirror from its
+        left rim to its right; the rims are the short edges where the two meet."""
+        cx = 0.5 * (self.r1[0] + self.r2[0])
 
-        # CCW (confirmed by signed-area check in the test suite): top
-        # curve right->left, then bottom curve left->right.
-        vertices = list(reversed(lens_right)) + list(reversed(lens_left)) + mirror_left + mirror_right
-        if len(vertices) < 3:
-            # Degenerate (n_stages too small to grow past the seed) --
-            # fall back to a minimal closed triangle around the receiver
-            # so from_vertices-style assembly never receives < 3 points.
-            vertices = [self.r1, self.r2, self.C]
-        return vertices
-
-    def _add_mirror_coating(self, scene) -> List['object']:
-        """Overlay Mirror objects on the bottom (mirror) surface's edges, merges_with_glass."""
-        from ...core.scene_objs.mirror.mirror import Mirror
-
-        mirrors = []
-        pts = [p.p for p in self.mirror_points]
-        for k in range(len(pts) - 1):
-            m = Mirror(scene)
-            m.p1 = {'x': pts[k][0], 'y': pts[k][1]}
-            m.p2 = {'x': pts[k + 1][0], 'y': pts[k + 1][1]}
-            m.name = f"{self.name or 'rx_concentrator'}_mirror_{k}"
-            scene.add_object(m)
-            mirrors.append(m)
-        return mirrors
+        def mirrored(p):
+            return (2.0 * cx - p[0], p[1])
+        top_left = [q.p for q in self.lens_points]                        # axis outward
+        mirror_left = [q.p for q in self.mirror_points]                   # axis outward
+        top_right = [mirrored(p) for p in top_left if p[0] < cx - 1e-9]
+        mirror_right = [mirrored(p) for p in mirror_left if p[0] < cx - 1e-9]
+        top_axis = [p for p in top_left if abs(p[0] - cx) <= 1e-9]
+        top_left_only = [p for p in top_left if p[0] < cx - 1e-9]
+        mirror_left_only = [p for p in mirror_left if p[0] < cx - 1e-9]
+        return (list(reversed(top_right)) + top_axis + top_left_only
+                + list(reversed(mirror_left_only)) + mirror_right)
 
 
 __all__ = ['RXConcentrator']

@@ -35,9 +35,11 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
-from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from .ray_geometry_queries import (
     get_object_by_name,
@@ -75,7 +77,15 @@ def _error(message: str) -> Dict[str, str]:
 # Context management
 # =============================================================================
 
-_CONTEXT: Dict[str, Any] = {}
+#: The context a setter writes into when it is given no name, and the one
+#: active when nothing has been switched.
+DEFAULT_CONTEXT_NAME = 'default'
+
+# Every context by name: each holds the core's objects ('scene', 'segments',
+# 'lineage', 'db', 'render_dir', 'bidirectional') and the extensions' own,
+# under '<package>.<name>' keys. The tools read the active one only.
+_CONTEXTS: Dict[str, Dict[str, Any]] = {DEFAULT_CONTEXT_NAME: {}}
+_ACTIVE_CONTEXT: str = DEFAULT_CONTEXT_NAME
 
 _NO_CONTEXT_MSG = (
     "No context set. Call set_context() or set_context_from_result() "
@@ -83,10 +93,29 @@ _NO_CONTEXT_MSG = (
 )
 
 
+def _active() -> Dict[str, Any]:
+    """The active context's dict (empty if it was cleared)."""
+    return _CONTEXTS.setdefault(_ACTIVE_CONTEXT, {})
+
+
+def _slot(context_name: Optional[str]) -> Dict[str, Any]:
+    """The named context's dict, made if new; the active one for None."""
+    if context_name is None:
+        return _active()
+    if not isinstance(context_name, str) or not context_name.strip():
+        raise ValueError(f"a context name is a non-empty string, got {context_name!r}")
+    return _CONTEXTS.setdefault(context_name, {})
+
+
 def set_context(
     scene: 'Scene',
     segments: List['Ray'],
     lineage: Optional['RayLineage'] = None,
+    *,
+    context_name: Optional[str] = None,
+    origin: str = 'live',
+    detector_hits: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    recompute_angles: bool = False,
 ) -> None:
     """
     Register simulation objects for use by agentic tool wrappers.
@@ -100,21 +129,47 @@ def set_context(
             get_object_by_name).
         segments: The ray segments from the simulation.
         lineage: Optional RayLineage for lineage-based tools.
+        context_name: The context to write into; None (the default): the
+            active one. A new name makes a new context and leaves the active
+            one as it is: the tools read it only after set_active_context().
+        origin: Where the context came from, as list_contexts() shows it
+            ('live' by default).
+        detector_hits: The run's detector hit records by detector uuid
+            (SimulationResult.detector_hits). None: taken from the scene's
+            detectors now. The context keeps its own copy, since a later
+            run of the same scene replaces what the detectors hold.        recompute_angles: As for agentic_db.create_database(): False (the
+            default) takes a curved edge's crossing angle from the normal the
+            simulator recorded at the hit; True recomputes every one from the
+            edge. They agree to rounding.
     """
     from .agentic_db import create_database
     from .render_result import reset_render_counter
+    from .simulation_result import detector_hits_of
 
-    _CONTEXT['scene'] = scene
-    _CONTEXT['segments'] = segments
-    _CONTEXT['lineage'] = lineage
-    _CONTEXT['db'] = create_database(scene, segments)
-    _CONTEXT['render_dir'] = tempfile.mkdtemp(prefix='ray_sim_')
+    ctx = _slot(context_name)
+    old = ctx.get('db')
+    if old is not None:                      # the context is replaced, its database with it
+        old.close()
+    ctx['scene'] = scene
+    ctx['segments'] = segments
+    ctx['lineage'] = lineage
+    ctx['detector_hits'] = detector_hits if detector_hits is not None else detector_hits_of(scene)
+    ctx['db'] = create_database(scene, segments, detector_hits=ctx['detector_hits'],
+                                recompute_angles=recompute_angles)
+    ctx['render_dir'] = tempfile.mkdtemp(prefix='ray_sim_')
+    ctx['origin'] = origin
+    for stale in ('bidirectional', 'result', 'run_dir', 'n_segments'):
+        ctx.pop(stale, None)                 # they belonged to the run replaced
     reset_render_counter()
 
 
 def set_context_from_result(
     scene: 'Scene',
     result: 'SimulationResult',
+    *,
+    context_name: Optional[str] = None,
+    origin: str = 'live',
+    recompute_angles: bool = False,
 ) -> None:
     """
     Convenience: populate context from a SimulationResult.
@@ -125,15 +180,27 @@ def set_context_from_result(
     Args:
         scene: The live Scene object used in the simulation.
         result: The SimulationResult returned by run_with_result().
+        context_name: As for set_context().
+        origin: As for set_context().
+        recompute_angles: As for set_context().
     """
     set_context(
         scene=scene,
         segments=result.segments,
         lineage=result.lineage,
+        context_name=context_name,
+        origin=origin,
+        detector_hits=getattr(result, 'detector_hits', None) or None,
+        recompute_angles=recompute_angles,
     )
+    _slot(context_name)['result'] = result   # what save_context_tool persists
 
 
-def set_bidirectional_context(result: 'BidirectionalResult') -> None:
+def set_bidirectional_context(
+    result: 'BidirectionalResult',
+    *,
+    context_name: Optional[str] = None,
+) -> None:
     """
     Register a BidirectionalResult (ray-lineage Step C) for
     rank_bidirectional_paths().
@@ -154,14 +221,16 @@ def set_bidirectional_context(result: 'BidirectionalResult') -> None:
 
     Args:
         result: The BidirectionalResult from Simulator.run_bidirectional().
+        context_name: The context it belongs to; None: the active one.
     """
-    _CONTEXT['bidirectional'] = result
+    ctx = _slot(context_name)
+    ctx['bidirectional'] = result
 
-    db = _CONTEXT.get('db')
+    db = ctx.get('db')
     if db is not None and result.connections:
         from .agentic_db import populate_connections_table
 
-        scene = _CONTEXT.get('scene')
+        scene = ctx.get('scene')
         name_by_uuid = (
             {getattr(o, 'uuid', None): getattr(o, 'name', None) for o in scene.objs}
             if scene is not None else None
@@ -174,30 +243,32 @@ def set_bidirectional_context(result: 'BidirectionalResult') -> None:
         populate_backward_rays(db, result.backward_segments)
 
 
-def set_extension_context(key: str, value: Any) -> None:
+def set_extension_context(key: str, value: Any, *, context_name: Optional[str] = None) -> None:
     """
     Register a live object for tools defined outside the core.
 
     A package that depends on the core (it never imports the package) keeps
     its live objects in this same registry, under its own namespaced key, so
-    one ``clear_context`` clears everything an assistant can see.
+    one ``clear_context`` clears everything an assistant can see, and a
+    named context holds a package's objects beside the core's.
 
     Args:
         key: ``"<package>.<name>"``: must contain a dot, so it cannot
             collide with the core's own keys.
         value: The object (a dict of the package's own objects, typically).
+        context_name: The context to write into; None: the active one.
 
     Raises:
         ValueError: If ``key`` has no dot.
     """
     if '.' not in key:
         raise ValueError(f"extension context keys are namespaced '<package>.<name>', got {key!r}")
-    _CONTEXT[key] = value
+    _slot(context_name)[key] = value         # a database it replaces may be the caller's: left open
 
 
 def get_extension_context(key: str, missing: str) -> Any:
     """
-    The object a package registered under ``key``.
+    The object a package registered under ``key``, in the active context.
 
     Args:
         key: The key given to ``set_extension_context``.
@@ -207,33 +278,420 @@ def get_extension_context(key: str, missing: str) -> Any:
     Raises:
         RuntimeError: With ``missing``, if nothing is registered under ``key``.
     """
-    if _CONTEXT.get(key) is None:
+    ctx = _active()
+    if ctx.get(key) is None:
         raise RuntimeError(missing)
-    return _CONTEXT[key]
+    return ctx[key]
 
 
-def get_context() -> Dict[str, Any]:
-    """Return a copy of the current context dict (for inspection/debugging)."""
-    return dict(_CONTEXT)
+def get_context(context_name: Optional[str] = None) -> Dict[str, Any]:
+    """Return a copy of a context's dict, the active one by default (for inspection/debugging)."""
+    if context_name is None:
+        return dict(_active())
+    return dict(_CONTEXTS.get(context_name, {}))
 
 
-def clear_context() -> None:
-    """Clear the context (e.g. between simulation runs)."""
-    from .render_result import reset_render_counter
+def _close_extension(value: Any) -> None:
+    if isinstance(value, dict) and isinstance(value.get('db'), sqlite3.Connection):
+        value['db'].close()
 
-    db = _CONTEXT.get('db')
+
+def _close(ctx: Dict[str, Any]) -> None:
+    """Close the databases a context holds: the core's and every extension's."""
+    db = ctx.get('db')
     if db is not None:
         db.close()
-    for key, value in _CONTEXT.items():          # an extension's own database
-        if '.' in key and isinstance(value, dict) and isinstance(value.get('db'), sqlite3.Connection):
-            value['db'].close()
-    reset_render_counter()
-    _CONTEXT.clear()
+    for key, value in ctx.items():
+        if '.' in key:
+            _close_extension(value)
+    ctx.clear()
+
+
+def clear_context(context_name: Optional[str] = None) -> None:
+    """
+    Clear contexts and close their databases.
+
+    Args:
+        context_name: The one context to clear; it is removed, and if it was
+            active the default context becomes active. None (the default):
+            every context, and the default is active again (e.g. between
+            simulation runs).
+    """
+    from .render_result import reset_render_counter
+
+    global _ACTIVE_CONTEXT
+    if context_name is None:
+        for ctx in _CONTEXTS.values():
+            _close(ctx)
+        _CONTEXTS.clear()
+        _CONTEXTS[DEFAULT_CONTEXT_NAME] = {}
+        _ACTIVE_CONTEXT = DEFAULT_CONTEXT_NAME
+        reset_render_counter()
+        return
+    ctx = _CONTEXTS.pop(context_name, None)
+    if ctx is not None:
+        _close(ctx)
+    if context_name == DEFAULT_CONTEXT_NAME:
+        _CONTEXTS[DEFAULT_CONTEXT_NAME] = {}
+    if _ACTIVE_CONTEXT == context_name:
+        _ACTIVE_CONTEXT = DEFAULT_CONTEXT_NAME
+        _CONTEXTS.setdefault(DEFAULT_CONTEXT_NAME, {})
+
+
+def _context_summary(name: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    segments = ctx.get('segments')
+    bidirectional = ctx.get('bidirectional')
+    return {
+        'name': name,
+        'active': name == _ACTIVE_CONTEXT,
+        'origin': ctx.get('origin') if ctx else None,
+        'n_segments': len(segments) if segments is not None else ctx.get('n_segments', 0),
+        'has_scene': ctx.get('scene') is not None,
+        'has_lineage': ctx.get('lineage') is not None,
+        'has_bidirectional': bidirectional is not None,
+        'run_dir': ctx.get('run_dir'),
+        'extensions': sorted(k for k in ctx if '.' in k),
+    }
+
+
+def list_contexts() -> Dict[str, Any]:
+    """
+    List the loaded contexts: each one's name, whether it is the active one
+    (the one every other tool reads), where it came from, its segment count,
+    whether it holds lineage and a bidirectional result, and the packages
+    that keep objects in it (the 3D bridge's trace, for one).
+
+    Use this to find the names set_active_context() takes.
+
+    Returns:
+        Structured dict with status and {'active', 'contexts': [...]}.
+    """
+    contexts = [_context_summary(n, c) for n, c in _CONTEXTS.items()
+                if c or n in (DEFAULT_CONTEXT_NAME, _ACTIVE_CONTEXT)]
+    return _ok({'active': _ACTIVE_CONTEXT, 'contexts': contexts})
+
+
+def set_active_context(context_name: str) -> Dict[str, Any]:
+    """
+    Make a context the active one: every other tool reads it from now on.
+
+    A context is made by a setter given a name (set_context_from_result(...,
+    context_name=...)), by a load, or by a re-simulation; making one never
+    switches to it, so this is the one way the tools change what they read.
+
+    Args:
+        context_name: A name from list_contexts().
+
+    Returns:
+        Structured dict with status and the active context's summary, or an
+        error naming the contexts that exist.
+    """
+    global _ACTIVE_CONTEXT
+    known = [n for n, c in _CONTEXTS.items() if c]
+    if context_name not in _CONTEXTS or not _CONTEXTS[context_name]:
+        return _error(f"no context named {context_name!r}; the contexts loaded are: "
+                      f"{', '.join(repr(n) for n in known) or 'none'}")
+    _ACTIVE_CONTEXT = context_name
+    return _ok(_context_summary(context_name, _CONTEXTS[context_name]))
+
+
+def drop_context(context_name: str) -> Dict[str, Any]:
+    """
+    Free one saved context's memory; load_run_context brings it back.
+
+    Only a context that can come back is dropped: one saved as a run bundle
+    (its ``run_dir``, still on disk), and not the active one (switch away
+    first). A live run that was never saved is refused: save it first with
+    save_context_tool. Clearing every context is not a tool; it is
+    clear_context, called from Python.
+
+    Args:
+        context_name: A name from list_contexts().
+
+    Returns:
+        Structured dict with status, the name dropped and the bundle that
+        reloads it, or an error saying why it was refused.
+    """
+    ctx = _CONTEXTS.get(context_name)
+    if not ctx:
+        known = [n for n, c in _CONTEXTS.items() if c]
+        return _error(f"no context named {context_name!r}; the contexts loaded are: "
+                      f"{', '.join(repr(n) for n in known) or 'none'}")
+    if context_name == _ACTIVE_CONTEXT:
+        return _error(f"{context_name!r} is the active context: set_active_context to another one first")
+    run_dir = ctx.get('run_dir')
+    if not run_dir or not Path(run_dir).is_dir():
+        return _error(f"{context_name!r} is not saved as a run bundle, so dropping it would lose it: "
+                      "save it first (save_context_tool), then drop it")
+    clear_context(context_name)
+    return _ok({'dropped': context_name, 'reload_from': str(run_dir)})
+
+
+# =============================================================================
+# Saved runs: loaded by reference, saved, compared (C-AGENT-05)
+# =============================================================================
+
+#: Files of a run folder that packages outside the core load: file name ->
+#: loader(path, context_name), which puts the package's objects into that
+#: context (set_extension_context). The 3D bridge registers nsq_events.sqlite.
+_RUN_FILE_LOADERS: Dict[str, Callable[[Path, str], None]] = {}
+
+
+def register_run_file_loader(file_name: str, loader: Callable[[Path, str], None]) -> None:
+    """
+    Let load_run_context load a file of a run folder the core does not know.
+
+    Args:
+        file_name: The file's name in a run folder (``nsq_events.sqlite``).
+        loader: Called as ``loader(path, context_name)``; it puts the file's
+            objects into that context with ``set_extension_context``.
+    """
+    _RUN_FILE_LOADERS[file_name] = loader
+
+
+class LoadedBidirectional:
+    """A saved run's path graph, standing in for a BidirectionalResult.
+
+    It holds the combined graph only: the tools that rank, list and audit
+    paths read nothing else. The lineages and connections are not saved, so
+    path_physical_summary_tool refuses it.
+    """
+
+    def __init__(self, combined: Any, detector_name: Optional[str] = None) -> None:
+        self.combined = combined
+        self.detector_name = detector_name
+        self.forward_lineage = None
+        self.backward_lineage = None
+        self.connections = None
+
+
+def _open_read_only(path: Path) -> sqlite3.Connection:
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True, check_same_thread=False)
+
+
+def load_run_context(run_dir: str, context_name: str) -> Dict[str, Any]:
+    """
+    Load a saved run into a new named context, by reference: its ray
+    database, opened read-only, and its path graph if it was saved with one.
+
+    No live scene is rebuilt: query_rays, describe_schema and the
+    bidirectional path tools work on it, and the tools that need the scene
+    or the lineage say so. Loading never switches: call
+    set_active_context(context_name) to read it. Files packages outside the
+    core know (the 3D bridge's nsq_events.sqlite, once it is registered) are
+    loaded into the same context.
+
+    Args:
+        run_dir: The run's folder: one save_context_tool or
+            persist_run_artifacts wrote (<out_dir>/<design_id>/<run_id>), or
+            a flow's run folder that holds one.
+        context_name: A name not in use (list_contexts).
+
+    Returns:
+        Structured dict with status and the new context's summary, plus
+        'loaded' (the files read) and 'params' (params.json, if present),
+        or an error.
+    """
+    try:
+        if not isinstance(context_name, str) or not context_name.strip():
+            return _error(f"context_name must be a non-empty string, got {context_name!r}")
+        if _CONTEXTS.get(context_name):
+            return _error(f"a context named {context_name!r} is already loaded; choose another "
+                          "name (list_contexts shows the names in use)")
+        folder = Path(run_dir).expanduser()
+        if not folder.is_dir():
+            return _error(f"no run folder at {run_dir}")
+        folder = folder.resolve()
+        known = ['rays.sqlite', 'graph.json', *_RUN_FILE_LOADERS]
+        if not any((folder / f).exists() for f in known):
+            present = sorted(p.name for p in folder.iterdir())
+            return _error(f"{folder} holds none of the files a run is loaded from ({', '.join(known)}); "
+                          f"it holds: {', '.join(present) or 'nothing'}")
+
+        ctx: Dict[str, Any] = {'origin': 'saved run', 'run_dir': str(folder)}
+        loaded: List[str] = []
+        params = None
+        if (folder / 'params.json').exists():
+            params = json.loads((folder / 'params.json').read_text())
+        if (folder / 'rays.sqlite').exists():
+            ctx['db'] = _open_read_only(folder / 'rays.sqlite')
+            summary_path = folder / 'summary.json'
+            if summary_path.exists():
+                ctx['n_segments'] = json.loads(summary_path.read_text()).get('segment_count', 0)
+            else:
+                ctx['n_segments'] = ctx['db'].execute("SELECT COUNT(*) FROM rays").fetchone()[0]
+            ctx['render_dir'] = tempfile.mkdtemp(prefix='ray_sim_')
+            loaded.append('rays.sqlite')
+        if (folder / 'graph.json').exists():
+            import networkx as nx
+
+            graph = nx.node_link_graph(json.loads((folder / 'graph.json').read_text()))
+            ctx['bidirectional'] = LoadedBidirectional(graph, graph.graph.get('detector_name'))
+            loaded.append('graph.json')
+
+        _CONTEXTS[context_name] = ctx
+        try:
+            for file_name, loader in _RUN_FILE_LOADERS.items():
+                if (folder / file_name).exists():
+                    loader(folder / file_name, context_name)
+                    loaded.append(file_name)
+        except Exception:
+            _close(_CONTEXTS.pop(context_name))
+            raise
+        summary = _context_summary(context_name, ctx)
+        return _ok({**summary, 'loaded': loaded, 'params': params})
+    except (OSError, ValueError, sqlite3.Error) as e:
+        return _error(f"could not load {run_dir}: {e}")
+
+
+def save_context_tool(
+    out_dir: str,
+    design_id: str,
+    run_id: str,
+    physical_params: Optional[Dict[str, Any]] = None,
+    numerical_params: Optional[Dict[str, Any]] = None,
+    context_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Save a live context as a run folder, <out_dir>/<design_id>/<run_id>, so
+    it outlives the kernel and load_run_context can load it.
+
+    The folder holds the ray database exactly as the tools were reading it
+    (backward rays and connections included), the run's statistics, the
+    parameters given, the scene's names (for compare_persisted_runs_tool's
+    check) and, for a bidirectional context, the path graph and signature
+    spectrum.
+
+    Args:
+        out_dir: The folder runs are saved under.
+        design_id: The design this run belongs to (many runs to a design).
+        run_id: This run, within the design; a run folder that exists is
+            never overwritten.
+        physical_params: The design's parameters (a dict; optional).
+        numerical_params: The run's numerical choices (a dict; optional).
+        context_name: The context to save; None: the active one.
+
+    Returns:
+        Structured dict with status and {'run_dir', 'files'}, or an error.
+    """
+    from .run_registry import persist_run_artifacts
+
+    try:
+        name = _ACTIVE_CONTEXT if context_name is None else context_name
+        ctx = _CONTEXTS.get(name)
+        if not ctx:
+            return _error(f"no context named {name!r}; the contexts loaded are: "
+                          f"{', '.join(repr(n) for n, c in _CONTEXTS.items() if c) or 'none'}")
+        if ctx.get('scene') is None or ctx.get('result') is None:
+            if ctx.get('run_dir') is not None:
+                return _error(f"context {name!r} is a saved run already, at {ctx['run_dir']}")
+            return _error(f"context {name!r} holds no SimulationResult to save: it was set with "
+                          "set_context(); set it with set_context_from_result() to save it")
+        for label, value in (('design_id', design_id), ('run_id', run_id)):
+            if not isinstance(value, str) or not value.strip() or '/' in value or '\\' in value or value in ('.', '..'):
+                return _error(f"{label} must be a plain folder name, got {value!r}")
+        run_dir = Path(out_dir).expanduser() / design_id / run_id
+        if run_dir.exists():
+            return _error(f"{run_dir} exists: a saved run is never overwritten; choose another run_id")
+        bidir = ctx.get('bidirectional')
+        saved = persist_run_artifacts(
+            ctx['scene'], ctx['result'],
+            out_dir=Path(out_dir).expanduser(), design_id=design_id, run_id=run_id,
+            physical_params=physical_params or {}, numerical_params=numerical_params or {},
+            bidirectional_result=bidir, db=ctx.get('db'),
+        )
+        ctx['run_dir'] = str(saved.resolve())
+        return _ok({'run_dir': ctx['run_dir'], 'files': sorted(p.name for p in saved.iterdir())})
+    except (OSError, ValueError, TypeError, sqlite3.Error) as e:
+        return _error(f"could not save: {e}")
+
+
+def _run_folder(run: str) -> Path:
+    """A run folder from a path, or from the name of a context loaded from or saved to one."""
+    ctx = _CONTEXTS.get(run)
+    if ctx and ctx.get('run_dir') is not None:
+        return Path(ctx['run_dir'])
+    if ctx:
+        raise ValueError(f"context {run!r} has not been saved: save_context_tool it first")
+    folder = Path(run).expanduser()
+    if not folder.is_dir():
+        raise ValueError(f"{run!r} is neither a run folder nor a context loaded from or saved to one")
+    return folder
+
+
+def compare_persisted_runs_tool(
+    run_a: str,
+    run_b: str,
+    check_name_topology: bool = True,
+    top_n: int = 20,
+) -> Dict[str, Any]:
+    """
+    Compare two saved runs from disk; neither needs to be loaded.
+
+    First checks that both name the same scene objects as the same kinds
+    (C-LABEL-01): a comparison across different names is refused, since it
+    would be meaningless. Then gives both runs' parameters and statistics
+    and, when both were saved with a path graph, how their signature
+    spectra differ: the signatures with the largest energy change first.
+
+    Args:
+        run_a: A run folder, or the name of a context loaded from or saved
+            to one.
+        run_b: The same, for the other run.
+        check_name_topology: False only for a deliberate comparison across
+            different scenes.
+        top_n: How many signatures to list (largest change first).
+
+    Returns:
+        Structured dict with status and {'run_a', 'run_b', 'params_a',
+        'params_b', 'summary_a', 'summary_b', 'signature_diff'} (None when
+        either run has no spectrum, else {'signatures', 'listed',
+        'only_in_a', 'only_in_b'}), or an error.
+    """
+    from .run_registry import compare_run_dirs
+
+    try:
+        if not isinstance(top_n, int) or top_n < 1:
+            return _error(f"top_n must be a positive integer, got {top_n!r}")
+        dir_a, dir_b = _run_folder(run_a), _run_folder(run_b)
+        out = compare_run_dirs(dir_a, dir_b, check_name_topology=check_name_topology)
+        diff = out.pop('signature_diff')
+        if diff is not None:
+            rows = sorted(({'signature': [list(node) for node in sig], **v} for sig, v in diff.items()),
+                          key=lambda r: -abs(r['energy_a'] - r['energy_b']))
+            diff = {'signatures': len(rows), 'listed': rows[:top_n],
+                    'only_in_a': sum(r['only_in'] == 'a' for r in rows),
+                    'only_in_b': sum(r['only_in'] == 'b' for r in rows)}
+        return _ok({'run_a': str(dir_a), 'run_b': str(dir_b), **out, 'signature_diff': diff})
+    except (OSError, ValueError) as e:
+        return _error(str(e))
+
+
+def _no_live_run(ctx: Dict[str, Any], what: str) -> Optional[str]:
+    """The refusal for a tool that needs a live object a loaded run lacks; None if not loaded."""
+    if ctx.get('run_dir') is None or ctx.get('scene') is not None:
+        return None
+    return (f"The active context ({_ACTIVE_CONTEXT!r}) was loaded from the saved run at "
+            f"{ctx['run_dir']}: it holds the run's ray database"
+            f"{' and path graph' if ctx.get('bidirectional') is not None else ''}, not {what}. "
+            "query_rays, describe_schema and the bidirectional path tools work on it; for "
+            "this tool, switch to a live context (list_contexts) or re-run the notebook "
+            "that built the run.")
+
+
+def _hit_records(det: Any) -> List[Dict[str, Any]]:
+    """A detector's hit records in the active context's run, not the scene's last run."""
+    if not hasattr(det, 'get_hit_records'):
+        return []
+    kept = _active().get('detector_hits')
+    if kept is not None and det.uuid in kept:
+        return kept[det.uuid]
+    return det.get_hit_records()
 
 
 def _require_context() -> tuple:
     """
-    Return (scene, segments) from context, or raise RuntimeError.
+    Return (scene, segments) from the active context, or raise RuntimeError.
 
     Returns:
         (scene, segments) tuple.
@@ -241,14 +699,15 @@ def _require_context() -> tuple:
     Raises:
         RuntimeError: If set_context() has not been called.
     """
-    if 'scene' not in _CONTEXT or 'segments' not in _CONTEXT:
-        raise RuntimeError(_NO_CONTEXT_MSG)
-    return _CONTEXT['scene'], _CONTEXT['segments']
+    ctx = _active()
+    if 'scene' not in ctx or 'segments' not in ctx:
+        raise RuntimeError(_no_live_run(ctx, 'the scene') or _NO_CONTEXT_MSG)
+    return ctx['scene'], ctx['segments']
 
 
 def _require_db() -> sqlite3.Connection:
     """
-    Return the SQLite connection from context, or raise RuntimeError.
+    Return the SQLite connection from the active context, or raise RuntimeError.
 
     Returns:
         The sqlite3.Connection.
@@ -256,14 +715,15 @@ def _require_db() -> sqlite3.Connection:
     Raises:
         RuntimeError: If set_context() has not been called or DB is missing.
     """
-    if 'db' not in _CONTEXT:
+    ctx = _active()
+    if 'db' not in ctx:
         raise RuntimeError(_NO_CONTEXT_MSG)
-    return _CONTEXT['db']
+    return ctx['db']
 
 
 def _require_lineage() -> 'RayLineage':
     """
-    Return the RayLineage from context, or raise RuntimeError.
+    Return the RayLineage from the active context, or raise RuntimeError.
 
     Returns:
         The RayLineage object.
@@ -271,17 +731,21 @@ def _require_lineage() -> 'RayLineage':
     Raises:
         RuntimeError: If no lineage is available in the context.
     """
-    if 'lineage' not in _CONTEXT or _CONTEXT['lineage'] is None:
+    ctx = _active()
+    if ctx.get('lineage') is None:
+        loaded = _no_live_run(ctx, 'the ray lineage')
+        if loaded:
+            raise RuntimeError(loaded)
         raise RuntimeError(
             "No lineage available. Pass lineage to set_context() "
             "or use set_context_from_result()."
         )
-    return _CONTEXT['lineage']
+    return ctx['lineage']
 
 
 def _require_bidirectional() -> 'BidirectionalResult':
     """
-    Return the BidirectionalResult from context, or raise RuntimeError.
+    Return the BidirectionalResult from the active context, or raise RuntimeError.
 
     Returns:
         The BidirectionalResult object.
@@ -289,12 +753,13 @@ def _require_bidirectional() -> 'BidirectionalResult':
     Raises:
         RuntimeError: If set_bidirectional_context() has not been called.
     """
-    if 'bidirectional' not in _CONTEXT or _CONTEXT['bidirectional'] is None:
+    ctx = _active()
+    if ctx.get('bidirectional') is None:
         raise RuntimeError(
             "No bidirectional result available. Call set_bidirectional_context"
             "(result) with the result of Simulator.run_bidirectional(...) first."
         )
-    return _CONTEXT['bidirectional']
+    return ctx['bidirectional']
 
 
 # =============================================================================
@@ -463,7 +928,7 @@ def list_detectors() -> Dict[str, Any]:
 
         summaries = []
         for det in detectors:
-            hit_records = det.get_hit_records() if hasattr(det, 'get_hit_records') else []
+            hit_records = _hit_records(det)
             summaries.append({
                 'name': det.name,
                 'uuid': det.uuid,
@@ -474,6 +939,54 @@ def list_detectors() -> Dict[str, Any]:
                 'hit_count': len(hit_records),
             })
         return _ok(summaries)
+    except RuntimeError as e:
+        return _error(str(e))
+
+
+#: The scene objects that emit rays, by type.
+SOURCE_TYPES = ('AngleSource', 'PointSource', 'Beam', 'SingleRay', 'RaySetSource')
+
+
+def list_sources() -> Dict[str, Any]:
+    """
+    List the light sources in the scene: each one's name, type and uuid,
+    where it is and what it emits, and how many rays it started in this
+    context's run.
+
+    Use this to find source names: a targeted re-simulation (the
+    targeted_resimulation flow) asks which source emitted the path, and a
+    ray's emitter is its source_uuid.
+
+    Requires context: call set_context() or set_context_from_result() first.
+
+    Returns:
+        Structured dict with status and a list of source summaries (name,
+        type, uuid, p1, p2, emis_angle, brightness, wavelength, root_rays;
+        a field the source does not have is None), or error message.
+    """
+    try:
+        scene, segments = _require_context()
+        roots: Dict[str, int] = {}
+        for seg in segments:
+            if getattr(seg, 'parent_uuid', None) is None and getattr(seg, 'source_uuid', None) is not None:
+                roots[seg.source_uuid] = roots.get(seg.source_uuid, 0) + 1
+        out = []
+        for obj in scene.objs:
+            obj_type = getattr(obj.__class__, 'type', None) or obj.__class__.__name__
+            if obj_type not in SOURCE_TYPES:
+                continue
+            out.append({
+                'name': getattr(obj, 'name', None),
+                'type': obj_type,
+                'uuid': obj.uuid,
+                'p1': getattr(obj, 'p1', None),
+                'p2': getattr(obj, 'p2', None),
+                'emis_angle': getattr(obj, 'emis_angle', None),
+                'brightness': getattr(obj, 'brightness', None),
+                'wavelength': getattr(obj, 'wavelength', None),
+                'root_rays': roots.get(obj.uuid, 0),
+            })
+        return _ok(out)
     except RuntimeError as e:
         return _error(str(e))
 
@@ -516,12 +1029,13 @@ def rank_detector_paths(detector_name: str, top_n: int = 10) -> Dict[str, Any]:
                 f"Use list_detectors() to see valid names."
             )
 
-        leaf_uuids = detector.get_hit_uuids()
+        records = _hit_records(detector)
+        leaf_uuids = list(dict.fromkeys(r['ray_uuid'] for r in records if r['ray_uuid'] is not None))
 
         # Map each uuid to the bin it landed in (first occurrence), so the
         # agent can talk about pixel/bin position, not just energy.
         bin_by_uuid: Dict[str, Optional[int]] = {}
-        for record in detector.get_hit_records():
+        for record in records:
             u = record['ray_uuid']
             if u is not None and u not in bin_by_uuid:
                 bin_by_uuid[u] = record['bin_index']
@@ -863,6 +1377,9 @@ def path_physical_summary_tool(path_uuids: List[str]) -> Dict[str, Any]:
         if missing:
             return _error(f"uuid(s) not found in the combined graph: {missing}")
 
+        if bidir.forward_lineage is None:
+            return _error(_no_live_run(_active(), 'the forward and backward lineages this needs')
+                          or "This bidirectional result has no lineages.")
         summary = _path_physical_summary({'path_uuids': path_uuids}, bidir)
         return _ok(summary)
     except (RuntimeError, ValueError) as e:
@@ -1187,7 +1704,7 @@ def render_scene_svg(
         renderer = SVGRenderer(width=width, height=height, viewbox=vb)
         renderer.draw_scene(scene, segments)
 
-        render_dir = _CONTEXT.get('render_dir', tempfile.mkdtemp(prefix='ray_sim_'))
+        render_dir = _active().get('render_dir', tempfile.mkdtemp(prefix='ray_sim_'))
         description = (
             f"Full scene: {len(scene.objs)} objects, "
             f"{len(segments)} ray segments."
@@ -1248,7 +1765,7 @@ def highlight_rays_inside_glass_svg(
             highlight_color=highlight_color,
         )
 
-        render_dir = _CONTEXT.get('render_dir', tempfile.mkdtemp(prefix='ray_sim_'))
+        render_dir = _active().get('render_dir', tempfile.mkdtemp(prefix='ray_sim_'))
         description = (
             f"Highlighted {len(ray_uuids)} rays inside "
             f"'{glass_name}' (of {len(segments)} total)."
@@ -1317,7 +1834,7 @@ def highlight_rays_crossing_edge_svg(
             highlight_color=highlight_color,
         )
 
-        render_dir = _CONTEXT.get('render_dir', tempfile.mkdtemp(prefix='ray_sim_'))
+        render_dir = _active().get('render_dir', tempfile.mkdtemp(prefix='ray_sim_'))
         description = (
             f"Highlighted {len(ray_uuids)} rays crossing edge "
             f"'{edge_label}' of '{glass_name}'."
@@ -1384,7 +1901,7 @@ def highlight_rays_by_polarization_svg(
             highlight_color=highlight_color,
         )
 
-        render_dir = _CONTEXT.get('render_dir', tempfile.mkdtemp(prefix='ray_sim_'))
+        render_dir = _active().get('render_dir', tempfile.mkdtemp(prefix='ray_sim_'))
         description = (
             f"Highlighted {len(ray_uuids)} rays with DOP in "
             f"[{min_dop}, {max_dop}] (of {len(segments)} total)."
@@ -1450,7 +1967,7 @@ def highlight_custom_rays_svg(
             highlight_color=highlight_color,
         )
 
-        render_dir = _CONTEXT.get('render_dir', tempfile.mkdtemp(prefix='ray_sim_'))
+        render_dir = _active().get('render_dir', tempfile.mkdtemp(prefix='ray_sim_'))
         description = (
             f"Highlighted {len(ray_uuids)} custom rays by uuid."
         )

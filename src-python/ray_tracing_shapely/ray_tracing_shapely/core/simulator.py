@@ -602,6 +602,8 @@ class Simulator:
                                         new_ray_geom, 'medium_index', getattr(ray, 'medium_index', 1.0))
                                     # PYTHON-SPECIFIC: Set lineage parent
                                     new_ray.parent_uuid = ray.uuid
+                                    new_ray.source_uuid = ray.source_uuid      # PYTHON-SPECIFIC: the emitter, inherited
+                                    new_ray.source_label = ray.source_label
                                     self.pending_rays.append(new_ray)
                         elif isinstance(result, list):
                             # Multiple output rays (e.g., beam splitter)
@@ -615,6 +617,8 @@ class Simulator:
                                         new_ray_geom, 'medium_index', getattr(ray, 'medium_index', 1.0))
                                     # PYTHON-SPECIFIC: Set lineage parent
                                     new_ray.parent_uuid = ray.uuid
+                                    new_ray.source_uuid = ray.source_uuid      # PYTHON-SPECIFIC: the emitter, inherited
+                                    new_ray.source_label = ray.source_label
                                     self.pending_rays.append(new_ray)
                         else:
                             # Single output ray
@@ -627,6 +631,8 @@ class Simulator:
                                     result, 'medium_index', getattr(ray, 'medium_index', 1.0))
                                 # PYTHON-SPECIFIC: Set lineage parent
                                 new_ray.parent_uuid = ray.uuid
+                                new_ray.source_uuid = ray.source_uuid      # PYTHON-SPECIFIC: the emitter, inherited
+                                new_ray.source_label = ray.source_label
                                 self.pending_rays.append(new_ray)
                     else:
                         # Object modified the ray in-place (TIR or other in-place modification)
@@ -656,6 +662,8 @@ class Simulator:
                                 output_ray_geom, 'medium_index', getattr(ray, 'medium_index', 1.0))
                             # PYTHON-SPECIFIC: Set lineage parent
                             new_ray.parent_uuid = ray.uuid
+                            new_ray.source_uuid = ray.source_uuid      # PYTHON-SPECIFIC: the emitter, inherited
+                            new_ray.source_label = ray.source_label
                             self.pending_rays.append(new_ray)
                     # If brightness is zero or None returned, ray is absorbed
 
@@ -899,6 +907,12 @@ class Simulator:
                 ray.gap = ray_data.gap
             if hasattr(ray_data, 'isNew'):
                 ray.is_new = ray_data.isNew
+            # The emitter's tags (PYTHON-SPECIFIC: source tracking), which every
+            # descendant inherits: without them a ray cannot be traced back to
+            # its source.
+            for tag in ('source_uuid', 'source_label'):
+                if getattr(ray_data, tag, None) is not None:
+                    setattr(ray, tag, getattr(ray_data, tag))
 
             # =====================================================================
             # PYTHON-SPECIFIC FEATURE: TIR Tracking - preserve TIR attributes

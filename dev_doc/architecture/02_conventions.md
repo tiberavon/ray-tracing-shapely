@@ -124,12 +124,30 @@ parties:
 binds:      <the module the prose is about, when that differs from provides>
 port: P-XXX
 viewpoint: structural | radiometric | physical | numerical | agentic | model validity
-status: documented | enforced
+status: documented | enforced | aspirational
 failure_mode: loud | silent | deferred
-checked_by: <test path::name, or null>
+checked_by: <the tests that fail when it breaks, or null>
+witness: <the tests that show it holding without being able to fail on it, or null>
+tracked_by: <a work item, for a silent contract nothing checks yet, or null>
+conflicts_with: <a contract whose assumptions this one contradicts, or null>
+refines: <the contract this one narrows, or null>
 rationale: <concept key, or null>
+since: <the version it was first true of>
 ---
 ```
+
+**Test references.** `checked_by` and `witness` name tests by repository path:
+`path/to/test_file.py::test_name`, or a whole file as its `path`. Several are
+separated by `; `, each written in full, on one line. Notes about the tests
+go in the contract's body, not in the field. `test_contract_references.py`
+checks that every test named exists, and that an `enforced` contract names
+its `checked_by`.
+
+- **`enforced`** needs a `checked_by` that runs and fails when the contract
+  breaks. Without one, the status is `documented`.
+- **`aspirational`** states a target the code does not meet yet.
+- **A `silent` contract** with neither `checked_by` nor `tracked_by` is open
+  debt. That is allowed, but it is where to look first.
 
 `rationale:` replaces the old `origin:`. It points at the concept carrying
 the argument, or is `null` where the contract's own prose is the entire

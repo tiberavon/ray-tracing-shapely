@@ -38,11 +38,13 @@ The **Concept** column names the reasoning behind the port's shape. The
 | `P-PHYSICAL-SCENE` | in-memory type | A scene that knows its length unit and how brightness becomes power, plus the projection models that turn 2D into 3D quantities. | `optical_elements_physics` | `eye_safety`, `nonimaging_design` | `KC1`, `KC4` | `C-UNITS-01` |
 | `P-QUANTITY-PARSING` | in-memory type | The one registry of units, and the two functions that turn text or a value into a checked number-with-unit. | `optical_elements_units` | `optical_elements_physics`, `eye_safety_classification_flow`, `agentic_layer` | `KC4`, `KA9` | `C-UNITS-02` |
 | `P-HAZARD-ROUTINES` | in-memory type | The two standards' exposure limits and classification, each returning a limit that says where it came from. | `eye_safety` | `eye_safety_classification_flow`, `agentic_layer` (planned) | `KC5`, `KC6` | `C-EYE-01` to `C-EYE-06` |
-| `P-CLASSIFICATION-RUN` | persisted artefact | One folder per classification run: the inputs, every step as an event, the result, and a live picture of the current state. | `eye_safety_classification_flow` | the dashboard, whoever reads the record | `KD10` | `C-EYE-05` |
-| `P-INTAKE-RUN` | persisted artefact | The same, for a session that gathered the inputs field by field, with a link to the classification it launched. | `eye_safety_classification_flow` | the dashboard | `KD10` | — |
-| `P-SLICING-RUN` | persisted artefact | The same shape, for a session choosing a rayfile slice's limit on h: the questions and answers as events, the table as the result. | `nonimaging_design` (`RayfileSlicingFlow`) | whoever chooses the limit | `KD10` | `C-SOURCE-03` |
-| `P-AGENTIC-ENVELOPE` | in-memory type | The answer shape every tool returns: a status, then data or a message. | `agentic_layer` | AI assistants and the programs acting for them | `KA4`, `KA3` | `C-AGENT-01`, `C-AGENT-02` |
-| `P-KERNEL-CONTEXT` | live kernel state | The store of live objects — scene, segments, lineage, the per-run database — that tools read from. | `agentic_layer` | every tool that needs a simulation | `KA5`, `KD7` | `C-AGENT-01` |
+| `P-FLOW-RUN` | persisted artefact | One folder per run of a flow: the inputs, every step as an event, the result, and a live picture of the current state; beside the folders, a run log and every run's heartbeat. | `flows` | the dashboard, the run list, whoever reads the record | `KD10`, `KC7` | `C-FLOW-01` |
+| `P-CLASSIFICATION-RUN` | persisted artefact | A `P-FLOW-RUN` of a classification: the result is the classification. | `eye_safety_classification_flow` | the dashboard, whoever reads the record | `KD10` | `C-EYE-05` |
+| `P-INTAKE-RUN` | persisted artefact | A `P-FLOW-RUN` of a session that gathered the inputs field by field, with a link to the classification it launched. | `eye_safety_classification_flow` | the dashboard | `KD10` | — |
+| `P-SLICING-RUN` | persisted artefact | A `P-FLOW-RUN` of a session choosing a rayfile slice's limit on h: the questions and answers as events, the table as the result. | `nonimaging_design` (`RayfileSlicingFlow`) | whoever chooses the limit | `KD10` | `C-SOURCE-03` |
+| `P-COMPARISON-RUN` | persisted artefact | A `P-FLOW-RUN` of a comparison from profile files, 2D against 3D ray by ray or a rayfile's slice against its records: the questions and answers as events, its two jobs' handles, the summary as the result, the per-ray table as `rays.json` (`slice.json` for a slice). | `optiland_scene_bridge` (`Compare2D3DFlow`, `SliceCompareFlow`) | whoever checks a 2D design, or a 2D slice, against 3D | `KD10`, `KB7` | `C-BRIDGE-15`, `C-BRIDGE-16` |
+| `P-AGENTIC-ENVELOPE` | in-memory type | The answer shape every tool returns: a status, then data or a message. | `agentic_layer` | AI assistants and the programs acting for them | `KA4`, `KA3` | `C-AGENT-01`, `C-AGENT-02`, `C-FLOW-02` |
+| `P-KERNEL-CONTEXT` | live kernel state | The store of live objects — scene, segments, lineage, the per-run database — in named contexts, of which the tools read the active one; a saved run loads into one by reference. | `agentic_layer` | every tool that needs a simulation | `KA5`, `KD7` | `C-AGENT-01`, `C-AGENT-04`, `C-AGENT-05` |
 | `P-TOOL-REGISTRY` | in-memory type | The list of tools with their names, descriptions and parameters, in a form any assistant framework can read. **New in this register.** | `agentic_layer` | `mcp_server`, any assistant framework | `KA2`, `KA7` | `C-AGENT-02` |
 | `P-OPTILAND-PLUGIN` | extension point | This project's profiles registered with Optiland as a native geometry. **Planned, not built.** | `optiland_sms_plugin` | Optiland | `KB7` | `C-3D-01` |
 | `P-NSQ-SCENE` | in-memory type | The 3D surfaces built from a profile, placed and ready for Optiland to trace. | `optiland_scene_bridge` | `optiland_nsq_viewer`, `optiland_nsq_run_registry` | `KB7`, `KC7` | `C-BRIDGE-01` to `C-BRIDGE-05`, `C-BRIDGE-09` to `C-BRIDGE-13`, `C-VIEWER-01` |
@@ -54,7 +56,7 @@ The **Concept** column names the reasoning behind the port's shape. The
 settings are a beam's settings.
 
 **A port with no promises** is one no contract covers. `P-INTAKE-RUN`
-inherits `P-CLASSIFICATION-RUN`'s shape. `P-DESIGNED-FACES` is checked only
+adds only its link to `P-FLOW-RUN`'s shape. `P-DESIGNED-FACES` is checked only
 by its result: the faces are fitted again on the receiving side, and the
 fit's own error and the traced beam are asserted in tests, but no contract
 states what the faces must satisfy.

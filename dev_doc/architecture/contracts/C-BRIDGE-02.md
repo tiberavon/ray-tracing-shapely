@@ -9,7 +9,7 @@ viewpoint: numerical
 status: enforced
 failure_mode: loud
 checked_by: src-python/ray_tracing_shapely_optiland/tests/test_scene_bridge.py::test_unsupported_symmetry_kind_raises_not_implemented; src-python/ray_tracing_shapely_optiland/tests/test_revolve.py::test_spans_no_analytic_geometry_describes_raise
-witness: src-python/ray_tracing_shapely_optiland/tests/test_scene_bridge.py::test_unsupported_extrude_axis_raises_not_implemented; test_curved_span_raises_not_implemented; src-python/ray_tracing_shapely_optiland/tests/test_revolve.py::test_the_extruded_solid_refuses_a_revolve_profile
+witness: src-python/ray_tracing_shapely_optiland/tests/test_scene_bridge.py::test_unsupported_extrude_axis_raises_not_implemented; src-python/ray_tracing_shapely_optiland/tests/test_scene_bridge.py::test_curved_span_raises_not_implemented; src-python/ray_tracing_shapely_optiland/tests/test_revolve.py::test_the_extruded_solid_refuses_a_revolve_profile
 tracked_by: null
 conflicts_with: null
 refines: null

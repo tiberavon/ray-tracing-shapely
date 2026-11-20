@@ -361,11 +361,13 @@ def test_tool_registry_new_tools():
 
 
 def test_tool_registry_count():
-    """Test 12: Total tool count is 22 (19 + path_surfaces/audit_bidirectional_paths/
-    path_physical_summary -- bidirectional path auditing)."""
+    """Test 12: Total tool count is 29 (19 + path_surfaces/audit_bidirectional_paths/
+    path_physical_summary -- bidirectional path auditing -- + list_contexts/
+    set_active_context/drop_context -- the context registry -- + load_run_context/
+    save_context_tool/compare_persisted_runs_tool -- saved runs -- + list_sources)."""
     print("\nTest 12: Tool count")
     tools = get_agentic_tools()
-    expected = 22
+    expected = 29
     assert len(tools) == expected, (
         f"Expected {expected} tools, got {len(tools)}: "
         f"{[t['name'] for t in tools]}"

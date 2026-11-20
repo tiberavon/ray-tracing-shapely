@@ -157,3 +157,6 @@ docs/_build/
 docs/explanation/concepts/
 docs/reference/architecture/
 docs/reference/api/
+
+# flow run records (local state: run folders, heartbeats, job folders)
+/flow_runs/

@@ -39,9 +39,9 @@ None yet.
 ## What it needs from elsewhere
 
 - **`P-PROFILE`** from `nonimaging_design` — which exports curved profiles
-  for the lenses, collimators and mirrors, but not yet for the SMS-family
-  classes, because they do not carry role and mechanism tags. For an SMS
-  design that is the actual blocker.
+  for the lenses, collimators, mirrors and the SMS elements, each surface
+  with its role and mechanism. For an SMS design the profile is no longer
+  the blocker; the differentiable geometry `C-3D-01` asks for is.
 
 ## Promises this component makes and relies on
 

@@ -48,7 +48,7 @@ came from, and what it is carrying.
 | `is_tir_result`, `caused_tir` | This segment was born of, or itself triggered, total internal reflection. | yes/no |
 | `tir_count` | How many total internal reflections in this ray's history so far. | whole number |
 | `is_grazing_result__…`, `caused_grazing__…` | Three separate tests for a ray skimming a surface — by angle, by polarisation, by transmission. | yes/no, each |
-| `source_uuid`, `source_label` | Which source emitted the ray this segment belongs to. | text, optional |
+| `source_uuid`, `source_label` | Which source emitted the ray this segment belongs to: set on a source's rays and inherited by every descendant. Empty on a backward pass's segments. | text, optional |
 | `medium_index` | The refractive index of whatever the segment is travelling through. Default 1 (air). Needed for optical path length. | number |
 | `hit_surface_uuid`, `hit_point`, `hit_normal` | Where this segment ended: which surface (a blocker that absorbed it included), at what point, with what surface direction. Only recorded when the simulation was started with `record_surface_hits=True`. | optional |
 | `incident_angle` | The angle at which this segment struck the surface that stopped it, from the surface's perpendicular. Between 0 and 90°. **Not** the same field as a detector hit's angle (`C-HIT-01`). | number, optional |
@@ -120,7 +120,8 @@ The saved form of the table above, one row per distinct route.
 
 ## `P-RUN-BUNDLE` — a saved run
 
-One folder per run, containing:
+One folder per run, of one engine: a 2D run and a 3D trace go in sibling
+folders, and each writer refuses the other's (`C-RUN-03`). A folder contains:
 
 **`params.json`** — the settings, in two sections (`C-RUN-02`):
 
@@ -143,7 +144,7 @@ assistant can query:
 | `glass_objects` | glass | Name, type, refractive index, edge count, centroid, area. |
 | `edges` | edge of a glass | Its labels, type (`line`, `circular`, `conic` or `spline`), endpoints, midpoint, length. For a curved edge the midpoint is on the curve and the length is the arc length. |
 | `ray_glass_membership` | (segment, glass) | Which segments lie inside which glass. |
-| `ray_edge_crossing` | (segment, edge) | Which segments cross or end on which edge, and at what angle to the edge's perpendicular. A circular edge's perpendicular is taken where the segment meets it. |
+| `ray_edge_crossing` | (segment, edge) | Which segments cross or end on which edge, and at what angle to the edge's perpendicular. A curved edge's perpendicular is taken where the segment meets it: the one the simulator used there, when the run recorded its hits, else computed from the edge (`recompute_angles=True` always computes it; the two agree to rounding). |
 | `detectors` | detector | Name, endpoints, bin size. |
 | `detector_hits` | counted crossing | `P-HIT-RECORD`, as rows. |
 | `connections` | joined forward/backward pair | Only present after a bidirectional run: which two segments were matched, on which surface, how close, how nearly opposite. |
@@ -162,7 +163,14 @@ span is schema 1.5's.
 
 **`manifest.jsonl`** — one line appended per run, so a design's history is
 one file. **`graph.json`** and **`signature_spectrum.json`** — present
-when the run was bidirectional.
+when the run was bidirectional; the graph's own attributes carry
+`detector_name`, the detector the backward pass started from.
+
+Saved from an agentic context (`save_context_tool`), `rays.sqlite` is that
+context's database as it stood, so it also holds the backward rays and the
+`connections` table. A folder may also hold a package's file, loaded into
+the same context when the package has registered a loader
+(`register_run_file_loader`): the 3D bridge's `nsq_events.sqlite`.
 
 A schema version and a confidence field are required by `C-RUN-01` and not
 yet written.
@@ -272,7 +280,9 @@ rotationally symmetric optic:
 - **Choosing the limit** (`RayfileSlicingFlow`): a machine that asks for
   the rayfile and the package's footprint, checks one against the other,
   and tabulates the flux kept at a series of limits, with the limits at the
-  ends of the range the choice is made in.
+  ends of the range the choice is made in. It then asks for the choice, as
+  a kept share or a limit, and, optionally, a `profile.json` to write the
+  source into, with its slice.
 
 ## `P-DESIGNED-FACES` — a designed element's faces, for another tracer
 
@@ -325,9 +335,9 @@ Every limit function returns a `LimitResult`:
 | `factors` | The correction factors that went in. | named numbers |
 | `notes` | Anything else the reader should know. | text |
 
-## `P-CLASSIFICATION-RUN` — a classification, step by step
+## `P-FLOW-RUN` — a flow's run, step by step
 
-One folder per run:
+One folder per run, the same for every flow:
 
 | File | Meaning |
 |---|---|
@@ -340,16 +350,45 @@ And two files at the top level: `manifest.jsonl`, one line per run; and
 `heartbeats.json`, the current state of every run in progress, for the
 dashboard.
 
+A run that ends in `failed`, `cancelled` or `timed_out` writes `result.json`
+too: `result` is null, and `status`, `reason` and `from_state` say how and
+where it ended.
+
+A heartbeat row has the flow's name, the process id, the state, the detail,
+and since when. Two of its fields matter to a reader that does not know the
+flow's diagram:
+
+| Field | Meaning |
+|---|---|
+| `terminal` | Whether the state is one the run does not leave. |
+| `detail.job` | The job a long box is following: its `handle` (executor, job id, and where to find it), procedure, label, `budget_s`, `limit_s`, when it was submitted, its last state and progress, and `over_budget`. Absent when no job is being followed. |
+
+A local worker's job has its own folder, under the executor's root:
+
+| File | Meaning |
+|---|---|
+| `job.json` | The job: procedure (`package.module:function`), inputs, files, budget, limit, label. |
+| `status.json` | Its state (`queued`, `running`, `done`, `failed`, `cancelled`, `timed_out`), progress, error, start, finish, process id, and `updated_at`, the worker's own heartbeat, every few seconds. |
+| `result.json` | `{"result": ...}`, the procedure's return value, once done. |
+| `log.txt` | The worker's output. |
+| `cancel` | Present once a cancel was asked for. |
+
+Each flow documents only what its `result.json` holds.
+
+## `P-CLASSIFICATION-RUN` — a classification, step by step
+
+A `P-FLOW-RUN`. `result.json` holds the classification.
+
 ## `P-INTAKE-RUN` — gathering the inputs, step by step
 
-The same folder shape as above. `result.json` additionally records the
-identifier and result of the classification run this intake launched.
+A `P-FLOW-RUN`. `result.json` additionally records the identifier and result
+of the classification run this intake launched.
 
 ## `P-SLICING-RUN` — choosing a rayfile slice's limit, step by step
 
-The same folder shape, from `RayfileSlicingFlow`. The events are its
-questions, the answers' checks, and the slicing. `result.json` holds the
-table:
+A `P-FLOW-RUN`, from `RayfileSlicingFlow`. The events are its
+questions, the answers' checks, the slicing, the choice and the profile
+written. `result.json` holds the table and the choice:
 
 | Field | Meaning |
 |---|---|
@@ -358,6 +397,29 @@ table:
 | `package_mm`, `half_diagonal_mm` | The footprint given, and the largest limit it allows. |
 | `led_within_30deg` | The whole LED's share within 30°, for the rows' column. |
 | `warnings` | Start points covering little of the footprint, or centred off the axis. |
+| `choice` | The limit chosen (`max_offset_mm`), the share it keeps and its rays, and what was asked: `kept_share_asked` or `max_offset_mm_asked`. |
+| `profile` | `null`, or the `profile.json` written: its `path`, the `source` spec written into it, and whether it `replaced` a source of the same name. |
+
+## `P-COMPARISON-RUN` — 2D against 3D, from profile files
+
+A `P-FLOW-RUN`, from `Compare2D3DFlow` or `SliceCompareFlow`. The events are its questions, the
+answers' checks, the loading, the estimate and the two jobs. `result.json`
+holds:
+
+| Field | Meaning |
+|---|---|
+| `summary` | `Comparison.summary()`: rays, how many agree, the worst exit-direction and exit-point differences, the rays that differ with both paths. |
+| `rays_file` | `rays.json`, in the run's folder: the per-ray table (`Comparison.rays`). |
+| `profiles` | Each profile's `name`, `path`, and index `n` (a solid) or `reflectance` (a mirror sheet). |
+| `options` | The comparison's options, defaults filled in. |
+| `executor` | Where the two traces ran: `local_process`, `in_process` or `modal`. |
+
+A slice comparison's `result.json` has `rays_file` `slice.json` (one row per
+compared ray: `record`, `offset_mm`, `path_2d`, `end_2d`, `angle_2d_deg`,
+`angle_3d_deg`, `share_on_2d_path`), `source` (`profile`, `name`,
+`rays_kept`), and a `summary` of `rays`, `met_in_3d`,
+`mean_share_on_2d_path`, `meridional` (`rays`, `worst_deg`) and
+`by_offset` (per band of |h|: `h_mm`, `rays`, `mean_deg`, `worst_deg`).
 
 ## `P-AGENTIC-ENVELOPE` — a tool's answer
 
@@ -369,7 +431,10 @@ table:
 
 ## `P-KERNEL-CONTEXT` — where the live objects are kept
 
-A store filled once after a simulation, read by every tool.
+Named contexts, each filled after a simulation (or a load), and one of them
+active: every tool reads the active one (`C-AGENT-04`). A setter given no
+`context_name` fills the active context; the default context is
+`'default'`. Each context holds:
 
 | Key | Holds | Filled by |
 |---|---|---|
@@ -379,6 +444,11 @@ A store filled once after a simulation, read by every tool.
 | `db` | The per-run database, built from the segments. | `set_context` |
 | `render_dir` | Where rendered drawings are saved. | `set_context` |
 | `bidirectional` | A bidirectional result, if one was added. | `set_bidirectional_context` |
+| `origin` | Where the context came from (`live` by default, `saved run` for a load), as `list_contexts` shows it. | `set_context`, `load_run_context` |
+| `result` | The `SimulationResult`, which a save needs. | `set_context_from_result` |
+| `detector_hits` | Each detector's hit records in this context's run, by detector uuid: the scene's detectors hold only the last run's (`C-AGENT-04`). | `set_context` |
+| `run_dir` | The run folder the context was loaded from or saved to (`C-AGENT-05`). A loaded context holds `db` (read-only), `bidirectional` (the path graph only) and `n_segments`, and no `scene`, `segments` or `lineage`. | `load_run_context`, `save_context_tool` |
+| `<package>.<name>` | A package's own objects (the 3D bridge's `optiland.nsq`, `optiland.compare`). | `set_extension_context` |
 
 ## `P-TOOL-REGISTRY` — the list of tools
 

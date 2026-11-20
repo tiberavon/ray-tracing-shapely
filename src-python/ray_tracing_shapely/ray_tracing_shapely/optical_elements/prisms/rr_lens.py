@@ -47,7 +47,7 @@ from .sms_chain import (
     SMSPoint,
     _orient_toward_travel,
     _resolve_new_normal,
-    build_sms_chain,
+    grow_sms_chains,
     sms_chain_step,
 )
 
@@ -74,8 +74,9 @@ class RRLens(BasePrism):
     together so E1->R2 and E2->R1 (crossed condition). Single Glass
     polygon: the N-surface (top) and X-surface (bottom), each grown from
     a seed hyperbola point via a short ccoptpt() fan (Chaves Ch. 9 eq.
-    9.58-9.66) and then the shared sms_chain_step()/build_sms_chain()
-    ping-pong engine out to the symmetry axis, mirrored to complete the
+    9.58-9.66) and then the shared sms_chain_step()/grow_sms_chains()
+    engine, one chain from every fan point, out to the symmetry axis
+    (reproducing the book's 26 points per surface), mirrored to complete the
     lens (Chaves Ch. 9's own "the left half ... is obtained by
     symmetry").
 
@@ -122,6 +123,7 @@ class RRLens(BasePrism):
         etendue: float = 1.0,
         n_points_per_section: int = 5,
         name: Optional[str] = None,
+        edges: str = "spline",
     ) -> None:
         self.e1, self.e2, self.r1, self.r2 = e1, e2, r1, r2
         self.n_lens = n
@@ -137,6 +139,7 @@ class RRLens(BasePrism):
         ) = self._build_profile()
 
         vertices = self._assemble_vertices(n_surface_points, x_surface_points)
+        self.n_surface_points, self.x_surface_points = n_surface_points, x_surface_points
 
         # Bypass BasePrism.__init__()'s size/position/rotation template --
         # see class docstring. Mirrors BasePrism.from_vertices()'s own
@@ -149,10 +152,29 @@ class RRLens(BasePrism):
         self._rotation = 0.0
         self._anchor = 'centroid'
         self.refIndex = n
-        self.path = [{'x': x, 'y': y, 'arc': False} for x, y in vertices]
-        self._functional_labels = {
-            i: (str(i), f"Edge {i}") for i in range(len(vertices))
-        }
+        if edges not in ("spline", "polyline"):
+            raise ValueError(f"edges is 'spline' or 'polyline', got {edges!r}")
+        self.edges = edges
+        self.polyline_vertices = vertices
+        if edges == "spline":
+            from .sms_chain import spline_outline
+            # each designed surface one spline through the chain's points, with the chain's normals
+            self.path = spline_outline(vertices, [n_surface_points, x_surface_points])
+            vertices = [(v['x'], v['y']) for v in self.path]
+        else:
+            self.path = [{'x': x, 'y': y, 'arc': False} for x, y in vertices]
+        from ..roles import Mechanism, Role
+        from .sms_chain import SurfaceLabel, label_sms_edges
+
+        # Each designed surface labelled: N faces the emitters E1/E2 (light enters it), X the
+        # receiver R1/R2 (light leaves it); an edge joining them is the rim (glass, refracting).
+        (self._functional_labels, self._edge_role_tags,
+         self._edge_mechanisms) = label_sms_edges(vertices, [
+            SurfaceLabel("N", "N surface (facing the emitter)", Role.ENTRANCE, Mechanism.REFRACT,
+                         [p.p for p in n_surface_points]),
+            SurfaceLabel("X", "X surface (facing the receiver)", Role.EXIT, Mechanism.REFRACT,
+                         [p.p for p in x_surface_points]),
+        ], rim=SurfaceLabel("RIM", "Rim", None, Mechanism.REFRACT, []))
         self._vertex_labels = {
             i: (str(i), f"Vertex {i}") for i in range(len(vertices))
         }
@@ -164,9 +186,9 @@ class RRLens(BasePrism):
         """
         Build the right half of both surfaces: seed hyperbola points N/X
         (eq. 9.13-9.14 via hyp()), the two short ccoptpt() fans CO_1/CO_2
-        (eq. 9.58-9.66), then the sms_chain ping-pong out to the symmetry
-        axis (eq. 1877's own X13->N13-style alternation, generalized via
-        build_sms_chain()).
+        (eq. 9.58-9.66), then the SMS chains out to the symmetry axis, one
+        from every fan point (the X13->N13 alternation, generalized via
+        grow_sms_chains()).
         """
         e1, e2, r1, r2, n = self.e1, self.e2, self.r1, self.r2, self.n_lens
         Np = self.n_points_per_section
@@ -212,58 +234,48 @@ class RRLens(BasePrism):
             nn = _resolve_new_normal(t, out_dir, n, 1.0, 'refract')
             CO_2.append(SMSPoint(P, nn))
 
-        # --- Ping-pong to the axis (eq. ~1877's X13->N13, generalized) ---
-        # Growing from CO_1's far end (on the X-surface) using rays from
-        # R2 targeting E1 produces new N-surface points; growing from
-        # CO_2's far end (on the N-surface) using rays from E2 targeting
-        # R1 produces new X-surface points. Alternate, tracking optical
-        # path lengths S_RE1/S_ER2 (Chaves Ch. 9) that stay
-        # constant for the whole outward chain on each surface.
+        # --- The chains to the axis (the X13->N13 alternation, generalized) ---
+        # On the X-surface, a ray from R2 toward E1 gives a new N-surface point; on the
+        # N-surface, a ray from E2 toward R1 gives a new X-surface point. The optical path
+        # lengths S_RE1/S_ER2 (Chaves Ch. 9) are the same for every chain.
         S_RE1 = math.hypot(*_sub(r2, X)) + n * math.hypot(*_sub(X, CO_2[-1].p)) + math.hypot(*_sub(CO_2[-1].p, e1))
         S_ER2 = S_RE1  # by symmetry, Chaves Ch. 9
 
-        # build_sms_chain's own tag convention: 'seed' = the surface its
-        # own `seed` argument lives on, 'other' = the alternate surface.
-        # CO_1 (the X-surface fan) is the seed here, so 'seed' == X-surface,
-        # 'other' == N-surface throughout this step_fn.
-        def step_fn(current: SMSPoint, tag: str):
-            if tag == 'seed':
-                # On the X-surface: ray from R2, target E1 -> new N-surface point.
-                S = S_RE1 - math.hypot(*_sub(r2, current.p))
-                new = sms_chain_step(
-                    known_point=current.p, known_normal=current.n, ray_source=r2,
-                    n_before=1.0, n_after=n, target=e1, target_n=None, n_target=1.0,
-                    S=S, mechanism='refract', new_mechanism='refract',
-                )
-                return new, 'other'
-            else:
-                # On the N-surface: ray from E2, target R1 -> new X-surface point.
-                S = S_ER2 - math.hypot(*_sub(e2, current.p))
-                new = sms_chain_step(
-                    known_point=current.p, known_normal=current.n, ray_source=e2,
-                    n_before=1.0, n_after=n, target=r1, target_n=None, n_target=1.0,
-                    S=S, mechanism='refract', new_mechanism='refract',
-                )
-                return new, 'seed'
-
-        n_surface_points = [CO_2[k] for k in range(len(CO_2))]
-        x_surface_points = [CO_1[k] for k in range(len(CO_1))]
-
-        seed_for_chain = [CO_1[-1]]
-        try:
-            grown_x, grown_n = build_sms_chain(
-                seed=seed_for_chain,
-                step_fn=step_fn,
-                stop_condition=lambda p: p.p[0] <= 0.0,
-                max_steps=200,
+        # The chains, as the book grows them: one from every point of CO_1 and of CO_2, then
+        # from the points they give (Chaves Ch. 9, Example 9.1: "repeated for all the points of
+        # X-X1 ... for all the points of N-N1 ... repeated for the new points"). A chain ends at
+        # the axis: only the points right of it are kept, the left half being their mirror image.
+        def x_to_n(current: SMSPoint) -> Optional[SMSPoint]:
+            # on the X-surface: a ray from R2, toward E1 -> a new N-surface point
+            new = sms_chain_step(
+                known_point=current.p, known_normal=current.n, ray_source=r2,
+                n_before=1.0, n_after=n, target=e1, target_n=None, n_target=1.0,
+                S=S_RE1 - math.hypot(*_sub(r2, current.p)), mechanism='refract', new_mechanism='refract',
             )
-        except RuntimeError:
-            grown_x, grown_n = [CO_1[-1]], []
+            return new if new.p[0] > 0.0 else None
 
-        # grown_x (the 'seed'/X-surface list) includes the seed point again
-        # at index 0 -- drop it. grown_n is the 'other'/N-surface list.
-        x_surface_points.extend(grown_x[1:])
-        n_surface_points.extend(grown_n)
+        def n_to_x(current: SMSPoint) -> Optional[SMSPoint]:
+            # on the N-surface: a ray from E2, toward R1 -> a new X-surface point
+            new = sms_chain_step(
+                known_point=current.p, known_normal=current.n, ray_source=e2,
+                n_before=1.0, n_after=n, target=r1, target_n=None, n_target=1.0,
+                S=S_ER2 - math.hypot(*_sub(e2, current.p)), mechanism='refract', new_mechanism='refract',
+            )
+            return new if new.p[0] > 0.0 else None
+
+        x_from_1, n_from_1 = grow_sms_chains(CO_1, x_to_n, n_to_x, max_steps=200)
+        n_from_2, x_from_2 = grow_sms_chains(CO_2, n_to_x, x_to_n, max_steps=200)
+
+        def once(points: List[SMSPoint]) -> List[SMSPoint]:
+            # chains from different points meet the same points to round-off: those count once
+            kept: List[SMSPoint] = []
+            for q in sorted(points, key=lambda q: -q.p[0]):
+                if not kept or math.hypot(q.p[0] - kept[-1].p[0], q.p[1] - kept[-1].p[1]) > 1e-7:
+                    kept.append(q)
+            return kept
+
+        n_surface_points = once(n_from_1 + n_from_2)
+        x_surface_points = once(x_from_1 + x_from_2)
 
         return (
             N, X, n_N, n_X, S_NR1, S_XE1, CO_1, CO_2,

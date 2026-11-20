@@ -4,8 +4,13 @@
 # runs in two places — here in the private monorepo, and in
 # tiberavon/ray-tracing-shapely. Public repositories get free runner minutes
 # and the private one does not, so the matrix widens only in the public repo;
-# the private repo runs a single version, which is enough to catch a
-# regression on the push that caused it.
+# the private repo runs a single version.
+#
+# It runs where work is integrated, not on every working push: on pushes to
+# and pull requests into michele_dev and master (the public repository has
+# only master). A machine's own branch (agent-*) is checked at the end of a
+# sprint, by the pull request that merges it into michele_dev; between
+# times, by hand with `gh workflow run ci.yml --ref <branch>`.
 #
 # The guards that protect publication — provenance, attribution, the bare-core
 # boundary, the publish gates — are NOT here. They need dev_doc/tools/, which
@@ -15,8 +20,10 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches: [michele_dev, master]
   pull_request:
+    branches: [michele_dev, master]
+  workflow_dispatch:
 
 # A newer push supersedes an older run on the same ref. Saves minutes, and
 # nobody reads the result of a run they have already replaced.

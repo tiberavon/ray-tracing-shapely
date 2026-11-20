@@ -126,6 +126,7 @@ from typing import Any, Dict, Optional
 from .flow_base import ObservableFlow
 from .dimensional_checks import checked_scalar, checked_hazard_value, expected_dimensionality_for_hazard
 from .explanations import explain_field
+from ...flows.fields import FlowField
 from .iec62471_flow import IEC62471ClassificationFlow
 from .iec60825_1_flow import IEC60825_1ClassificationFlow
 from ..units import ANGLE, POWER, TIME
@@ -250,6 +251,28 @@ IEC62471_INTAKE_TRANSITIONS = [
 IEC62471_INTAKE_TERMINAL_STATES = ("done",)
 
 
+def _info_field(name: str, kind: str, info: Dict[str, str], unit: Optional[str] = None) -> FlowField:
+    return FlowField(name, kind, info["question"], info["citation"], info["example"], unit=unit)
+
+
+def _iec62471_intake_fields() -> Dict[str, FlowField]:
+    fields = {"awaiting_alpha_rad": _info_field("alpha_rad", "quantity", _IEC62471_ALPHA_RAD_INFO, ANGLE)}
+    for key in IEC62471_HAZARD_ORDER:
+        applicable = _explain_hazard_applicable(key)
+        fields[f"awaiting_{key}_applicable"] = FlowField(
+            f"{key}_applicable", "bool", applicable.question, applicable.citation, applicable.example)
+        info = _IEC62471_HAZARD_INFO[key]
+        # the unit, and so the example, depend on alpha_rad: refined per run by flow_field
+        fields[f"awaiting_{key}_value"] = FlowField(
+            f"{key}_value", "quantity", f"What is the measured {info['label']} value?", info["citation"],
+            "a value with its unit; the unit follows from alpha_rad")
+    return fields
+
+
+#: The question each asking box puts, in order.
+IEC62471_INTAKE_FIELDS: Dict[str, FlowField] = _iec62471_intake_fields()
+
+
 class IEC62471IntakeFlow(ObservableFlow):
     """Gathers an `IEC62471ClassificationFlow` payload field by field, then
     launches one. Construct, call `begin()` is done automatically, then
@@ -259,6 +282,10 @@ class IEC62471IntakeFlow(ObservableFlow):
     following `explain_current_state()` at each step. `self.launched_run_id`/
     `self.launched_result` are set once `ready`/`done` complete.
     """
+
+    FIELDS = IEC62471_INTAKE_FIELDS
+    PURPOSE = ("Gather an IEC 62471 (lamps and LEDs) photobiological-safety measurement field by field, "
+               "then classify it into a risk group.")
 
     def __init__(
         self,
@@ -280,6 +307,15 @@ class IEC62471IntakeFlow(ObservableFlow):
         self.launched_run_id: Optional[str] = None
         self.launched_result: Optional[str] = None
         self.begin()
+
+    def flow_field(self, state: str) -> Optional[FlowField]:
+        """A hazard's value question takes the unit ``alpha_rad`` implies."""
+        field = self.FIELDS.get(state)
+        if field is None or not field.name.endswith("_value") or self._alpha_rad_float is None:
+            return field
+        key = field.name[: -len("_value")]
+        unit = expected_dimensionality_for_hazard(key, self._alpha_rad_float)
+        return FlowField(field.name, field.kind, field.question, field.why, f'e.g. "55 {unit}"', unit=unit)
 
     # -- alpha_rad -----------------------------------------------------
 
@@ -509,6 +545,18 @@ IEC60825_1_INTAKE_TRANSITIONS = [
 
 IEC60825_1_INTAKE_TERMINAL_STATES = ("done",)
 
+#: The question each asking box puts, in order.
+IEC60825_1_INTAKE_FIELDS: Dict[str, FlowField] = {
+    "awaiting_measured_power_W": _info_field("measured_power_W", "quantity", _IEC60825_1_MEASURED_POWER_INFO, POWER),
+    "awaiting_wavelength_nm": _info_field("wavelength_nm", "quantity", _IEC60825_1_WAVELENGTH_INFO, "nm"),
+    "awaiting_alpha_rad_provided": _info_field("alpha_rad_provided", "bool", _IEC60825_1_ALPHA_RAD_INFO),
+    "awaiting_alpha_rad_value": _info_field("alpha_rad_value", "quantity", _IEC60825_1_ALPHA_RAD_VALUE_INFO, ANGLE),
+    "awaiting_duration_s_class1_provided": _info_field("duration_s_class1_provided", "bool",
+                                                       _IEC60825_1_DURATION_PROVIDED_INFO),
+    "awaiting_duration_s_class1_value": _info_field("duration_s_class1_value", "quantity",
+                                                    _IEC60825_1_DURATION_VALUE_INFO, TIME),
+}
+
 
 class IEC60825_1IntakeFlow(ObservableFlow):
     """Gathers an `IEC60825_1ClassificationFlow` payload field by field,
@@ -516,6 +564,10 @@ class IEC60825_1IntakeFlow(ObservableFlow):
     provided?/value? pair -- answer `False` to the "provided?" question to
     take the standard's own default, matching `FRAME_INPUT`'s own
     optional-field semantics."""
+
+    FIELDS = IEC60825_1_INTAKE_FIELDS
+    PURPOSE = ("Gather an IEC 60825-1 (lasers) accessible-emission measurement field by field, then "
+               "classify it into a laser class.")
 
     def __init__(
         self,

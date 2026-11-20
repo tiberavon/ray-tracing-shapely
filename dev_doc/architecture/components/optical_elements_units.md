@@ -36,7 +36,7 @@ what kinds of quantity the physical layer uses.
 
 | File | What it holds |
 |---|---|
-| `optical_elements/units.py` | `ureg` (the registry), `Quantity`, `parse_quantity`, `ensure_quantity`, the stricter radiometric pair, and the named dimensionality constants: `POWER`, `IRRADIANCE`, `RADIANCE`, `RADIANT_EXPOSURE`, `LENGTH`, `TIME`, `VOLTAGE`, `PHOTOSENSITIVITY`, `SOLID_ANGLE`, `ANGLE`, and others. |
+| `optical_elements/units.py` | `ureg` (the registry), `Quantity`, `parse_quantity`, `ensure_quantity`, the stricter radiometric pair, `checked_scalar` (a flow's answer with a unit, as a plain number in the expected unit; a bare number refused), and the named dimensionality constants: `POWER`, `IRRADIANCE`, `RADIANCE`, `RADIANT_EXPOSURE`, `LENGTH`, `TIME`, `VOLTAGE`, `PHOTOSENSITIVITY`, `SOLID_ANGLE`, `ANGLE`, and others. |
 
 ## What it produces
 

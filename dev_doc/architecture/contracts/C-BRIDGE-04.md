@@ -10,7 +10,7 @@ viewpoint: physical
 status: documented
 failure_mode: silent
 checked_by: src-python/ray_tracing_shapely_optiland/tests/test_end_caps_and_import.py::test_containment_check_catches_the_tilted_source_leak
-witness: src-python/ray_tracing_shapely_optiland/tests/test_end_caps_and_import.py::test_detector_and_caps_agree_ray_for_ray; test_end_caps_close_the_leak; test_grazing_light_tirs_off_a_refracting_cap
+witness: src-python/ray_tracing_shapely_optiland/tests/test_end_caps_and_import.py::test_detector_and_caps_agree_ray_for_ray; src-python/ray_tracing_shapely_optiland/tests/test_end_caps_and_import.py::test_end_caps_close_the_leak; src-python/ray_tracing_shapely_optiland/tests/test_end_caps_and_import.py::test_grazing_light_tirs_off_a_refracting_cap
 tracked_by: null
 conflicts_with: null
 refines: null

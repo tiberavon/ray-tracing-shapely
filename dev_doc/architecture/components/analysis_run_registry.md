@@ -40,10 +40,13 @@ on many runs, some time from now.
 
 | File | What it holds |
 |---|---|
-| `analysis/run_registry.py` | `persist_run_artifacts`, `compare_runs`, the manifest, the name-topology fingerprint and its check. |
+| `analysis/run_registry.py` | `persist_run_artifacts` (from a scene and result, or copying an agentic context's database as it stands), `compare_runs` and `compare_run_dirs` (the same, given two folders), the manifest, the name-topology fingerprint and its check. |
 | `analysis/saving.py` | Writing ray segments to CSV and XML, and the filters and statistics over a segment list. |
 | `analysis/simulation_result.py` | `SimulationResult`: a run's segments, lineage and scene snapshot, bundled with the settings it ran under. |
-| `analysis/targeted_resimulation.py` | Re-running one identified route at high density, by temporarily swapping in a narrow source and restoring the scene afterwards. |
+| `analysis/targeted_resimulation.py` | Re-running one identified route at high density, by temporarily swapping in a narrow source, silencing the scene's other sources, and restoring the scene afterwards: its sources, its settings and its detectors' measurements. |
+| `analysis/targeted_resimulation_flow.py` | The same as a flow an agent starts by name (`targeted_resimulation`): the context, the ranked path, the source, the rays and cone, where it runs, the estimate; the run in the kernel, or in chunks on `in_process`, `local_process` or `modal` (`C-AGENT-07`); its result a new named context and a saved bundle, and the rays at the detector grouped by their path's interactions (`C-AGENT-06`). |
+| `analysis/portable_scene.py` | A live scene's optical objects as plain data a job rebuilds: a designed element as its profile, any other object as its class and its `serialize()`, each with its name; checked by rebuilding it here, and refused by name when it cannot be mapped back (`C-AGENT-07`). |
+| `analysis/ray_jobs.py` | 2D rays simulated as jobs: `simulate_rays_2d_job` (sums that merge: the flux by exit angle; its elements from profiles, plus optional absorbers, segments that stop a ray, so a mirror's back face can absorb) and `simulate_rays_2d_segments_job` (a chunk's segments and detector hits, as columns); `sample_source_rays`, `chunk_rays`, and `merge_segment_results`, the chunks as one `SimulationResult` mapped back to the live scene by name. |
 
 ## What it produces
 
@@ -67,6 +70,10 @@ on many runs, some time from now.
 | `C-RUN-02` | **Owns** it. Physical and numerical parameters are strictly separated, and a numerical setting never enters a trained model as if it were physics. Checked by a test on what `persist_run_artifacts` writes. |
 | `C-CONV-01` | **Owns** the comparison half. A comparison claim is valid only with sampling noise and discretisation kept separate. |
 | `C-LABEL-01` | **Enforces** it. The fingerprint is written here and checked here, before any comparison. |
+| `C-AGENT-06` | **Makes** it, with `agentic_layer`. The re-simulation leaves the scene as it was and its result beside the run. |
+| `C-RUN-03` | **Owns** it, with `optiland_nsq_run_registry`. `persist_run_artifacts` refuses a folder that holds another engine's run, rather than overwrite its `params.json`. |
+| `C-AGENT-07` | **Makes** it, with `flows`. A re-simulation sent out in chunks is the run in the kernel; the scene goes as plain data and comes back mapped by name. |
+| `C-AGENT-05` | **Makes** it, with `agentic_layer`. What an agentic context was reading is what is saved, so a run loaded back answers as it did live. |
 
 ## How it is shipped
 

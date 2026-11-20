@@ -515,22 +515,28 @@ def _point_segment_distance(q, a, b) -> float:
 
 
 def _sheet_member(mirror):
-    """``("conic", mirror)`` or ``("line", (p1, p2))`` for an exportable mirror."""
+    """``("conic", mirror)``, ``("spline", mirror)`` or ``("line", (p1, p2))`` for an exportable
+    mirror."""
     from ..mirrors.conic import ConicMirror  # noqa: PLC0415
+    from ..mirrors.spline import SplineMirror  # noqa: PLC0415
 
     if isinstance(mirror, ConicMirror):
         return "conic", mirror
+    if isinstance(mirror, SplineMirror):
+        return "spline", mirror
     p1, p2 = getattr(mirror, "p1", None), getattr(mirror, "p2", None)
     if getattr(mirror, "type", None) == "Mirror" and p1 is not None and p2 is not None:
         return "line", ((float(p1["x"]), float(p1["y"])), (float(p2["x"]), float(p2["y"])))
     raise TypeError(f"{type(mirror).__name__} is not an exportable mirror "
-                    "(Mirror, ConicMirror or ArcMirror).")
+                    "(Mirror, ConicMirror, ArcMirror or SplineMirror).")
 
 
 def _sheet_distance(member, q, tol: float) -> float:
     kind, m = member
     if kind == "line":
         return _point_segment_distance(q, *m)
+    if kind == "spline":
+        return m.curve.nearest(q)[0]
     s, _ = m.to_local(q)
     if not (m.extent[0] - tol <= s <= m.extent[1] + tol):
         return math.inf
@@ -543,6 +549,9 @@ def _sheet_samples(member, fractions):
     if kind == "line":
         (a, b) = m
         return [(a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])) for f in fractions]
+    if kind == "spline":
+        p0, p1 = m.curve.p_start, m.curve.p_end
+        return [m.curve.point(p0 + f * (p1 - p0)) for f in fractions]
     s0, s1 = m.extent
     return [m.point_at(s0 + f * (s1 - s0)) for f in fractions]
 
@@ -560,7 +569,7 @@ def export_sheet_profile(
     """Export mirrors as a profile.json-shaped dict with ``body: "sheet"`` (schema 1.1).
 
     Args:
-        mirrors: ``Mirror``, ``ConicMirror`` and ``ArcMirror`` objects, each
+        mirrors: ``Mirror``, ``ConicMirror``, ``ArcMirror`` and ``SplineMirror`` objects, each
             with a distinct ``name`` (its span's short label). Their
             ``role`` is exported as is; the mechanism is ``reflect``.
         symmetry: ``{"kind": "revolve", "axis": {"point": [a, b],
@@ -578,9 +587,11 @@ def export_sheet_profile(
             mirror-symmetric about the axis (when the far side is kept) or
             that lie right of it (when it is cut away), nothing left of the
             axis, a bad ``azimuth_deg``, or ``curve_samples`` below 3.
-        NotImplementedError: For a symmetry other than revolve, or a conic
-            whose axis is not the revolve axis.
-        TypeError: For an object that is not one of the three mirrors.
+        NotImplementedError: For a symmetry other than revolve, a conic
+            whose axis is not the revolve axis, or a spline that crosses the
+            axis without a point on it (its half-section would not start at
+            the axis on one of its own points).
+        TypeError: For an object that is not one of the four mirrors.
     """
     kind = symmetry.get("kind")
     if kind != "revolve":
@@ -636,6 +647,30 @@ def export_sheet_profile(
             samples = [m.point_at(s) for s in ss]
             sample_normals = [m.normal_at(s) for s in ss]
             curve = m.descriptor()
+            any_curve = True
+        elif kind_m == "spline":
+            # the points left of the axis, from the axis outward: the same cubic segments as the
+            # whole mirror's between them, so the half-section's spline is the mirror's, exactly
+            knots, tangents = m.curve.points, m.curve.tangents
+            side = [_left_distance(q, point, direction) for q in knots]
+            if all(d <= symmetry_tol for d in side):
+                continue
+            on_axis = [k for k, d in enumerate(side) if abs(d) <= symmetry_tol]
+            if any(d < -symmetry_tol for d in side):
+                if not on_axis:
+                    raise NotImplementedError(
+                        f"{name!r}: a spline mirror crossing the revolve axis needs one of its "
+                        "points on the axis, where its half-section starts.")
+                k0 = on_axis[0]
+                idx = (list(range(k0, len(knots))) if side[-1] > symmetry_tol
+                       else list(range(k0, -1, -1)))
+            else:
+                idx = list(range(len(knots))) if side[0] <= side[-1] else list(range(len(knots) - 1, -1, -1))
+            forward = idx[1] > idx[0]
+            samples = [_onto_axis(knots[k], point, direction, symmetry_tol) for k in idx]
+            tans = [tangents[k] if forward else (-tangents[k][0], -tangents[k][1]) for k in idx]
+            sample_normals = [(-t[1], t[0]) for t in tans]
+            curve = {"type": "spline", "points": [list(q) for q in samples], "tangents": [list(t) for t in tans]}
             any_curve = True
         else:
             a, b = m

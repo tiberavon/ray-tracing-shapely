@@ -8,13 +8,7 @@ port: P-RAY-LINEAGE
 viewpoint: structural
 status: enforced
 failure_mode: loud
-checked_by: >-
-  src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_ray_lineage.py::test_get_ancestors_raises_on_cycle,
-  ::test_get_full_path_raises_on_cycle,
-  ::test_get_tree_depth_raises_on_cycle,
-  ::test_get_descendants_raises_on_cycle,
-  ::test_get_subtree_uuids_raises_on_cycle,
-  ::test_acyclic_tree_is_unaffected
+checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_ray_lineage.py::test_get_ancestors_raises_on_cycle; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_ray_lineage.py::test_get_full_path_raises_on_cycle; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_ray_lineage.py::test_get_tree_depth_raises_on_cycle; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_ray_lineage.py::test_get_descendants_raises_on_cycle; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_ray_lineage.py::test_get_subtree_uuids_raises_on_cycle; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_ray_lineage.py::test_acyclic_tree_is_unaffected
 witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_bidirectional.py::test_backward_lineage_valid_and_acyclic
 tracked_by: null
 conflicts_with: null

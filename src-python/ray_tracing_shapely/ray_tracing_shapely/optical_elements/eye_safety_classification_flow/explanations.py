@@ -40,7 +40,8 @@ tests to agree with what that decision implies -- see `C-EYE-05`.
 `FieldExplanation`: the intake flow's counterpart. Not a comparison but a
 question a caller needs answered before a run can begin: what is being
 asked, why it matters (a citation, the same shape as above), and a worked
-example in the expected unit.
+example in the expected unit. It is not specific to eye safety, and lives in
+`ray_tracing_shapely.flows.fields`; it is re-exported here.
 
 `MarginSummary` / `summarize_margins`: which of the criteria that passed
 came closest to failing. `ComparisonExplanation` carries a `margin_ratio`
@@ -63,6 +64,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+from ...flows.fields import FieldExplanation, explain_field  # noqa: F401  (moved; re-exported)
 from ..eye_safety.result import LimitResult
 
 
@@ -221,33 +223,4 @@ def summarize_margins(scope: str, margins: Dict[str, float]) -> MarginSummary:
     return MarginSummary(
         scope=scope, tightest_criterion=tightest_criterion, tightest_margin_ratio=tightest_ratio,
         margins=dict(margins), message=message,
-    )
-
-
-@dataclass
-class FieldExplanation:
-    """One intake question, self-contained enough for a caller who does
-    not already know the standard to answer correctly.
-
-    Args:
-        field: The payload field this question fills (e.g. `"alpha_rad"`).
-        question: The plain-language question being asked.
-        citation: Why this field matters (a standard section/boundary, or
-            which downstream dispatch it feeds).
-        example: A worked example value in the expected unit.
-        message: A rendered sentence combining all of the above.
-    """
-
-    field: str
-    question: str
-    citation: str
-    example: str
-    message: str
-
-
-def explain_field(field: str, question: str, citation: str, example: str) -> FieldExplanation:
-    """Build a `FieldExplanation` for one intake field."""
-    message = f"{question} ({citation}) {example}"
-    return FieldExplanation(
-        field=field, question=question, citation=citation, example=example, message=message,
     )

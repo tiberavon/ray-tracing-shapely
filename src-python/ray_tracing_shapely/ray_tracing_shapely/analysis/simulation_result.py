@@ -115,6 +115,19 @@ class SceneSnapshot:
         )
 
 
+def detector_hits_of(scene: 'Scene') -> Dict[str, List[Dict[str, Any]]]:
+    """Each detector's hit records as they stand, by uuid: a copy, so a later
+    run of the scene does not change it. A LinearSensor's internal detector
+    is included, since it is in ``scene.objs``."""
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for obj in scene.objs:
+        if (getattr(obj.__class__, 'type', None) or obj.__class__.__name__) != 'Detector':
+            continue
+        if hasattr(obj, 'get_hit_records'):
+            out[obj.uuid] = [dict(r) for r in obj.get_hit_records()]
+    return out
+
+
 @dataclass
 class SimulationResult:
     """
@@ -164,6 +177,12 @@ class SimulationResult:
     # Lineage tracking (Python-specific)
     lineage: Optional['RayLineage'] = None
 
+    # Each detector's hit records as this run left them, by the detector's
+    # uuid. The scene's detectors keep only the last run's: a second run of
+    # the same scene (a targeted re-simulation, a sweep) replaces them, so a
+    # result keeps its own.
+    detector_hits: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+
     @classmethod
     def create(
         cls,
@@ -212,6 +231,7 @@ class SimulationResult:
             warnings=warnings,
             error=scene.error,
             lineage=lineage,
+            detector_hits=detector_hits_of(scene),
         )
 
     def get_display_name(self) -> str:

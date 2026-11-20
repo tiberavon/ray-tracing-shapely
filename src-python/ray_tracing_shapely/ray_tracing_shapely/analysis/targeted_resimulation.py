@@ -140,6 +140,22 @@ def targeted_source_for_path(
     return targeted
 
 
+#: What a detector measures in a run; a simulation's start resets each.
+_MEASURED = ('power', 'normal', 'shear', 'hit_records', 'bin_data')
+
+
+def _is_source(obj: Any) -> bool:
+    """Whether ``obj`` emits rays at a simulation's start (a source type, or a subclass of one)."""
+    from .agentic_tools import SOURCE_TYPES
+
+    return any(cls.__name__ in SOURCE_TYPES for cls in type(obj).__mro__)
+
+
+def _emits_nothing() -> None:
+    """A silenced source's on_simulation_start for the length of a re-simulation."""
+    return None
+
+
 def run_targeted_resimulation(
     scene: 'Scene',
     original_source: 'AngleSource',
@@ -150,10 +166,20 @@ def run_targeted_resimulation(
     min_brightness_exp: Optional[int] = None,
     ray_density: Optional[float] = None,
     name: Optional[str] = None,
+    silence_other_sources: bool = True,
 ) -> 'SimulationResult':
     """
     Run ``targeted_source`` in isolation against ``scene``, then restore the
-    scene exactly as it was.
+    scene exactly as it was: its sources, its settings, and what its
+    detectors measured (their hits stay the original run's; the
+    re-simulation's are in the returned result's ``detector_hits``).
+
+    The scene's other sources are silenced for the run (they stay in the
+    scene, at their list positions, and emit nothing): the ray density is a
+    scene setting, so a source left emitting would emit at the re-run's
+    raised density, spend the segment limit and mix its rays into the
+    result. Sources here are incoherent and the optics linear, so silencing
+    them changes nothing about the targeted source's own rays.
 
     Temporarily swaps ``targeted_source`` in for ``original_source`` in
     ``scene.objs``/``scene.optical_objs`` (same list positions, so any other
@@ -201,10 +227,13 @@ def run_targeted_resimulation(
             duration of this run only (restored after) -- see the ray
             density precondition above. Note this affects EVERY optical
             object's `on_simulation_start()`/geometry that reads
-            `self.scene.ray_density`, but since `targeted_source` is the
-            only object emitting rays, in practice only its own root-ray
-            count changes.
+            `self.scene.ray_density`; with the other sources silenced,
+            `targeted_source` is the only object emitting rays, so only its
+            own root-ray count changes.
         name: Optional name for the returned SimulationResult.
+        silence_other_sources: True (the default): every other source in
+            the scene emits nothing for the run. False: they emit as usual,
+            at the overridden ray density.
 
     Returns:
         The SimulationResult from tracing ``targeted_source`` alone against
@@ -230,6 +259,12 @@ def run_targeted_resimulation(
     )
     original_min_brightness_exp = scene.min_brightness_exp
     original_ray_density = scene.ray_density
+    measured = [(obj, {a: getattr(obj, a) for a in _MEASURED if hasattr(obj, a)})
+                for obj in scene.objs if hasattr(obj, 'hit_records')]
+    silenced = ([obj for obj in scene.optical_objs
+                 if obj is not original_source and obj is not targeted_source and _is_source(obj)]
+                if silence_other_sources else [])
+    own_starts = [(obj, vars(obj).get('on_simulation_start')) for obj in silenced]
 
     scene.objs[obj_index] = targeted_source
     if optical_index is not None:
@@ -238,6 +273,8 @@ def run_targeted_resimulation(
         scene.min_brightness_exp = min_brightness_exp
     if ray_density is not None:
         scene.ray_density = ray_density
+    for obj in silenced:
+        obj.on_simulation_start = _emits_nothing
 
     try:
         simulator = Simulator(
@@ -250,6 +287,14 @@ def run_targeted_resimulation(
             scene.optical_objs[optical_index] = original_source
         scene.min_brightness_exp = original_min_brightness_exp
         scene.ray_density = original_ray_density
+        for obj, values in measured:
+            for attr, value in values.items():
+                setattr(obj, attr, value)
+        for obj, own in own_starts:
+            if own is None:
+                vars(obj).pop('on_simulation_start', None)
+            else:
+                obj.on_simulation_start = own
 
 
 __all__ = [

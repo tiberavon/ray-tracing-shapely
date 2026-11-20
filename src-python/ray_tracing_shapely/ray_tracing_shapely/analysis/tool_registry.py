@@ -375,6 +375,63 @@ _REGISTRY: List[Dict[str, str]] = [
     },
     {
         'module': 'analysis.agentic_tools',
+        'name': 'list_contexts',
+        'kind': 'function',
+        'signature': '() -> Dict[str, Any]',
+        'description': 'List the loaded contexts (runs held at once) and which one the tools read',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'set_active_context',
+        'kind': 'function',
+        'signature': '(context_name) -> Dict[str, Any]',
+        'description': 'Make a loaded context the one every tool reads',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'drop_context',
+        'kind': 'function',
+        'signature': '(context_name) -> Dict[str, Any]',
+        'description': 'Free a saved, inactive context\'s memory; load_run_context brings it back',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'load_run_context',
+        'kind': 'function',
+        'signature': '(run_dir, context_name) -> Dict[str, Any]',
+        'description': 'Load a saved run into a new named context, by reference (no live scene)',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'save_context_tool',
+        'kind': 'function',
+        'signature': '(out_dir, design_id, run_id, physical_params=None, numerical_params=None, '
+                     'context_name=None) -> Dict[str, Any]',
+        'description': 'Save a live context as a run folder that load_run_context can load',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'compare_persisted_runs_tool',
+        'kind': 'function',
+        'signature': '(run_a, run_b, check_name_topology=True, top_n=20) -> Dict[str, Any]',
+        'description': 'Compare two saved runs from disk: names checked, statistics, signature-spectrum diff',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'register_run_file_loader',
+        'kind': 'function',
+        'signature': '(file_name, loader) -> None',
+        'description': 'Let load_run_context load a run-folder file a package outside the core knows',
+    },
+    {
+        'module': 'analysis.agentic_tools',
+        'name': 'list_sources',
+        'kind': 'function',
+        'signature': '() -> Dict[str, Any]',
+        'description': 'List the light sources in the scene and the rays each started (requires context)',
+    },
+    {
+        'module': 'analysis.agentic_tools',
         'name': 'list_detectors',
         'kind': 'function',
         'signature': '() -> Dict[str, Any]',
@@ -664,11 +721,18 @@ def _builtin_agentic_tools() -> List[Dict[str, Any]]:
         List of dicts with tool metadata, callables, and JSON Schema definitions.
     """
     from .agentic_tools import (
+        list_contexts,
+        set_active_context,
+        drop_context,
+        load_run_context,
+        save_context_tool,
+        compare_persisted_runs_tool,
         query_rays,
         describe_schema,
         rank_paths_by_energy,
         check_energy_conservation,
         list_detectors,
+        list_sources,
         rank_detector_paths,
         paths_by_incidence_angle,
         rank_bidirectional_paths,
@@ -763,6 +827,145 @@ def _builtin_agentic_tools() -> List[Dict[str, Any]]:
             'function': check_energy_conservation,
             'description': 'Verify energy conservation at each branching point in the ray tree. '
                            'Requires lineage.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {},
+                'required': [],
+            },
+        },
+        # --- Contexts: more than one run held at once ---
+        {
+            'name': 'list_contexts',
+            'function': list_contexts,
+            'description': 'List the loaded contexts -- runs held at once, each with its own '
+                           'rays, lineage and database -- with the one every other tool reads '
+                           'marked active: name, origin, segment count, whether it holds a '
+                           'bidirectional result, and the packages with objects in it. Use this '
+                           'to find context_name values for set_active_context().',
+            'input_schema': {
+                'type': 'object',
+                'properties': {},
+                'required': [],
+            },
+        },
+        {
+            'name': 'set_active_context',
+            'function': set_active_context,
+            'description': 'Make a loaded context the active one: every other tool reads it from '
+                           'then on. Loading or re-simulating never switches, so this is the one '
+                           'way to change what the tools read. An unknown name returns the names '
+                           'that exist.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'context_name': {
+                        'type': 'string',
+                        'description': 'A name from list_contexts().',
+                    },
+                },
+                'required': ['context_name'],
+            },
+        },
+        {
+            'name': 'drop_context',
+            'function': drop_context,
+            'description': 'Free the memory a context holds once you are done with it. Only a context '
+                           'saved as a run bundle and not the active one is dropped, so load_run_context '
+                           'can always bring it back from the folder this returns; an unsaved live run is '
+                           'refused (save it first with save_context_tool). One context per call.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'context_name': {
+                        'type': 'string',
+                        'description': 'A name from list_contexts(); not the active one.',
+                    },
+                },
+                'required': ['context_name'],
+            },
+        },
+        {
+            'name': 'load_run_context',
+            'function': load_run_context,
+            'description': 'Load a saved run (a folder save_context_tool wrote, or a flow\'s run '
+                           'folder holding one) into a new named context, by reference: its ray '
+                           'database read-only, its path graph if saved with one, and files the '
+                           'packages know (a 3D trace\'s event log). No live scene: query_rays, '
+                           'describe_schema and the bidirectional path tools work on it; tools that '
+                           'need the scene say so. Never switches: call set_active_context to read it.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'run_dir': {
+                        'type': 'string',
+                        'description': 'The run folder (<out_dir>/<design_id>/<run_id>).',
+                    },
+                    'context_name': {
+                        'type': 'string',
+                        'description': 'A name not in use (list_contexts).',
+                    },
+                },
+                'required': ['run_dir', 'context_name'],
+            },
+        },
+        {
+            'name': 'save_context_tool',
+            'function': save_context_tool,
+            'description': 'Save a live context as a run folder <out_dir>/<design_id>/<run_id> that '
+                           'outlives the kernel: the ray database as the tools read it, the run\'s '
+                           'statistics, the parameters given, the scene\'s names and, if '
+                           'bidirectional, the path graph and signature spectrum. Never overwrites.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'out_dir': {'type': 'string', 'description': 'The folder runs are saved under.'},
+                    'design_id': {'type': 'string', 'description': 'The design (a folder name).'},
+                    'run_id': {'type': 'string', 'description': 'This run (a folder name, not in use).'},
+                    'physical_params': {'type': 'object', 'description': 'The design\'s parameters.'},
+                    'numerical_params': {'type': 'object', 'description': 'The run\'s numerical choices.'},
+                    'context_name': {
+                        'type': 'string',
+                        'description': 'The context to save; omit for the active one.',
+                    },
+                },
+                'required': ['out_dir', 'design_id', 'run_id'],
+            },
+        },
+        {
+            'name': 'compare_persisted_runs_tool',
+            'function': compare_persisted_runs_tool,
+            'description': 'Compare two saved runs from disk (neither need be loaded): refused if '
+                           'they name different scene objects; then both runs\' parameters and '
+                           'statistics and, when both have a path graph, the signatures whose '
+                           'energy changed most.',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'run_a': {
+                        'type': 'string',
+                        'description': 'A run folder, or the name of a context loaded from or saved to one.',
+                    },
+                    'run_b': {'type': 'string', 'description': 'The same, for the other run.'},
+                    'check_name_topology': {
+                        'type': 'boolean',
+                        'description': 'False only to compare different scenes on purpose.',
+                        'default': True,
+                    },
+                    'top_n': {
+                        'type': 'integer',
+                        'description': 'How many signatures to list, largest change first.',
+                        'default': 20,
+                    },
+                },
+                'required': ['run_a', 'run_b'],
+            },
+        },
+        {
+            'name': 'list_sources',
+            'function': list_sources,
+            'description': 'List the light sources in the scene (name, type, uuid, p1, p2, emis_angle, '
+                           'brightness, wavelength) and how many rays each started in this run. Use it to '
+                           'find a source\'s name, as the targeted_resimulation flow asks for. Requires context.',
             'input_schema': {
                 'type': 'object',
                 'properties': {},

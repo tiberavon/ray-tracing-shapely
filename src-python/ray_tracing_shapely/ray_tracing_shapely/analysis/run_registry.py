@@ -40,6 +40,7 @@ Layout:
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
@@ -117,6 +118,12 @@ def _name_topology_fingerprint(scene: 'Scene') -> Dict[str, Any]:
     return {"named": named, "unnamed_by_type": unnamed_by_type}
 
 
+#: Run files other engines write into a run folder. A run folder holds one
+#: engine's run: each params.json is written whole, so a 2D run and a 3D
+#: trace saved into one folder would overwrite each other's settings.
+OTHER_ENGINE_RUN_FILES = ('nsq_events.sqlite',)
+
+
 def persist_run_artifacts(
     scene: 'Scene',
     result: 'SimulationResult',
@@ -127,6 +134,7 @@ def persist_run_artifacts(
     physical_params: Dict[str, Any],
     numerical_params: Dict[str, Any],
     bidirectional_result: Optional['BidirectionalResult'] = None,
+    db: Optional[sqlite3.Connection] = None,
 ) -> Path:
     """
     Write one run's derived artifacts to out_dir/<design_id>/<run_id>/ and
@@ -150,11 +158,26 @@ def persist_run_artifacts(
             Simulator.run_bidirectional()). When given and its .combined
             graph is populated, also writes graph.json and
             signature_spectrum.json.
+        db: The database to write as rays.sqlite, copied as it stands: an
+            agentic context's, with the backward rays and connections
+            set_bidirectional_context added. None (the default): built from
+            scene and result.segments.
 
     Returns:
         The run's artifact directory (out_dir/design_id/run_id).
+
+    Raises:
+        FileExistsError: If the folder already holds another engine's run
+            (``OTHER_ENGINE_RUN_FILES``): its params.json would be
+            overwritten. Save the 2D run under its own run_id.
     """
     run_dir = Path(out_dir) / design_id / run_id
+    other = [n for n in OTHER_ENGINE_RUN_FILES if (run_dir / n).exists()]
+    if other:
+        raise FileExistsError(
+            f"{run_dir} already holds another engine's run ({', '.join(other)}); "
+            "its params.json would be overwritten: save this run under its own run_id"
+        )
     run_dir.mkdir(parents=True, exist_ok=True)
 
     (run_dir / 'params.json').write_text(json.dumps({
@@ -166,7 +189,15 @@ def persist_run_artifacts(
     db_path = run_dir / 'rays.sqlite'
     if db_path.exists():
         db_path.unlink()
-    create_database(scene, result.segments, db_path=db_path).close()
+    if db is None:
+        create_database(scene, result.segments, db_path=db_path,
+                        detector_hits=getattr(result, 'detector_hits', None) or None).close()
+    else:
+        target = sqlite3.connect(db_path)
+        try:
+            db.backup(target)
+        finally:
+            target.close()
 
     (run_dir / 'summary.json').write_text(
         json.dumps(_summary_from_result(result), indent=2)
@@ -175,9 +206,9 @@ def persist_run_artifacts(
     if bidirectional_result is not None and bidirectional_result.combined is not None:
         import networkx as nx
 
-        (run_dir / 'graph.json').write_text(
-            json.dumps(nx.node_link_data(bidirectional_result.combined))
-        )
+        graph_data = nx.node_link_data(bidirectional_result.combined)
+        graph_data.setdefault('graph', {})['detector_name'] = bidirectional_result.detector_name
+        (run_dir / 'graph.json').write_text(json.dumps(graph_data))
         spectrum = signature_spectrum(bidirectional_result)
         (run_dir / 'signature_spectrum.json').write_text(
             json.dumps(signature_spectrum_to_records(spectrum))
@@ -298,8 +329,35 @@ def compare_runs(
         ValueError: If `check_name_topology` and the two runs' name
             fingerprints disagree (see `_check_name_topology`).
     """
-    dir_a = Path(out_dir) / design_id_a / run_id_a
-    dir_b = Path(out_dir) / design_id_b / run_id_b
+    return compare_run_dirs(
+        Path(out_dir) / design_id_a / run_id_a,
+        Path(out_dir) / design_id_b / run_id_b,
+        check_name_topology=check_name_topology,
+    )
+
+
+def compare_run_dirs(
+    dir_a: Path,
+    dir_b: Path,
+    *,
+    check_name_topology: bool = True,
+) -> Dict[str, Any]:
+    """
+    compare_runs on two run folders given by path: a flow's run folder, or
+    one an agentic context was loaded from or saved to.
+
+    Args:
+        dir_a: The first run's folder.
+        dir_b: The second run's folder.
+        check_name_topology: As for compare_runs.
+
+    Returns:
+        As compare_runs.
+
+    Raises:
+        As compare_runs.
+    """
+    dir_a, dir_b = Path(dir_a), Path(dir_b)
 
     def _load(run_dir: Path, name: str) -> Dict[str, Any]:
         path = run_dir / name
@@ -316,7 +374,7 @@ def compare_runs(
         if fp_a is not None and fp_b is not None:
             _check_name_topology(
                 fp_a, fp_b,
-                f"{design_id_a}/{run_id_a}", f"{design_id_b}/{run_id_b}",
+                f"{dir_a.parent.name}/{dir_a.name}", f"{dir_b.parent.name}/{dir_b.name}",
             )
 
     result = {
@@ -337,4 +395,4 @@ def compare_runs(
     return result
 
 
-__all__ = ['persist_run_artifacts', 'compare_runs']
+__all__ = ['persist_run_artifacts', 'compare_runs', 'compare_run_dirs']

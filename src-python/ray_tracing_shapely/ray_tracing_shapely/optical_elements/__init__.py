@@ -48,6 +48,7 @@ from .prisms import (
     RXIOptic,
     RRLens,
     RXConcentrator,
+    XRConcentrator,
     RXIOpticDirect,
     # Factory functions
     equilateral_prism,
@@ -144,6 +145,7 @@ __all__ = [
     'RXIOptic',
     'RRLens',
     'RXConcentrator',
+    'XRConcentrator',
     'RXIOpticDirect',
     # Utility modules
     'prism_utils',

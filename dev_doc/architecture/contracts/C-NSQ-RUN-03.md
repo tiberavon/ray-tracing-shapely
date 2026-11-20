@@ -10,7 +10,7 @@ viewpoint: structural
 status: documented
 failure_mode: silent
 checked_by: null
-witness: src-python/ray_tracing_shapely_optiland/tests/test_nsq_db.py (all tests reuse execute_query against nsq_events unmodified); test_get_nsq_schema_description
+witness: src-python/ray_tracing_shapely_optiland/tests/test_nsq_db.py; src-python/ray_tracing_shapely_optiland/tests/test_nsq_db.py::test_get_nsq_schema_description
 tracked_by: null
 conflicts_with: null
 refines: null
@@ -37,4 +37,5 @@ table names would fail on the 3D database with an error about a missing
 table, which reads as a data problem rather than a code one.
 
 **Checked by.** Not by a dedicated test. The 3D tests exercise the shared
-`execute_query` directly.
+`execute_query` directly, against `nsq_events` unmodified: every test in
+`test_nsq_db.py` is its witness.

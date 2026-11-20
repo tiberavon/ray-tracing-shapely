@@ -2,7 +2,7 @@
 id: C-SOURCE-02
 title: A rayfile is read only in a layout checked against a file, every other refused by the field that differs, and traced in 3D as its own rays, in order, placed as the 2D scene says, with their flux
 parties:
-  provides: nonimaging_design (optical_elements.sources.rayfile: read_rayfile, write_tm25, intensity_vs_angle); optiland_scene_bridge (sources: RayfileSource, rayfile_frame, add_rayfile_source_3d)
+  provides: 'nonimaging_design (optical_elements.sources.rayfile: read_rayfile, write_tm25, intensity_vs_angle); optiland_scene_bridge (sources: RayfileSource, rayfile_frame, add_rayfile_source_3d)'
   relies:   whoever lights a design with a measured LED
 port: P-RAYFILE
 viewpoint: physical

@@ -30,6 +30,7 @@ import re
 import pytest
 from shapely.geometry import Point
 
+from ray_tracing_shapely.analysis import agentic_db
 from ray_tracing_shapely.analysis.agentic_db import create_database
 from ray_tracing_shapely.analysis.bidirectional import _locate_on_surface
 from ray_tracing_shapely.analysis.glass_geometry import (
@@ -177,14 +178,14 @@ def test_interpolate_and_normal_along_a_curved_edge():
 
 # --- crossings and the per-run database ---------------------------------------------
 
-def _traced_lens_scene(heights=(1.0, 4.0, 8.0)):
+def _traced_lens_scene(heights=(1.0, 4.0, 8.0), record_surface_hits=False):
     scene = Scene()
     lens = _lens(scene)
     lens.name = "lens"
     scene.add_object(lens)
     for h in heights:
         scene.add_object(SingleRay(scene, {"p1": {"x": -40, "y": h}, "p2": {"x": -39, "y": h}}))
-    result = Simulator(scene, max_rays=1000).run_with_result(name="lens")
+    result = Simulator(scene, max_rays=1000, record_surface_hits=record_surface_hits).run_with_result(name="lens")
     return scene, lens, result.segments
 
 
@@ -209,6 +210,44 @@ def test_database_records_crossings_at_the_local_normal():
     # A ray along +x at height h meets the R = 60 face at asin(h / 60) from its normal.
     for p1_y, angle in rows:
         assert angle == pytest.approx(math.degrees(math.asin(abs(p1_y) / 60.0)), abs=1e-3)
+
+
+def _crossings(scene, segments, monkeypatch, **kw):
+    """The crossing rows, and how many curved-edge normals were computed from the edge."""
+    calls = []
+    real = agentic_db.edge_outward_normal
+    monkeypatch.setattr(agentic_db, "edge_outward_normal", lambda *a, **k: calls.append(1) or real(*a, **k))
+    conn = create_database(scene, segments, **kw)
+    rows = sorted(conn.execute("SELECT ray_uuid, glass_uuid, edge_index, angle_to_normal FROM ray_edge_crossing"))
+    return rows, len(calls)
+
+
+def test_crossing_angles_reuse_the_normals_the_simulator_recorded(monkeypatch):
+    scene, lens, segments = _traced_lens_scene(record_surface_hits=True)
+    recorded, computed_b = _crossings(scene, segments, monkeypatch)
+    recomputed, computed_a = _crossings(scene, segments, monkeypatch, recompute_angles=True)
+    assert computed_a > 0 and computed_b == 0           # every curved crossing here is a recorded hit
+    assert [r[:3] for r in recorded] == [r[:3] for r in recomputed]
+    assert all(abs(a[3] - b[3]) <= 1e-9 for a, b in zip(recorded, recomputed))
+    roots = {s.uuid: s.p1["y"] for s in segments if s.parent_uuid is None}
+    front = [(roots[u], angle) for u, _, _, angle in recorded if u in roots]
+    assert front and all(angle == pytest.approx(math.degrees(math.asin(abs(h) / 60.0)), abs=1e-3)
+                         for h, angle in front)
+
+
+def test_without_recorded_hits_the_angles_are_computed_from_the_edge(monkeypatch):
+    scene, lens, segments = _traced_lens_scene(record_surface_hits=False)
+    default, computed = _crossings(scene, segments, monkeypatch)
+    assert computed > 0 and default == _crossings(scene, segments, monkeypatch, recompute_angles=True)[0]
+
+
+def test_a_hit_at_an_edges_corner_is_not_taken_for_that_edge():
+    span = next(sp for sp in glass_spans(_lens().path) if sp.is_curved)
+    hit = [("glass", span.start[0], span.start[1], 1.0, 0.0)]
+    assert agentic_db._recorded_normal(hit, "glass", span.start, span) is None
+    mid = span.midpoint
+    assert agentic_db._recorded_normal([("glass", mid[0], mid[1], 1.0, 0.0)], "glass", mid, span) == (1.0, 0.0)
+    assert agentic_db._recorded_normal([("other", mid[0], mid[1], 1.0, 0.0)], "glass", mid, span) is None
 
 
 # --- drawing --------------------------------------------------------------------------

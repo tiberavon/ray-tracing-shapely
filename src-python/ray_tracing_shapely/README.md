@@ -27,7 +27,7 @@ On top of that sit layers the original simulator does not have:
   sources to a backward tree from the detector.
 - **Nonimaging design** — CPC-family concentrators (DTIRC, angle transformer,
   RXI) and Miñano–Benítez Simultaneous Multiple Surface profile construction
-  (RR / RX / RXI), on a reusable plane-curve toolbox. Surfaces are built from
+  (RR / RX / XR / RXI), on a reusable plane-curve toolbox. Surfaces are built from
   optical requirements, not from vertices typed in by hand.
 - **Lenses and aspheres** — labelled singlets, LED collimators (a TIR lens and
   a Fresnel lens) and exact even aspheres as glass edges, with the
@@ -46,6 +46,16 @@ On top of that sit layers the original simulator does not have:
   LEDs), run as explicit state machines rather than nested conditionals.
 - **An agentic surface** — the whole query layer is exposed as tools a language
   model can call, sharing one live kernel with the human at the notebook.
+  Several runs are held at once as named contexts, a saved run is reloaded by
+  reference, and a package built on the library adds tools of its own beside
+  the core's.
+- **Long runs, off the notebook** — a procedure is a flow: a fixed diagram
+  whose every step is recorded, so a run that stops can be read back. Its long
+  jobs go to local processes or to Modal's serverless containers, each with an
+  estimate of its time and cost before it starts, and a local dashboard shows
+  what is running and what it has cost. A targeted re-simulation of the paths
+  that matter, cut into chunks, runs this way and gives the run the kernel
+  would have given.
 - **Run persistence** — parameter sweeps, stored results, cross-run
   comparison.
 
@@ -65,8 +75,11 @@ what you use:
 
 ```bash
 pip install "ray-tracing-shapely[radiometry]"    # unit-checked quantities (pint)
+pip install "ray-tracing-shapely[flows]"         # observable step-by-step procedures (transitions)
 pip install "ray-tracing-shapely[eye-safety]"    # IEC 60825-1 / IEC 62471
 pip install "ray-tracing-shapely[agentic]"       # the MCP tool surface
+pip install "ray-tracing-shapely[modal]"         # flows' jobs on Modal (the Modal client)
+pip install "ray-tracing-shapely[notebook]"      # running the example notebooks (jupyterlab, papermill)
 pip install "ray-tracing-shapely[all]"           # everything
 ```
 
@@ -144,8 +157,8 @@ This project began as a translation of the
 [doi:10.5281/zenodo.6386611](https://doi.org/10.5281/zenodo.6386611)), and has grown a
 great deal of new work on top of it.
 
-Of this distribution's 183 source files, **35 are translations** of
-that project — the ray-tracing engine and its scene objects — and **148
+Of this distribution's 219 source files, **35 are translations** of
+that project — the ray-tracing engine and its scene objects — and **184
 were written for this project**: the analysis layer, the nonimaging design
 methods, the radiometric and photobiological layers, the agentic surface,
 and the tests and examples. Every file says which it is in its own header,

@@ -54,13 +54,14 @@ explaining what each field is and giving an example.
 
 | File | What it holds |
 |---|---|
-| `flow_base.py` | `ObservableFlow`: the generic machine. Takes a table of boxes and arrows, records every move as an event, owns `reset` and `explain_current_state()`. `nonimaging_design`'s rayfile slicing flow is a machine of it too. |
 | `iec62471_flow.py`, `iec60825_1_flow.py` | One table each — the boxes and arrows for the lamp standard and the laser standard. Two tables, one machine class. |
 | `intake_flow.py` | Two more tables, for gathering inputs field by field before launching the matching classification. |
 | `dimensional_checks.py` | The `validate_dimensions` step: is each input the right kind of quantity. |
-| `explanations.py` | `ComparisonExplanation`, `FieldExplanation`, and `summarize_margins` — which criterion came closest to failing. |
-| `persistence.py` | Writing a run to disk: an event log, a result file, and a live-state file. No dependency on the machine library, so it can be tested alone. |
-| `dashboard.py` | A small web page, served from the standard library, that shows a run's current state and its events as they happen. |
+| `explanations.py` | `ComparisonExplanation`, and `summarize_margins` — which criterion came closest to failing. `FieldExplanation` is re-exported from `flows`. |
+
+The machine (`ObservableFlow`), a run's record, `FieldExplanation` and the
+dashboard are `flows`'. `flow_base.py`, `persistence.py` and `dashboard.py`
+here are the same modules, kept at their old paths for one release.
 
 ## What it produces
 
@@ -74,6 +75,8 @@ explaining what each field is and giving an example.
 
 ## What it needs from elsewhere
 
+- **`ObservableFlow` and `P-FLOW-RUN`** from `flows`: the machine, and the
+  folder each run is written to.
 - **`P-HAZARD-ROUTINES`** from `eye_safety` — the classification function
   each machine calls, exactly once, unchanged. The machine reports what
   that call did; it never decides anything itself.
@@ -90,6 +93,5 @@ explaining what each field is and giving an example.
 
 ## How it is shipped
 
-Core package, under `optical_elements/eye_safety_classification_flow/`. The
-state-machine library and the diagram renderer are optional dependencies;
-`persistence.py` needs neither.
+Core package, under `optical_elements/eye_safety_classification_flow/`,
+behind the `eye-safety` extra, which brings `flows` and `radiometry`.

@@ -29,7 +29,8 @@ time, checks the answers against the rayfile, and slices:
     start -> awaiting_rayfile -> reading_rayfile
           -> awaiting_package_width -> awaiting_package_length
           -> checking_dimensions -> awaiting_n_slices -> awaiting_kept_range
-          -> slicing -> done
+          -> slicing -> awaiting_choice -> awaiting_profile -> writing_profile
+          -> done
 
 - **reading_rayfile** parses the file (``read_rayfile``). A file that does
   not parse goes back to ``awaiting_rayfile``, with the reason.
@@ -51,12 +52,24 @@ time, checks the answers against the rayfile, and slices:
   kept and skew share, and the share of the kept flux within 30 degrees of
   the axis beside the LED's own, the check that the kept rays leave as the
   LED's light does.
+- **awaiting_choice** asks for the choice, made from the table (which the
+  question's context carries): a kept share (``0.6``), whose limit is then
+  the exact flux-weighted quantile of |h|, or a limit on h (``"0.8 mm"``).
+  The flow records the limit and the share it keeps.
+- **awaiting_profile** asks where the source goes: ``false`` (the default)
+  for nowhere, or a ``profile.json`` (schema 1.4 or later) and the source's
+  name and placement in the 2D scene. **writing_profile** writes the
+  ``rayfile`` source spec (``source_spec``) into the profile's ``sources``,
+  replacing one of the same name, the rayfile's path relative to the
+  profile's folder. It is always entered, and says when there is nothing to
+  write; a profile it cannot write sends the flow back, with the reason.
 
-The machine is the eye-safety flows' ``ObservableFlow``: every move is an
-event in ``events.jsonl``, ``state.svg`` shows the current box, ``reset``
-restarts from ``start``, and ``explain_current_state()`` says what each
-box is asking. It needs the ``eye-safety`` extra (``transitions``, pint),
-which is why ``sources`` does not import it.
+The machine is ``flows.ObservableFlow``, the one the eye-safety flows use:
+every move is an event in ``events.jsonl``, ``state.svg`` shows the current
+box, ``reset`` restarts from ``start``, and ``explain_current_state()`` says
+what each box is asking. It needs the ``flows`` extra (``transitions``) and
+``radiometry`` (pint, for the checked lengths), which is why ``sources`` does
+not import it.
 
 The axis is the rayfile's z axis through its origin, as for
 ``slice_rayfile``; the table does not depend on where the slice is placed
@@ -66,18 +79,21 @@ in the 2D scene.
 
 from __future__ import annotations
 
+import json
 import math
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ..eye_safety_classification_flow.dimensional_checks import checked_scalar
-from ..eye_safety_classification_flow.explanations import explain_field
-from ..eye_safety_classification_flow.flow_base import ObservableFlow
+from ...flows.fields import FlowField, explain_field
+from ...flows.flow_base import ObservableFlow
+from ..units import checked_scalar
 from ..units import LENGTH
 from .rayfile import Rayfile, read_rayfile
 from .rayfile_slice import slice_rayfile
+from .source_spec import profile_sources
 
 #: Start points may lie this far outside the footprint (rounding, a rim): mm, and share of the half width.
 FOOTPRINT_TOLERANCE_MM = 0.05
@@ -89,33 +105,55 @@ OFF_AXIS_SHARE = 0.05
 #: The angle the kept rays' spread is checked at.
 WITHIN_DEG = 30.0
 
-_INFO: Dict[str, Dict[str, str]] = {
-    "rayfile": {
-        "question": "Which rayfile? (IES TM-25, positions in mm, the LED's axis along z)",
-        "citation": "parsed by read_rayfile; the axis is the file's z axis through its origin",
-        "example": 'e.g. "rayfile_LED_100k.TM25RAY"',
-    },
-    "package_width": {
-        "question": "What is the package's width, along the rayfile's x?",
-        "citation": "with the length, the footprint: its half diagonal is the largest limit on h",
-        "example": 'e.g. "7 mm"',
-    },
-    "package_length": {
-        "question": "What is the package's length, along the rayfile's y?",
-        "citation": "with the width, the footprint: its half diagonal is the largest limit on h",
-        "example": 'e.g. "7 mm"',
-    },
-    "n_slices": {
-        "question": "How many limits on h, in equal steps up to the half diagonal?",
-        "citation": "one row of the table each",
-        "example": "e.g. 10 (the default: call provide_n_slices())",
-    },
-    "kept_range": {
-        "question": "Within what range of kept flux will the limit be chosen?",
-        "citation": "the flow reports the limit at each end and marks the rows inside; it does not choose",
-        "example": "e.g. (0.5, 0.75) (the default: call provide_kept_range())",
-    },
+#: The question each asking box puts, in order.
+RAYFILE_SLICING_FIELDS: Dict[str, FlowField] = {
+    "awaiting_rayfile": FlowField(
+        "rayfile", "path",
+        "Which rayfile? (IES TM-25, positions in mm, the LED's axis along z)",
+        "parsed by read_rayfile; the axis is the file's z axis through its origin",
+        'e.g. "rayfile_LED_100k.TM25RAY"'),
+    "awaiting_package_width": FlowField(
+        "package_width", "quantity",
+        "What is the package's width, along the rayfile's x?",
+        "with the length, the footprint: its half diagonal is the largest limit on h",
+        'e.g. "7 mm"', unit="mm"),
+    "awaiting_package_length": FlowField(
+        "package_length", "quantity",
+        "What is the package's length, along the rayfile's y?",
+        "with the width, the footprint: its half diagonal is the largest limit on h",
+        'e.g. "7 mm"', unit="mm"),
+    "awaiting_n_slices": FlowField(
+        "n_slices", "integer",
+        "How many limits on h, in equal steps up to the half diagonal?",
+        "one row of the table each",
+        "e.g. 10 (the default)", default=10),
+    "awaiting_kept_range": FlowField(
+        "kept_range", "share_range",
+        "Within what range of kept flux will the limit be chosen?",
+        "the flow reports the limit at each end and marks the rows inside; it does not choose",
+        "e.g. [0.5, 0.75] (the default)", default=(0.5, 0.75)),
+    "awaiting_choice": FlowField(
+        "choice", "json",
+        "Which limit on h? A kept share (a number, 0 < share <= 1), or a limit as a length (a string with "
+        "its unit). The table is in the question's context.",
+        "a share's limit is the exact flux-weighted quantile of |h|; the limit is what a 2D section keeps",
+        'e.g. 0.6 (keep 60% of the flux), or "0.8 mm"'),
+    "awaiting_profile": FlowField(
+        "profile", "json",
+        "Write the source into a profile.json? false for no; or {\"path\": the profile.json (schema 1.4 or "
+        "later), \"name\": the source's name, \"position\": [a, b] in mm in the 2D scene, \"direction_deg\": "
+        "the LED's axis, from +a towards +b, optionally \"roll_deg\"}.",
+        "the profile hands the source, with its slice, to the 2D and 3D builds (source_spec)",
+        'e.g. false, or {"path": "collimator/profile.json", "name": "LED", "position": [0, 0], '
+        '"direction_deg": 90}', default=False),
 }
+
+#: The fields a profile answer takes: required, and optional with their defaults.
+_PROFILE_KEYS = ("path", "name", "position", "direction_deg")
+_PROFILE_OPTIONAL = {"roll_deg": 0.0}
+#: The first profile schema with the ``rayfile`` source kind.
+_RAYFILE_SCHEMA = (1, 4)
+
 
 RAYFILE_SLICING_STATES = [
     "start",
@@ -127,6 +165,9 @@ RAYFILE_SLICING_STATES = [
     "awaiting_n_slices",
     "awaiting_kept_range",
     "slicing",
+    "awaiting_choice",
+    "awaiting_profile",
+    "writing_profile",
     "done",
 ]
 
@@ -148,9 +189,26 @@ RAYFILE_SLICING_TRANSITIONS = [
      "before": "_provide_n_slices"},
     {"trigger": "provide_kept_range", "source": "awaiting_kept_range", "dest": "slicing",
      "before": "_provide_kept_range"},
-    {"trigger": "_advance", "source": "slicing", "dest": "done"},
+    {"trigger": "_advance", "source": "slicing", "dest": "awaiting_choice"},
+    {"trigger": "provide_choice", "source": "awaiting_choice", "dest": "awaiting_profile",
+     "before": "_provide_choice"},
+    {"trigger": "provide_profile", "source": "awaiting_profile", "dest": "writing_profile",
+     "before": "_provide_profile"},
+    {"trigger": "_advance", "source": "writing_profile", "dest": "done", "conditions": "_profile_written"},
+    {"trigger": "_advance", "source": "writing_profile", "dest": "awaiting_profile"},
     {"trigger": "reset", "source": "*", "dest": "start", "before": "_on_reset"},
 ]
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` whole or not at all."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def _mm(value: Any, name: str) -> float:
@@ -166,17 +224,25 @@ class RayfileSlicingFlow(ObservableFlow):
     Construct it (``begin()`` is called), then answer each question in turn,
     following ``explain_current_state()``: ``provide_rayfile(path)``,
     ``provide_package_width("7 mm")``, ``provide_package_length("7 mm")``,
-    ``provide_n_slices()``, ``provide_kept_range()``. After ``reset()``, call
-    ``begin()`` again. A file that does not
+    ``provide_n_slices()``, ``provide_kept_range()``, ``provide_choice(0.6)``,
+    ``provide_profile()``; or, for any of them,
+    ``answer(value)`` and ``answer_default()``, with ``pending_field()`` the
+    question (``RAYFILE_SLICING_FIELDS``). After ``reset()``, call ``begin()``
+    again. A file that does not
     parse, or a footprint the rays do not fit in, sends the flow back to the
-    question, with ``self.problem`` saying why. At ``done``, ``self.result``
-    holds the table and ``table_markdown()`` prints it.
+    question, with ``self.problem`` saying why. Once sliced, ``self.result``
+    holds the table and ``table_markdown()`` prints it; at ``done`` it also
+    holds the choice and the profile written, if any.
 
     Args:
         base_dir: Where the run's directory (events, state diagram, result) is written.
         run_id: An explicit run id, or None for a generated one.
         render_svg: Re-render ``state.svg`` on every move (needs Graphviz's ``dot``).
     """
+
+    FIELDS = RAYFILE_SLICING_FIELDS
+    PURPOSE = ("Choose how far from the axis a rayfile slice keeps rays: given a rayfile and its "
+               "package's footprint, tabulates the flux kept at a series of limits on the skew offset h.")
 
     def __init__(self, base_dir: Path, run_id: Optional[str] = None, render_svg: bool = True) -> None:
         self._clear()
@@ -194,25 +260,50 @@ class RayfileSlicingFlow(ObservableFlow):
         self.kept_range: Tuple[float, float] = (0.5, 0.75)
         self.warnings: List[str] = []
         self.problem: Optional[str] = None
+        self.choice: Optional[Dict[str, Any]] = None
+        self._profile: Optional[Dict[str, Any]] = None
+        self.profile_written: Optional[Dict[str, Any]] = None
         self.result: Optional[Dict[str, Any]] = None
 
     def _on_reset(self, *args: Any, **kwargs: Any) -> None:
         super()._on_reset(*args, **kwargs)
         self._clear()
 
-    def _ask(self, field: str) -> None:
-        info = _INFO[field]
-        explanation = explain_field(field, info["question"], info["citation"], info["example"])
+    def send_back_reason(self) -> Optional[str]:
+        return self.problem
+
+    def flow_field(self, state: str) -> Optional[FlowField]:
+        """The choice's example names this table's limits."""
+        field = self.FIELDS.get(state)
+        if state != "awaiting_choice" or self.result is None:
+            return field
+        lo, hi = self.result["kept_range"]
+        limits = self.result["limit_for_kept_share_mm"]
+        example = (f'e.g. {lo:g} (keep {lo:.0%} of the flux: h <= {limits[f"{lo:.0%}"]:.3g} mm), or '
+                   f'"{limits[f"{hi:.0%}"]:.3g} mm" (keeps {hi:.0%})')
+        return FlowField(field.name, field.kind, field.question, field.why, example)
+
+    def question_context(self) -> Optional[Dict[str, Any]]:
+        """At the choice and the profile, the table the choice is made from."""
+        if self.state not in ("awaiting_choice", "awaiting_profile") or self.result is None:
+            return None
+        r = self.result
+        return {"table": self.table_markdown(), "half_diagonal_mm": r["half_diagonal_mm"],
+                "limit_for_kept_share_mm": r["limit_for_kept_share_mm"], "choice": self.choice}
+
+    def _ask(self) -> None:
+        field = self.flow_field(self.state)
+        explanation = field.explanation()
         if self.problem:
             explanation.message = f"{self.problem} -- {explanation.message}"
         self.set_explanation(explanation)
-        self.emit_event(field=field, message=explanation.message)
-        self.update_detail(waiting_on=field)
+        self.emit_event(field=field.name, message=explanation.message)
+        self.update_detail(waiting_on=field.name)
 
     # -- the rayfile -------------------------------------------------------
 
     def on_enter_awaiting_rayfile(self, *_args, **_kwargs) -> None:
-        self._ask("rayfile")
+        self._ask()
 
     def _provide_rayfile(self, path: Any) -> None:
         if not isinstance(path, (str, Path)):
@@ -243,13 +334,13 @@ class RayfileSlicingFlow(ObservableFlow):
     # -- the footprint -----------------------------------------------------
 
     def on_enter_awaiting_package_width(self, *_args, **_kwargs) -> None:
-        self._ask("package_width")
+        self._ask()
 
     def _provide_package_width(self, value: Any) -> None:
         self.width_mm = _mm(value, "package_width")
 
     def on_enter_awaiting_package_length(self, *_args, **_kwargs) -> None:
-        self._ask("package_length")
+        self._ask()
 
     def _provide_package_length(self, value: Any) -> None:
         self.length_mm = _mm(value, "package_length")
@@ -289,7 +380,7 @@ class RayfileSlicingFlow(ObservableFlow):
     # -- the table's shape ---------------------------------------------------
 
     def on_enter_awaiting_n_slices(self, *_args, **_kwargs) -> None:
-        self._ask("n_slices")
+        self._ask()
 
     def _provide_n_slices(self, n: Any = 10) -> None:
         if isinstance(n, bool) or not isinstance(n, int) or n < 1:
@@ -297,7 +388,7 @@ class RayfileSlicingFlow(ObservableFlow):
         self.n_slices = n
 
     def on_enter_awaiting_kept_range(self, *_args, **_kwargs) -> None:
-        self._ask("kept_range")
+        self._ask()
 
     def _provide_kept_range(self, kept_range: Sequence[float] = (0.5, 0.75)) -> None:
         lo, hi = (float(v) for v in kept_range)
@@ -334,7 +425,118 @@ class RayfileSlicingFlow(ObservableFlow):
                                 f"{hi:.0%} at h <= {quantiles[hi]:.3g} mm")
         self._advance()
 
+    # -- the choice and the profile -------------------------------------------
+
+    def on_enter_awaiting_choice(self, *_args, **_kwargs) -> None:
+        self._ask()
+
+    def _provide_choice(self, value: Any) -> None:
+        rf = self.rayfile
+        if isinstance(value, bool) or value is None:
+            raise ValueError(f"choice takes a kept share or a limit on h, got {value!r}")
+        if isinstance(value, (int, float)):
+            share = float(value)
+            if not 0.0 < share <= 1.0:
+                raise ValueError(f"a kept share must be in (0, 1], got {value!r}")
+            limit = slice_rayfile(rf, (0.0, 0.0), 0.0, max_offset_mm=0.0).offset_quantiles(rf.flux, (share,))[share]
+            by = {"kept_share_asked": share}
+        elif isinstance(value, str):
+            try:
+                limit = _mm(value, "choice")
+            except ValueError as e:
+                raise ValueError(f"choice: a limit is a length with its unit (a share is a number, not a "
+                                 f"string): {e}") from None
+            by = {"max_offset_mm_asked": value}
+        else:
+            raise ValueError(f"choice takes a kept share (a number) or a limit (a string with its unit), "
+                             f"got {type(value).__name__}: {value!r}")
+        slc = slice_rayfile(rf, (0.0, 0.0), 0.0, max_offset_mm=limit)
+        self.choice = {**by, "max_offset_mm": float(limit), "kept_share": 1.0 - slc.skew_share,
+                       "rays_kept": int(len(slc.flux))}
+        self.emit_event(message=f"chosen: h <= {limit:.4g} mm, keeping {self.choice['kept_share']:.1%} of the "
+                                f"flux in {self.choice['rays_kept']} rays", choice=self.choice)
+
+    def on_enter_awaiting_profile(self, *_args, **_kwargs) -> None:
+        self._ask()
+
+    def _provide_profile(self, value: Any = False) -> None:
+        if value is False:
+            self._profile = None
+            return
+        if not isinstance(value, dict):
+            raise ValueError(f"profile takes false or an object with {list(_PROFILE_KEYS)}, "
+                             f"got {type(value).__name__}: {value!r}")
+        missing = [k for k in _PROFILE_KEYS if k not in value]
+        unknown = sorted(set(value) - set(_PROFILE_KEYS) - set(_PROFILE_OPTIONAL))
+        if missing or unknown:
+            raise ValueError(f"profile: missing {missing}, unknown {unknown}; it takes {list(_PROFILE_KEYS)} "
+                             f"and optionally {list(_PROFILE_OPTIONAL)}")
+        path = Path(value["path"])
+        if not path.is_file():
+            raise ValueError(f"profile: no file {path}; export the optic's profile.json first")
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise ValueError(f"profile: {path} is not readable JSON: {e}") from None
+        version = str(profile.get("schema_version", "0"))
+        try:
+            known = tuple(int(v) for v in version.split(".")[:2]) >= _RAYFILE_SCHEMA
+        except ValueError:
+            known = False
+        if not known:
+            raise ValueError(f"profile: {path} is schema {version}; a rayfile source needs 1.4 or later: "
+                             f"export the profile again")
+        name = value["name"]
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"profile: name must be a non-empty string, got {name!r}")
+        position = value["position"]
+        if (not isinstance(position, (list, tuple)) or len(position) not in (2, 3)
+                or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in position)):
+            raise ValueError(f"profile: position must be [a, b] or [a, b, c] in mm, got {position!r}")
+        angles = {}
+        for key in ("direction_deg", "roll_deg"):
+            angle = value.get(key, _PROFILE_OPTIONAL.get(key))
+            if isinstance(angle, bool) or not isinstance(angle, (int, float)):
+                raise ValueError(f"profile: {key} must be a number of degrees, got {angle!r}")
+            angles[key] = float(angle)
+        self._profile = {"path": path, "name": name, "position": [float(v) for v in position], **angles}
+
+    def on_enter_writing_profile(self, *_args, **_kwargs) -> None:
+        self.problem = None
+        if self._profile is None:
+            self.profile_written = None
+            self.emit_event(message="no profile asked for: nothing to write")
+            self._advance()
+            return
+        p = self._profile
+        folder = p["path"].resolve().parent
+        try:
+            rel = os.path.relpath(self._path.resolve(), folder)
+        except ValueError:                                   # another drive: the path stays absolute
+            rel = str(self._path.resolve())
+        try:
+            spec = self.source_spec(p["name"], p["position"], p["direction_deg"], roll_deg=p["roll_deg"],
+                                    max_offset_mm=self.choice["max_offset_mm"], path=rel, base_dir=folder)
+            profile = json.loads(p["path"].read_text(encoding="utf-8"))
+            sources = [s for s in (profile.get("sources") or []) if s.get("name") != p["name"]]
+            replaced = len(sources) != len(profile.get("sources") or [])
+            profile["sources"] = profile_sources({"sources": [*sources, spec]})
+            _write_atomic(p["path"], json.dumps(profile, indent=2))
+        except (OSError, ValueError) as e:
+            self.problem = f"{p['path']} could not be written: {e}"
+            self.emit_event(message=self.problem)
+            self._advance()
+            return
+        self.profile_written = {"path": str(p["path"]), "source": spec, "replaced": replaced}
+        self.emit_event(message=f"source {p['name']!r} {'replaced in' if replaced else 'written to'} {p['path']}",
+                        profile=str(p["path"]), source=p["name"], replaced=replaced)
+        self._advance()
+
+    def _profile_written(self, *_args, **_kwargs) -> bool:
+        return self.problem is None
+
     def on_enter_done(self, *_args, **_kwargs) -> None:
+        self.result = {**self.result, "choice": self.choice, "profile": self.profile_written}
         self.finish(self.result)
         self.set_explanation(explain_field("done", "The table is ready.", "result, table_markdown()", ""))
         self.emit_event(message="done")
@@ -401,4 +603,5 @@ class RayfileSlicingFlow(ObservableFlow):
         return "\n".join(lines)
 
 
-__all__ = ["RAYFILE_SLICING_STATES", "RAYFILE_SLICING_TRANSITIONS", "RayfileSlicingFlow"]
+__all__ = ["RAYFILE_SLICING_FIELDS", "RAYFILE_SLICING_STATES", "RAYFILE_SLICING_TRANSITIONS",
+           "RayfileSlicingFlow"]

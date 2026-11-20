@@ -285,6 +285,28 @@ class BasePrism(Glass):
         """
         return self._functional_labels.get(edge_index)
 
+    def edge_reflects(self, edge_index: Optional[int]) -> bool:
+        """
+        Whether the edge that starts at path entry ``edge_index`` is mirror-coated:
+        its functional label's mechanism is ``Mechanism.REFLECT``.
+
+        The glass then reflects a ray there as a perfect mirror, from either side,
+        instead of refracting it (``Glass.on_ray_incident``). The coating is the
+        glass's own: no mirror object lies on the edge, which would tie with it.
+        Labels are keyed by span, so the path entry is mapped to its span first;
+        an element that declares no reflecting mechanism pays nothing.
+        """
+        from ..roles import Mechanism
+
+        mechanisms = getattr(self, "_edge_mechanisms", None)
+        if edge_index is None or not mechanisms or Mechanism.REFLECT not in mechanisms.values():
+            return False
+        span = next((sp for sp in self.spans if sp.path_indices[0] == edge_index), None)
+        if span is None:
+            return False
+        label = self.get_functional_label(span.index)
+        return label is not None and mechanisms.get(label[0]) is Mechanism.REFLECT
+
     def get_edge_role(self, edge_index: int) -> Optional[Any]:
         """
         Return the Role tag for an edge, if its _edge_roles entry supplied one.

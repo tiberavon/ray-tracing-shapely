@@ -8,10 +8,7 @@ port: P-HAZARD-ROUTINES
 viewpoint: physical
 status: enforced
 failure_mode: silent
-checked_by: >-
-  src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_eye_safety.py::test_iec62471_no_namespace_collision_with_iec60825_1,
-  ::test_worked_example_d1_21_uva_blacklight_limits_match_guide,
-  ::test_worked_example_d1_22_streetlight_limits_match_guide
+checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_eye_safety.py::test_iec62471_no_namespace_collision_with_iec60825_1; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_eye_safety.py::test_worked_example_d1_21_uva_blacklight_limits_match_guide; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_eye_safety.py::test_worked_example_d1_22_streetlight_limits_match_guide
 witness: null
 tracked_by: null
 conflicts_with: null

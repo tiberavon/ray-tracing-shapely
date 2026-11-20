@@ -533,11 +533,47 @@ class Glass(BaseGlass):
                 'isUndefinedBehavior': True
             }
 
+        # PYTHON-SPECIFIC: a mirror-coated edge reflects, from either side, at its exact
+        # normal, with no Fresnel split and no refraction: the glass handles its own
+        # coating, so no separate mirror object lies on the edge (one would tie with it).
+        if incident_type in (1, -1) and self.edge_reflects(incident_data.get('edge_index')):
+            return self._reflect_at(ray, incident_point, incident_data['normal'])
+
         body_merging_obj = ray.body_merging_obj if hasattr(ray, 'body_merging_obj') else None
         return self.refract(
             ray, ray_index, incident_point, incident_data['normal'],
             n1, surface_merging_objs, body_merging_obj, verbose=verbose
         )
+
+    def edge_reflects(self, edge_index: Optional[int]) -> bool:
+        """PYTHON-SPECIFIC: whether the edge starting at path index ``edge_index`` is
+        mirror-coated. Plain glass has no coated edge; an element whose edges carry
+        mechanisms (``BasePrism``) overrides this."""
+        return False
+
+    def _reflect_at(self, ray: 'Ray', incident_point: Union['Point', Dict[str, float]],
+                    normal: Union['Point', Dict[str, float]]) -> None:
+        """PYTHON-SPECIFIC: reflect ``ray`` in place about ``normal`` at ``incident_point``,
+        as a perfect mirror: the direction d becomes d - 2 (d.n) n, the brightness unchanged.
+        The hit is recorded as the glass's other interactions are."""
+        px = incident_point['x'] if isinstance(incident_point, dict) else incident_point.x
+        py = incident_point['y'] if isinstance(incident_point, dict) else incident_point.y
+        nx = normal['x'] if isinstance(normal, dict) else normal.x
+        ny = normal['y'] if isinstance(normal, dict) else normal.y
+        p1x = ray.p1['x'] if isinstance(ray.p1, dict) else ray.p1.x
+        p1y = ray.p1['y'] if isinstance(ray.p1, dict) else ray.p1.y
+        dx, dy = px - p1x, py - p1y
+        nlen, dlen = math.hypot(nx, ny), math.hypot(dx, dy)
+        nx, ny = nx / nlen, ny / nlen
+        dot = dx * nx + dy * ny
+        if getattr(ray, 'record_surface_hits', False):
+            ray.hit_surface_uuid = self._uuid
+            ray.hit_point = {'x': px, 'y': py}
+            ray.hit_normal = {'x': nx, 'y': ny}
+            ray.incident_angle = math.acos(max(-1.0, min(1.0, abs(dot) / dlen))) if dlen > 0 else 0.0
+        ray.p1 = {'x': px, 'y': py}
+        ray.p2 = {'x': px + dx - 2.0 * dot * nx, 'y': py + dy - 2.0 * dot * ny}
+        return None
 
     def get_incident_type(self, ray: 'Ray') -> float:
         """
@@ -580,6 +616,7 @@ class Glass(BaseGlass):
         normal_y = 0
         near_edge = False
         surface_multiplicity = 1
+        nearest_edge = None  # PYTHON-SPECIFIC: which edge, for a mirror-coated one
 
         # Convert ray points to Point objects if they're dicts
         ray_p1 = geometry.point(ray.p1['x'], ray.p1['y']) if isinstance(ray.p1, dict) else ray.p1
@@ -612,6 +649,7 @@ class Glass(BaseGlass):
                     normal_y = segment_data['normal_y']
                     near_edge = segment_data['near_edge']
                     surface_multiplicity = 1
+                    nearest_edge = i
 
             ray_intersect_count += segment_data['ray2_intersect_count']
 
@@ -635,7 +673,8 @@ class Glass(BaseGlass):
         return {
             's_point': nearest_point,
             'normal': {'x': normal_x, 'y': normal_y},
-            'incident_type': incident_type
+            'incident_type': incident_type,
+            'edge_index': nearest_edge,
         }
 
     def _get_segment_incident_data(self, ray, ray2, i):

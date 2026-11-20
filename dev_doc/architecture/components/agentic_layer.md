@@ -53,13 +53,23 @@ That single fact explains most of what is in here.
 
 - **`KA5`** — the live objects are kept in a named place. After a simulation,
   the notebook calls `set_context_from_result` once, which puts the scene,
-  the traced rays and the lineage into a store called `_CONTEXT`. Tools read
-  from there. A second simulation can be added alongside the first rather
-  than replacing it, so an assistant can compare two runs.
+  the traced rays and the lineage into a store of named contexts. Tools read
+  the active one. A second simulation can be added alongside the first, under
+  its own name, rather than replacing it, so an assistant can compare two
+  runs: `list_contexts` shows what is loaded, `set_active_context`
+  switches, and `drop_context` frees a saved one that is not active, which
+  `load_run_context` brings back (`C-AGENT-04`). A run can outlive its kernel: `save_context_tool`
+  writes a context to a run folder, `load_run_context` loads one back into
+  a new context, read-only and without a live scene, and
+  `compare_persisted_runs_tool` compares two folders without loading either
+  (`C-AGENT-05`). One path of a run can be re-run alone at high density by
+  the `targeted_resimulation` flow; its result is a further context beside
+  the run (`C-AGENT-06`).
 
 - **`KA2`** — for every tool that needs a name, there is a tool that lists
   the names. `list_detectors` exists so that `rank_detector_paths` has
-  something to be given; `describe_schema` exists so that `query_rays` can be
+  something to be given, and `list_sources` so that the re-simulation's
+  source question has; `describe_schema` exists so that `query_rays` can be
   written against columns the assistant actually knows about. A column that
   exists in the database but is missing from `describe_schema`'s list is,
   for the assistant, not there.
@@ -99,7 +109,7 @@ That single fact explains most of what is in here.
 
 | File | What it holds |
 |---|---|
-| `analysis/agentic_tools.py` | The tools themselves, the `_CONTEXT` store (with `set_extension_context` and `get_extension_context`, a namespaced slot in it for a package outside the core), and the two helpers that build an `ok` or an `error` answer. |
+| `analysis/agentic_tools.py` | The tools themselves; the store of named contexts (`_CONTEXTS`, the active one's name, `list_contexts`, `set_active_context`, `drop_context` for an agent, `clear_context` of one or all from Python), with `set_extension_context` and `get_extension_context`, a namespaced slot in each context for a package outside the core; and the two helpers that build an `ok` or an `error` answer. |
 | `analysis/agentic_db.py` | Builds the seven-table database from a run, holds the column descriptions `describe_schema` returns, and refuses queries that would modify data. |
 | `analysis/tool_registry.py` | The catalogue of the Python API (`_REGISTRY`), the agent tools with their descriptions and parameter schemas (`get_agentic_tools`), the withdrawn ones with their reasons (`withdrawn_tools`), the list to publish derived from those two (`get_exposed_tools`), `register_tool` for a package outside the core, `check_tool_lists`, and the generators that write the paragraph a person pastes into the assistant's chat, which name exactly the published tools. |
 | `analysis/mcp_server.py` | The background server the assistant connects to, publishing `get_exposed_tools()`; `expose` for a tool registered after it was imported and before it starts. Written for `mcp` 1.x (the `agentic` extra pins `mcp<2`). |
@@ -112,8 +122,8 @@ the program to use.
 - **`P-AGENTIC-ENVELOPE`** — the answer shape every tool uses: a status,
   then data or a message.
 - **`P-KERNEL-CONTEXT`** — the store of live objects — scene, segments,
-  lineage, the per-run database — that every tool reads from after
-  `set_context_from_result` fills it.
+  lineage, the per-run database — in named contexts, of which every tool
+  reads the active one, after `set_context_from_result` fills it.
 - **`P-TOOL-REGISTRY`** — the tool list: for each tool, its name, the
   function, a description and its parameters. Read by the server and by
   any assistant framework.
@@ -140,6 +150,10 @@ checks it.
 | `C-AGENT-01` | **Makes** it. Every tool answers with the `ok`/`error` shape; nothing raises an exception toward the assistant. |
 | `C-AGENT-02` | **Makes** it. The three lists agree: the published list is derived, and the agreement is tested. |
 | `C-AGENT-03` | **Makes** it, with `optiland_nsq_run_registry`. A package's tools join the same lists through `register_tool`, and its live objects the same registry through `set_extension_context`. |
+| `C-AGENT-04` | **Makes** it. The tools read the active context only; a context made under a name is not switched to; clearing one closes only its own databases. |
+| `C-AGENT-06` | **Makes** it, with `analysis_run_registry`. A targeted re-simulation goes into a new context, leaves the run it came from (and its detector hits) as it was, and is saved. |
+| `C-AGENT-05` | **Makes** it, with `analysis_run_registry`. A saved run loads by reference, read-only, into a new context; the tools that need the live scene say the run was loaded; a save never overwrites. |
+| `C-FLOW-02` | **Hosts** it. `flows` adds nine generic tools through `register_tool`: one set drives every flow, by questions stated as data. |
 | `C-NSQ-RUN-03` | **Relies** on it. The query machinery does not care what the tables are called, so the 2D and 3D databases share one implementation. |
 | `C-UNITS-02` | **Relies** on it. The unit checking is done by `optical_elements_units`; this component only calls it. |
 

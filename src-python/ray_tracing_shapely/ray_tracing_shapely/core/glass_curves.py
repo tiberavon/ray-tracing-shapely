@@ -108,6 +108,8 @@ class Curve:
         self.p_end = float(p_end)
         self._table: Optional[Tuple[List[float], List[float]]] = None
         self._key_cache: Optional[List[float]] = None
+        self._trials: Optional[List[Tuple[float, XY]]] = None
+        self._trials_xy: Any = None
 
     # --- provided by subclasses -------------------------------------------------
     def point(self, p: float) -> XY:
@@ -245,10 +247,23 @@ class Curve:
         return self.arc_length_to(p) / self.length
 
     def nearest(self, q: XY) -> Tuple[float, float]:
-        """``(distance, p)``: the traversed part's point nearest ``q``."""
-        count = 64
-        best = min((math.dist(q, self.point(self.lo + (self.hi - self.lo) * k / count)),
-                    self.lo + (self.hi - self.lo) * k / count) for k in range(count + 1))
+        """``(distance, p)``: the traversed part's point nearest ``q``.
+
+        Newton from the best of evenly spaced trial points, at least eight between each pair of
+        knots: with fewer trial points than knot intervals (a spline of a dense SMS chain, 108
+        intervals), Newton could settle on a local minimum far from ``q``."""
+        import numpy as np  # noqa: PLC0415
+
+        if self._trials is None:   # the trial points are the curve's own: computed once (the domain is fixed)
+            count = max(64, 8 * (len(self._breaks()) + 1))
+            params = [self.lo + (self.hi - self.lo) * k / count for k in range(count + 1)]
+            self._trials = [(t, self.point(t)) for t in params]
+            self._trials_xy = np.array([pt for _, pt in self._trials], dtype=float)
+        # numpy finds the trial points within a hair of the nearest; the exact comparison below,
+        # unchanged, chooses among them, so the choice is the one a scan of all of them makes
+        d2 = (self._trials_xy[:, 0] - q[0]) ** 2 + (self._trials_xy[:, 1] - q[1]) ** 2
+        near = np.flatnonzero(d2 <= d2.min() * (1.0 + 1e-6) + 1e-300).tolist()
+        best = min((math.dist(q, self._trials[i][1]), self._trials[i][0]) for i in near)
         p = best[1]
         for _ in range(20):  # Newton on (P - q) . P' = 0
             d1, d2 = self.deriv(p), self.deriv2(p)
@@ -597,6 +612,8 @@ class SplineCurve(Curve):
         last = len(self.points) - 1
         if not (0.0 <= min(p_start, p_end) and max(p_start, p_end) <= last):
             raise ValueError(f"spline parameters must lie in [0, {last}].")
+        self._bez_np: Any = None
+        self._bez_margin = 0.0
         super().__init__(p_start, p_end)
 
     def _segment(self, p: float) -> Tuple[int, float]:
@@ -618,11 +635,30 @@ class SplineCurve(Curve):
         _, _, c, d, _ = self._coef[k]
         return (2 * c[0] + 6 * u * d[0], 2 * c[1] + 6 * u * d[1])
 
+    def _candidates(self, origin: XY, nrm: XY) -> List[int]:
+        """The pieces whose control points the line may not have all on one side.
+
+        All the pieces at once, in numpy; a piece is left out only when every control point is
+        on one side by more than a margin, so the exact test below, unchanged, decides every
+        piece kept, and no piece it would have kept is left out.
+        """
+        import numpy as np  # noqa: PLC0415
+
+        if self._bez_np is None:
+            self._bez_np = np.array([bez for *_, bez in self._coef], dtype=float)   # (pieces, 4, 2)
+            self._bez_margin = 1e-9 * max(self.size, 1.0)
+        bez = self._bez_np
+        g = (bez[..., 0] - origin[0]) * nrm[0] + (bez[..., 1] - origin[1]) * nrm[1]
+        margin = self._bez_margin * (abs(nrm[0]) + abs(nrm[1]))
+        out = ~((g > margin).all(axis=1) | (g < -margin).all(axis=1))
+        return np.flatnonzero(out).tolist()
+
     def _line_roots(self, origin: XY, direction: XY) -> List[Tuple[float, float]]:
         nrm = (-direction[1], direction[0])
         dd = _dot(direction, direction)
         found: List[Tuple[float, float]] = []
-        for k, (a, b, c, d, bez) in enumerate(self._coef):
+        for k in self._candidates(origin, nrm):
+            a, b, c, d, bez = self._coef[k]
             g = [_dot(nrm, _sub(q, origin)) for q in bez]   # Bernstein coefficients of f(u)
             if all(v > 0.0 for v in g) or all(v < 0.0 for v in g):
                 continue
