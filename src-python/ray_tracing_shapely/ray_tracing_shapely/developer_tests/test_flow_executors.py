@@ -267,7 +267,8 @@ def test_a_group_fails_with_its_first_failure_and_cancels_the_rest(tmp_path):
     out = flow.wait(30.0, poll_s=0.05)
     assert out["state"] == "failed" and "job 2 of 2" in flow.explain_current_state()
     assert "bad chunk" in persistence.read_result(tmp_path, flow.run_id)["reason"]
-    assert ex.status(handles[0]).state == "cancelled"
+    first = ex.status(handles[0])
+    assert first.state == "cancelled", first.error
 
     slow = GroupFlow(tmp_path, ex, [Job(f"{JOBS}:count", {"n": 10_000, "step_s": 0.01}) for _ in range(2)])
     slow.begin()

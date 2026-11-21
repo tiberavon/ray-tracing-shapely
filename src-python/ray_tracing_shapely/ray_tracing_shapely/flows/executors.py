@@ -320,17 +320,40 @@ class InProcessExecutor:
 # A worker process on this machine
 # ---------------------------------------------------------------------------
 
+# How long a write or read of a job's JSON waits out a sharing violation. On
+# Windows, replacing a file that another process holds open for reading fails
+# with PermissionError, and so can opening one that is being replaced: the
+# worker rewrites status.json on every progress report while the executor
+# polls it, so the two collide now and then. Without the retry the collision
+# surfaced in the worker's job as an error, and the job ended "failed".
+_SHARING_RETRIES = 50
+_SHARING_WAIT_S = 0.02
+
+
 def _write_json(path: Path, data: Any) -> None:
     tmp = path.with_suffix(path.suffix + f".tmp{os.getpid()}")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    for attempt in range(_SHARING_RETRIES):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == _SHARING_RETRIES - 1:
+                raise
+            time.sleep(_SHARING_WAIT_S)
 
 
 def _read_json(path: Path) -> Optional[Dict[str, Any]]:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
+    for attempt in range(_SHARING_RETRIES):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+        except PermissionError:
+            if os.name != "nt" or attempt == _SHARING_RETRIES - 1:
+                raise
+            time.sleep(_SHARING_WAIT_S)
+    return None
 
 
 class LocalProcessExecutor:
