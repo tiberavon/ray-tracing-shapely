@@ -32,7 +32,7 @@ The **Concept** column names the reasoning behind the port's shape. The
 | `P-SIGNATURE` | in-memory type | A route through the optic, reduced to a list of *(surface, edge, what happened)*. | `analysis_signature` | `analysis_run_registry`, `analysis_bidirectional`, `agentic_layer` | `KB3` | `C-SIG-01` |
 | `P-SIGNATURE-SPECTRUM` | persisted artefact | The saved table of every route in a run and the energy each carried. | `analysis_signature` | `analysis_run_registry` | `KB3` | `C-SIG-02` |
 | `P-RUN-BUNDLE` | persisted artefact | A saved run's folder: settings, every segment as a database, the headline numbers, and the manifest line. | `analysis_run_registry` | `analysis_run_registry`, `agentic_layer`, future models trained on many runs | `KB8`, `KC3` | `C-RUN-01`, `C-RUN-02`, `C-CONV-01`, `C-LABEL-01` |
-| `P-PROFILE` | persisted artefact | A designed element's outline, span by span, with exact normals and roles, ready to become a 3D solid — or read back from one. | `nonimaging_design`; `optiland_scene_bridge`, reading a solid back | `optiland_scene_bridge`, `optiland_sms_plugin` (planned); `nonimaging_design`, rebuilding the element in 2D | `KB7`, `KC2` | `C-PROFILE-01`, `C-BRIDGE-06` to `C-BRIDGE-08`, `C-SOURCE-01` (its `sources`, `P-SOURCE-SPEC`) |
+| `P-PROFILE` | persisted artefact | A designed element's outline, span by span, with exact normals and roles, ready to become a 3D solid — or read back from one. | `nonimaging_design`; `optiland_scene_bridge`, reading a solid back | `optiland_scene_bridge`, `optiland_sms_plugin`; `nonimaging_design`, rebuilding the element in 2D | `KB7`, `KC2` | `C-PROFILE-01`, `C-BRIDGE-06` to `C-BRIDGE-08`, `C-SOURCE-01` (its `sources`, `P-SOURCE-SPEC`) |
 | `P-RAYFILE` | persisted artefact | A measured LED's rays as its supplier ships them (IES TM-25): start, direction and flux per ray, one spectrum, in the LED's own frame. | the LED's supplier; `write_tm25` for synthetic files | `nonimaging_design` (`read_rayfile`, `slice_rayfile`, `radiation_pattern`); `optiland_scene_bridge` (`RayfileSource`, `compare_slice_3d`) | `KD5` | `C-SOURCE-02`, `C-SOURCE-03` |
 | `P-DESIGNED-FACES` | in-memory type | A designed element's optical faces as exact points and normals in the element's own frame — the source at the origin, the axis along it — for building the same element in a different tracer. Not a profile: no roles, no outline, only the faces light meets. | `nonimaging_design` (`TIRCollimator.section_faces`) | `optiland_scene_bridge` (`sequential_collimator`) | `KD5` | — |
 | `P-PHYSICAL-SCENE` | in-memory type | A scene that knows its length unit and how brightness becomes power, plus the projection models that turn 2D into 3D quantities. | `optical_elements_physics` | `eye_safety`, `nonimaging_design` | `KC1`, `KC4` | `C-UNITS-01` |
@@ -46,7 +46,7 @@ The **Concept** column names the reasoning behind the port's shape. The
 | `P-AGENTIC-ENVELOPE` | in-memory type | The answer shape every tool returns: a status, then data or a message. | `agentic_layer` | AI assistants and the programs acting for them | `KA4`, `KA3` | `C-AGENT-01`, `C-AGENT-02`, `C-FLOW-02` |
 | `P-KERNEL-CONTEXT` | live kernel state | The store of live objects — scene, segments, lineage, the per-run database — in named contexts, of which the tools read the active one; a saved run loads into one by reference. | `agentic_layer` | every tool that needs a simulation | `KA5`, `KD7` | `C-AGENT-01`, `C-AGENT-04`, `C-AGENT-05` |
 | `P-TOOL-REGISTRY` | in-memory type | The list of tools with their names, descriptions and parameters, in a form any assistant framework can read. **New in this register.** | `agentic_layer` | `mcp_server`, any assistant framework | `KA2`, `KA7` | `C-AGENT-02` |
-| `P-OPTILAND-PLUGIN` | extension point | This project's profiles registered with Optiland as a native geometry. **Planned, not built.** | `optiland_sms_plugin` | Optiland | `KB7` | `C-3D-01` |
+| `P-OPTILAND-PLUGIN` | extension point | A profile's spline span registered with Optiland's sequential engine as the surface type `sms_spline`, found by entry point, differentiable under torch. | `optiland_sms_plugin` | Optiland's sequential engine | `KB7`, `KC2` | `C-PLUGIN-01`, `C-3D-01` |
 | `P-NSQ-SCENE` | in-memory type | The 3D surfaces built from a profile, placed and ready for Optiland to trace. | `optiland_scene_bridge` | `optiland_nsq_viewer`, `optiland_nsq_run_registry` | `KB7`, `KC7` | `C-BRIDGE-01` to `C-BRIDGE-05`, `C-BRIDGE-09` to `C-BRIDGE-13`, `C-VIEWER-01` |
 | `P-NSQ-RUN-BUNDLE` | persisted artefact | A saved 3D trace: every event as a database row, plus the settings. | `optiland_nsq_run_registry` | anything querying a 3D run | `KB8`, `KA6` | `C-NSQ-RUN-01` to `C-NSQ-RUN-03` |
 
@@ -61,8 +61,7 @@ by its result: the faces are fitted again on the receiving side, and the
 fit's own error and the traced beam are asserted in tests, but no contract
 states what the faces must satisfy.
 
-**Two ports are not yet real.** `P-OPTILAND-PLUGIN` is planned and has no
-code. `P-RUN-BUNDLE`'s schema-version field, required by `C-RUN-01`, is not
-yet written into the files.
+**One port is not yet real.** `P-RUN-BUNDLE`'s schema-version field, required by
+`C-RUN-01`, is not yet written into the files.
 
 **The field-by-field detail** of every port is in `03_alphabet.md`.

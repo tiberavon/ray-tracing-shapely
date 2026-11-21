@@ -78,7 +78,7 @@ src-python/
         pyproject.toml
         ray_tracing_shapely_optiland/
         tests/
-    optiland_sms/                           # Optiland entry-point plugin (planning stage)
+    optiland_sms/                           # Optiland sequential surface plugin (optiland-sms)
         pyproject.toml
         optiland_sms/
         tests/

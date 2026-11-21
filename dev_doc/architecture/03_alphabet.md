@@ -461,9 +461,17 @@ One record per tool:
 | `description` | One line saying what it does — the text the assistant reads. |
 | `parameters` | The tool's inputs, each with a type and a description, in the JSON Schema form assistant frameworks expect. |
 
-## `P-OPTILAND-PLUGIN`
+## `P-OPTILAND-PLUGIN` — the surface type `sms_spline`
 
-Planned. No fields specified yet.
+| Field | Meaning |
+|---|---|
+| `surface_type="sms_spline"` | The type a sequential surface is added with (`optic.surfaces.add(...)`); Optiland finds it through the `optiland.surfaces` entry point. |
+| `profile` | The profile, as a dict or the path of its JSON file: a revolve profile over a full turn (`P-PROFILE`). |
+| `span` | The short label of the spline span that is the surface: one span, from the axis to its rim (`C-PLUGIN-01`). |
+| `reverse` | Whether light travels against the profile's axis direction, so the surface's local +z runs against it. Default False. |
+| `tol`, `max_iter` | Optiland's intersection solve: tolerance and iteration limit. |
+| `read_meridian(profile, span, reverse=)` returns | The span in the surface's (r, z) frame (`Meridian`): its points and tangents, the pieces from the axis to the rim, the profile's samples and normals, and the `vertex` and `vertex_along_axis` (where the curve meets the axis) and `rim_radius` a system's thicknesses and aperture are set from. |
+| `SMSSplineGeometry.points` | The spline's points as (r, z), a backend array: under torch a leaf with a gradient, so a trace is differentiable with respect to them (`C-3D-01`). The tangents stay fixed. |
 
 ## `P-NSQ-SCENE` — the 3D surfaces built from a profile
 

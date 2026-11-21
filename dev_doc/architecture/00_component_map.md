@@ -59,7 +59,7 @@ Above the simulator. Turns dimensionless brightness into physical quantity.
 |---|---|---|
 | `svg_renderer` | `KB6` `KA1` `KC7` | The scene as an addressable SVG, including the annotation layer. |
 | `optiland_scene_bridge` | `KB7` `KC7` `KD3` `KD5` `KD13` | A 2D profile into placed 3D solids, mirrors and plates, and back, aspheres of revolution included; sources and measured LEDs in 3D; the same rays compared in 2D and 3D; irradiance maps; a collimator in Optiland's sequential engine; static 3D pictures. |
-| `optiland_sms_plugin` | `KB7` `KC2` | This project's profiles as an Optiland geometry plugin. |
+| `optiland_sms_plugin` | `KB7` `KC2` | A profile's spline span as an Optiland sequential surface, differentiable: the `optiland-sms` distribution. |
 | `optiland_nsq_viewer` | `KC7` `KD7` | An NSQ scene into a notebook cell over WebGL. |
 | `optiland_nsq_run_registry` | `KB8` `KA6` `KD4` | One 3D trace's lineage persisted and queryable. |
 
