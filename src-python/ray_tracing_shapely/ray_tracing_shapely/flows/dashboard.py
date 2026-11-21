@@ -609,8 +609,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         server = HTTPServer(("127.0.0.1", args.port), handler)
     except OSError as e:
-        if e.errno == errno.EADDRINUSE:
-            print(f"port {args.port} is in use; give another with --port", file=sys.stderr)
+        # A port another socket holds is EADDRINUSE on POSIX. On Windows it can
+        # be WSAEACCES (10013, errno EACCES) instead -- the other socket holds
+        # it exclusively -- which is also what a port Windows reserves gives.
+        if e.errno in (errno.EADDRINUSE, errno.EACCES) or getattr(e, "winerror", None) in (10013, 10048):
+            print(f"port {args.port} is in use or reserved; give another with --port", file=sys.stderr)
             return 2
         raise
     print(f"flow runs dashboard on http://127.0.0.1:{args.port}, reading {', '.join(map(str, dirs))} "

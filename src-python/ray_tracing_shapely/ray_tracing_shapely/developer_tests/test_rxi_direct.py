@@ -146,8 +146,13 @@ def test_mn_takes_the_cone_reflected_at_c_to_r1(rxi):
     # M, MN's lower end, on the receiver's line; N above it, nearer the axis
     assert rxi.M_cav[1] == pytest.approx(R1[1], abs=1e-9)
     assert rxi.N[1] > rxi.M_cav[1] and 0.0 < rxi.N[0] < rxi.M_cav[0]
-    # the cavity's two halves mirror each other, and through C it carries R1's path S_CR1
-    assert rxi.w3(rxi.C, hint=rxi._s_N)[0] == pytest.approx(rxi.S_CR1, abs=1e-9)
+    # the cavity's two halves mirror each other, and through C it carries R1's path S_CR1.
+    # C is where every ray of the cavity's curve converges, so w3 finds many rays there:
+    # at the spline's knots the path is S_CR1 exactly, between them it is short by up to
+    # 1.5e-7 (measured), the spline's own departure from the construction. Which of the two
+    # nearest the hint is found depends on rounding (a knot's root touches zero without
+    # crossing it; macOS finds the other), so the bound is the curve's, not 1e-9.
+    assert rxi.w3(rxi.C, hint=rxi._s_N)[0] == pytest.approx(rxi.S_CR1, abs=2e-7)
 
 
 # ---------------------------------------------------------------------------

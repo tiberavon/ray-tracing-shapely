@@ -82,8 +82,12 @@ def test_local_process_runs_at_low_priority_and_is_followed_from_its_handle(tmp_
     assert _wait_ended(ex, h).state == "done"
     out = ex.result(h)
     assert out["counted"] == 5
-    if hasattr(os, "nice"):
-        assert out["nice"] >= 10
+    if hasattr(os, "getpriority"):
+        # Lowered by 10 from this process, not set to 10: GitHub's macOS runner
+        # runs at -10, where the worker's 0 is the right answer. Niceness tops
+        # out at 19 (20 on macOS), so a parent already near it moves less.
+        parent = os.getpriority(os.PRIO_PROCESS, 0)
+        assert out["nice"] >= min(parent + 10, 19)
     # a fresh executor, made from the handle as read back from a record, knows nothing else
     again = executor_for(Handle.from_dict(json.loads(json.dumps(h.to_dict()))))
     assert again is not ex and again.status(h).state == "done" and again.result(h) == out

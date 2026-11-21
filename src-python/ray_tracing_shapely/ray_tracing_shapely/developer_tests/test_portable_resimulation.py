@@ -49,6 +49,7 @@ from ray_tracing_shapely.core.scene import Scene
 from ray_tracing_shapely.core.scene_objs.light_source.angle_source import AngleSource
 from ray_tracing_shapely.core.scene_objs.other.detector import Detector
 from ray_tracing_shapely.core.simulator import Simulator
+from ray_tracing_shapely.flows.persistence import read_events
 from ray_tracing_shapely.optical_elements.prisms.refractometer import RefractometerPrism
 
 from test_targeted_resimulation import _build_scene, _run_bidirectional
@@ -194,8 +195,11 @@ def _drive(tmp_path, options):
 def test_the_flow_in_chunks_gives_the_kernels_result(live, tmp_path):
     kernel = _drive(tmp_path, {"rays": 300, "context_name": "k"}).result
     flow = _drive(tmp_path, {"rays": 300, "executor": "local_process", "chunk_rays": 100, "context_name": "p"})
-    waited = flow.wait(300)
-    assert flow.state == "done", waited
+    flow.wait(300)
+    # A failed run says why in its last event (with the worker's traceback);
+    # the state alone does not, and pytest truncates the dict it is shown.
+    last = (read_events(flow.base_dir, flow.run_id) or [{}])[-1]
+    assert flow.state == "done", f"{last.get('message')}\n{last.get('traceback', '')}"
     out = flow.result
     assert out["executor"] == "local_process" and out["chunks"] >= 1 and not out["truncated"]
     assert _groups(out) == _groups(kernel) and out["hits"] == kernel["hits"] and out["roots"] == kernel["roots"]

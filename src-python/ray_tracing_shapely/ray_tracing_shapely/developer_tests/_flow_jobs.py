@@ -32,8 +32,10 @@ def count(inputs, ctx):
         time.sleep(step)
         ctx.progress(i + 1, n, "counting")
     out = {"counted": n}
-    if hasattr(os, "nice"):
-        out["nice"] = os.nice(0)
+    # The process's niceness, read with getpriority: os.nice(0) returns the
+    # C library's nice(), which on macOS is 0 on success, not the niceness.
+    if hasattr(os, "getpriority"):
+        out["nice"] = os.getpriority(os.PRIO_PROCESS, 0)
     return out
 
 

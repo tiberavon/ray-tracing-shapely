@@ -67,6 +67,19 @@ def _references(value: str) -> list[str]:
     return [r.strip() for r in value.split(";") if r.strip()]
 
 
+def _distribution_absent(path: str) -> bool:
+    """Whether ``path`` lies in a distribution this checkout does not hold.
+
+    The contracts cover all three distributions, and cite each one's tests by
+    repository path (``src-python/<distribution>/...``). The development
+    repository holds all three; a distribution's own repository holds only its
+    own. A test in a distribution that is not here cannot be checked here, so
+    it is not counted missing: it is checked where that distribution is.
+    """
+    parts = Path(path).parts
+    return len(parts) > 2 and parts[0] == "src-python" and not (ROOT / parts[0] / parts[1]).is_dir()
+
+
 @pytest.mark.parametrize("contract", _contracts(), ids=lambda p: p.stem)
 def test_every_cited_test_exists(contract: Path):
     fm = _front_matter(contract)
@@ -74,6 +87,8 @@ def test_every_cited_test_exists(contract: Path):
     for key in ("checked_by", "witness"):
         for ref in _references(fm.get(key, "null")):
             path, _, name = ref.partition("::")
+            if _distribution_absent(path):
+                continue
             file = ROOT / path
             if not path.endswith(".py") or not file.is_file():
                 missing.append(f"{key}: {ref!r} is not a repository path to a test file (path::test_name)")
