@@ -157,8 +157,8 @@ This project began as a translation of the
 [doi:10.5281/zenodo.6386611](https://doi.org/10.5281/zenodo.6386611)), and has grown a
 great deal of new work on top of it.
 
-Of this distribution's 219 source files, **35 are translations** of
-that project — the ray-tracing engine and its scene objects — and **184
+Of this distribution's 220 source files, **35 are translations** of
+that project — the ray-tracing engine and its scene objects — and **185
 were written for this project**: the analysis layer, the nonimaging design
 methods, the radiometric and photobiological layers, the agentic surface,
 and the tests and examples. Every file says which it is in its own header,
