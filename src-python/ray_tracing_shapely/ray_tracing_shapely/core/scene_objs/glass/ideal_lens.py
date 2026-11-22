@@ -66,6 +66,11 @@ class IdealLens(LineObjMixin, BaseSceneObj):
         'focalLength': 100
     }
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream IdealLens: the endpoints, then the focal length."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [*super().property_schema(obj_data, scene), e('focalLength', 'number', 'Focal length')]
     def populate_obj_bar(self, obj_bar):
         """
         Populate the object bar with ideal lens controls.
@@ -320,31 +325,38 @@ class IdealLens(LineObjMixin, BaseSceneObj):
             # Find where this line intersects the far 2F line
             intersection_far = geometry.lines_intersection(twoF_line_far, center_line)
             # Set the outgoing ray (convert Point to dict if needed)
-            if isinstance(ray.p2, dict):
-                ray.p2['x'] = intersection_far.x
-                ray.p2['y'] = intersection_far.y
-                ray.p1['x'] = incident_point['x'] if isinstance(incident_point, dict) else incident_point.x
-                ray.p1['y'] = incident_point['y'] if isinstance(incident_point, dict) else incident_point.y
-            else:
-                ray.p2 = intersection_far
-                ray.p1 = incident_point
+            self._set_outgoing(ray, incident_point, intersection_far)
         else:
             # Diverging lens
             # More complex: trace virtual ray through far focal point
             intersection_far_virtual = geometry.lines_intersection(twoF_line_far, ray_line)
             center_line_virtual = geometry.line(mid_point, intersection_far_virtual)
             intersection_near = geometry.lines_intersection(twoF_line_near, center_line_virtual)
-            incident_line = geometry.line(incident_point, intersection_near)
+            # incident_point may be a dict; geometry.lines_intersection needs Points.
+            incident_pt = (geometry.point(incident_point['x'], incident_point['y'])
+                           if isinstance(incident_point, dict) else incident_point)
+            incident_line = geometry.line(incident_pt, intersection_near)
             intersection_far = geometry.lines_intersection(twoF_line_far, incident_line)
             # Set the outgoing ray (convert Point to dict if needed)
-            if isinstance(ray.p2, dict):
-                ray.p2['x'] = intersection_far.x
-                ray.p2['y'] = intersection_far.y
-                ray.p1['x'] = incident_point['x'] if isinstance(incident_point, dict) else incident_point.x
-                ray.p1['y'] = incident_point['y'] if isinstance(incident_point, dict) else incident_point.y
-            else:
-                ray.p2 = intersection_far
-                ray.p1 = incident_point
+            self._set_outgoing(ray, incident_point, intersection_far)
+
+
+    @staticmethod
+    def _set_outgoing(ray, incident_point, far_point) -> None:
+        """Point the ray from the incident point to `far_point`, with new point objects.
+
+        The simulator records the incoming segment before this call and shares its
+        point dicts with `ray`: writing into ``ray.p1`` in place would move the
+        recorded segment's start onto the lens, leaving it zero-length.
+        """
+        if isinstance(ray.p2, dict):
+            ix, iy = ((incident_point['x'], incident_point['y']) if isinstance(incident_point, dict)
+                      else (incident_point.x, incident_point.y))
+            ray.p2 = {'x': far_point.x, 'y': far_point.y}
+            ray.p1 = {'x': ix, 'y': iy}
+        else:
+            ray.p2 = far_point
+            ray.p1 = incident_point
 
 
 # Example usage and testing

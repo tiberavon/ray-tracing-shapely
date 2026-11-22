@@ -56,7 +56,7 @@ def _singlet(scene=None, r1=60.0, r2=-20.0, t=5.0, h=10.0, **kw):
 
 def _spherical(scene=None):
     return SphericalLens(scene or Scene(), {
-        "p1": {"x": 0, "y": 10}, "p2": {"x": 0, "y": -10}, "def_by": "DR1R2",
+        "p1": {"x": 0, "y": 10}, "p2": {"x": 0, "y": -10}, "defBy": "DR1R2",
         "params": {"d": 5.0, "r1": 20.0, "r2": -60.0}, "refIndex": 1.5, "cauchyB": 0.0,
     })
 

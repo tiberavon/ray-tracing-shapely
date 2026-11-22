@@ -33,9 +33,10 @@ finite number of steps. Every segment has exactly one parent. Asking for a
 segment's ancestors, its descendants, or its whole path always finishes.
 
 **Invariants.** The engine registers a segment before that segment can
-produce a child, because the queue is first-in-first-out: a child's parent
-is always a segment that has already been taken off the queue and
-registered. This holds for the whole tree by construction, not by a
+produce a child: it registers the segment, then asks the object it met what
+happens, and only what that answer holds is put in the queue. A child's
+parent is therefore always a segment already taken from the queue and
+registered, whatever order the queue is walked in. This holds for the whole tree by construction, not by a
 separate check.
 
 One detail is here because it once went wrong. When the engine hands a

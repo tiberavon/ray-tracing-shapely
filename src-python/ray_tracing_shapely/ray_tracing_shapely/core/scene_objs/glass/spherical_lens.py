@@ -39,12 +39,12 @@ class SphericalLens(Glass):
 
     Attributes:
         path: The path of the lens if it is built (6 points forming lens shape).
-        def_by: Definition mode - either 'DR1R2' or 'DFfdBfd'.
+        defBy: Definition mode - either 'DR1R2' or 'DFfdBfd'.
         p1: Top edge point of lens aperture (when not built).
         p2: Bottom edge point of lens aperture (when not built).
         params: Parameters dict (d, r1, r2) or (d, ffd, bfd) when not built.
         ref_index: The refractive index (or Cauchy A coefficient).
-        cauchy_b: The Cauchy B coefficient (in μm²).
+        cauchyB: The Cauchy B coefficient (in μm²).
 
     Usage:
         Spherical lenses are useful for:
@@ -65,14 +65,23 @@ class SphericalLens(Glass):
     merges_with_glass = True
     serializable_defaults = {
         'path': None,
-        'def_by': 'DR1R2',
+        'defBy': 'DR1R2',
         'p1': None,
         'p2': None,
         'params': None,
         'refIndex': 1.5,
-        'cauchyB': 0.004
+        'cauchyB': 0.004,
+        'partialReflect': True,
     }
+    legacy_keys = {**Glass.legacy_keys, 'def_by': 'defBy'}
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream SphericalLens: its six outline points, then BaseGlass's (not Glass's)."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        from ray_tracing_shapely.core.scene_objs.base_glass import BaseGlass
+        return [*(e(f'path.{i}', 'point', f'Point {i + 1}') for i in range(6)),
+                *BaseGlass.property_schema(obj_data, scene)]
     def __init__(self, scene, json_obj=None):
         """
         Initialize the spherical lens.
@@ -85,13 +94,13 @@ class SphericalLens(Glass):
 
         # If lens is not built but has parameters, build it
         if not self.path and self.p1 and self.p2:
-            if self.def_by == 'DR1R2' and self.params:
+            if self.defBy == 'DR1R2' and self.params:
                 self.create_lens_with_dr1r2(
                     self.params['d'],
                     self.params['r1'],
                     self.params['r2']
                 )
-            elif self.def_by == 'DFfdBfd' and self.params:
+            elif self.defBy == 'DFfdBfd' and self.params:
                 self.create_lens_with_dffd_bfd(
                     self.params['d'],
                     self.params['ffd'],
@@ -110,17 +119,17 @@ class SphericalLens(Glass):
         # Definition mode selector
         obj_bar.create_dropdown(
             '',
-            self.def_by,
+            self.defBy,
             {
                 'DR1R2': 'Radii of Curvature',
                 'DFfdBfd': 'Focal Distances'
             },
-            lambda obj, value: setattr(obj, 'def_by', value),
+            lambda obj, value: setattr(obj, 'defBy', value),
             None,
             True
         )
 
-        if self.def_by == 'DR1R2':
+        if self.defBy == 'DR1R2':
             params = self.get_dr1r2()
             r1 = params['r1']
             r2 = params['r2']
@@ -132,7 +141,7 @@ class SphericalLens(Glass):
                                 lambda obj, val: obj.create_lens_with_dr1r2(d, r1, val), None, True)
             obj_bar.create_number('d', 0, 100, 1, d,
                                 lambda obj, val: obj.create_lens_with_dr1r2(val, r1, r2), None, True)
-        elif self.def_by == 'DFfdBfd':
+        elif self.defBy == 'DFfdBfd':
             params = self.get_dffd_bfd()
             d = params['d']
             ffd = params['ffd']
@@ -149,7 +158,7 @@ class SphericalLens(Glass):
         if self.scene.simulate_colors:
             obj_bar.create_number('Cauchy A', 1, 3, 0.01, self.ref_index,
                                 lambda obj, val: self._update_ref_index(obj, val))
-            obj_bar.create_number('B(μm²)', 0.0001, 0.02, 0.0001, self.cauchy_b,
+            obj_bar.create_number('B(μm²)', 0.0001, 0.02, 0.0001, self.cauchyB,
                                 lambda obj, val: self._update_cauchy_b(obj, val))
         else:
             obj_bar.create_number('Refractive Index', 0.5, 2.5, 0.01, self.ref_index,
@@ -159,14 +168,14 @@ class SphericalLens(Glass):
         """Helper to update refractive index and rebuild if needed."""
         old_params = obj.get_dffd_bfd()
         obj.ref_index = value
-        if obj.def_by == 'DFfdBfd':
+        if obj.defBy == 'DFfdBfd':
             obj.create_lens_with_dffd_bfd(old_params['d'], old_params['ffd'], old_params['bfd'])
 
     def _update_cauchy_b(self, obj, value):
         """Helper to update Cauchy B and rebuild if needed."""
         old_params = obj.get_dffd_bfd()
-        obj.cauchy_b = value
-        if obj.def_by == 'DFfdBfd':
+        obj.cauchyB = value
+        if obj.defBy == 'DFfdBfd':
             obj.create_lens_with_dffd_bfd(old_params['d'], old_params['ffd'], old_params['bfd'])
 
     def move(self, diff_x, diff_y):
@@ -307,7 +316,7 @@ class SphericalLens(Glass):
             self.p1 = None
             self.p2 = None
             self.params = None
-            self.not_done = False
+            self.notDone = False
 
     def create_lens_with_dffd_bfd(self, d, ffd, bfd):
         """
@@ -501,7 +510,7 @@ if __name__ == "__main__":
     lens = SphericalLens(scene, {
         'p1': {'x': 0, 'y': -25},
         'p2': {'x': 0, 'y': 25},
-        'def_by': 'DR1R2',
+        'defBy': 'DR1R2',
         'params': {'d': 10, 'r1': 50, 'r2': -50},
         'refIndex': 1.5
     })
@@ -525,7 +534,7 @@ if __name__ == "__main__":
     lens_focal = SphericalLens(scene, {
         'p1': {'x': 100, 'y': -30},
         'p2': {'x': 100, 'y': 30},
-        'def_by': 'DFfdBfd',
+        'defBy': 'DFfdBfd',
         'params': {'d': 8, 'ffd': 50, 'bfd': 50},
         'refIndex': 1.5
     })
@@ -542,7 +551,7 @@ if __name__ == "__main__":
     lens_invalid = SphericalLens(scene, {
         'p1': {'x': 0, 'y': -10},
         'p2': {'x': 0, 'y': 10},
-        'def_by': 'DR1R2',
+        'defBy': 'DR1R2',
         'params': {'d': 100, 'r1': 5, 'r2': 5},  # d too large for small radii
         'refIndex': 1.5
     })

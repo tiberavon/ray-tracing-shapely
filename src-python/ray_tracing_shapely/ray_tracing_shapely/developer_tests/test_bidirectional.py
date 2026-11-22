@@ -117,7 +117,7 @@ from ray_tracing_shapely.core.simulator import Simulator
 from ray_tracing_shapely.core.scene_objs.glass.glass import Glass
 from ray_tracing_shapely.core.scene_objs.light_source.angle_source import AngleSource
 from ray_tracing_shapely.core.scene_objs.other.detector import Detector
-from ray_tracing_shapely.core.scene_objs.light_source.backward_detector_source import (
+from ray_tracing_shapely.analysis.backward_detector_source import (
     BackwardDetectorSource,
     backward_central_direction,
 )
@@ -179,8 +179,8 @@ def _build_scene():
         'type': 'Detector',
         'p1': {'x': -30, 'y': -60},
         'p2': {'x': 30, 'y': -60},
-        'irrad_map': True,
-        'bin_size': 2.0,
+        'irradMap': True,
+        'binSize': 2.0,
     })
     det.name = 'det'
     scene.add_object(det)

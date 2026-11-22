@@ -160,3 +160,7 @@ docs/reference/api/
 
 # flow run records (local state: run folders, heartbeats, job folders)
 /flow_runs/
+
+# Flow runs and scene files written by notebooks
+# an example notebook's save folder: notebooks/_<name>_runs/ (CONTRIBUTING.md)
+/notebooks/_*_runs/

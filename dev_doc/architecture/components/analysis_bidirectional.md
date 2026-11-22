@@ -49,7 +49,7 @@ search.
 | File | What it holds |
 |---|---|
 | `analysis/bidirectional.py` | `connect_trees`, `build_combined_graph`, `extract_ranked_paths`, the auditing functions (`path_surfaces`, `audit_paths`, `path_physical_summary`), and the `Connection` and `BidirectionalResult` records. |
-| `core/scene_objs/light_source/backward_detector_source.py` | The temporary backward source. It is never saved with a scene. |
+| `analysis/backward_detector_source.py` | The temporary backward source. It is never saved with a scene. |
 
 ## What it produces
 

@@ -88,8 +88,8 @@ def build_test_scene():
         'type': 'Detector',
         'p1': {'x': 200, 'y': 0},
         'p2': {'x': 200, 'y': 160},
-        'irrad_map': True,
-        'bin_size': 10.0,
+        'irradMap': True,
+        'binSize': 10.0,
     })
     detector.name = 'test_detector'
     scene.add_object(detector)

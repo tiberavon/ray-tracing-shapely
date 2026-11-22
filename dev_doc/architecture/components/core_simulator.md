@@ -6,9 +6,12 @@ sources, and works out where every ray goes.
 ## Why this component is different
 
 It knows nothing about optics. It does not know what glass is, or what a
-mirror does, or how light bends. What it knows is a queue: take the next ray
-off the front, find the first object it hits, ask that object what happens,
-put whatever comes back on the end of the queue. That is the whole loop. The
+mirror does, or how light bends. What it knows is a queue: take the next ray,
+find the first object it hits, ask that object what happens, and put whatever
+comes back in the queue. That is the whole loop. The queue is the JavaScript
+simulator's: slots walked in passes, where the ray that goes on keeps its slot
+and a spawned ray is appended. Which weak rays a glass keeps by sampling
+depends on the slot, so the order is upstream's too. The
 physics lives in the objects, and the engine only carries messages between
 them.
 
@@ -49,7 +52,7 @@ only what it *returned*.
 | `core/scene.py` | `Scene`: the container holding every object and every source, plus run-wide settings like ray density and the brightness below which a ray is dropped. |
 | `core/ray.py` | `Ray`: one straight segment of light, with its endpoints, brightness (split into two polarisations), wavelength, identifiers, and the fields above. |
 | `core/ray_lineage.py` | `RayLineage`: the parent/child index over all segments, with queries for ancestors, children, leaves, and export to a standard graph library. |
-| `core/simulator.py` | `Simulator`: the queue loop, and the four places in it where a new segment is created from an old one. |
+| `core/simulator.py` | `Simulator`: the queue loop, and the four places in it where a new segment is created from an old one. A new ray is queued only above a floor (`new_ray_floor`; by default the smaller of `1e-6` and the scene's threshold), a safety net for objects that do not drop their own dim rays (`C-CORE-03`). Each interaction adds one to a ray's `depth`, and the rays it spawns inherit it; past the scene's `max_ray_depth` (the JavaScript simulator's `maxRayDepth`, no limit by default) the ray is drawn up to the object it meets and ends there. |
 | `core/geometry.py` | Shared geometric helpers used by the objects. |
 
 ## What it produces
@@ -84,7 +87,8 @@ checks it.
 |---|---|
 | `C-CORE-01` | **Owns** it. Objects own their physics; the engine only processes the queue. Every scene object is the other party. |
 | `C-CORE-02` | **Relies** on it. A detector never ends a ray — light passes through and is counted — and the engine must not treat a detector crossing as a termination. |
-| `C-LINEAGE-01` | **Owns** it. The lineage is a proper family tree: one parent per segment, no loops, and a parent is always registered before any child of it can exist. The queue's first-in-first-out order guarantees this without a separate check. |
+| `C-CORE-03` | **Owns** it. The floor under which a new ray is not queued never cuts finer than the scene's threshold asks, and can be set per run. |
+| `C-LINEAGE-01` | **Owns** it. The lineage is a proper family tree: one parent per segment, no loops, and a parent is always registered before any child of it can exist. A segment is registered before the object it meets is asked for its children, so this holds without a separate check, whatever the queue's order. |
 
 ## How it is shipped
 

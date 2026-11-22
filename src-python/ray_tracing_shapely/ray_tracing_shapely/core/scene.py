@@ -14,6 +14,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
+import math
 import random
 import uuid as uuid_module
 from typing import Optional
@@ -74,6 +75,7 @@ class Scene:
         self.length_scale = 1.0
         self.simulate_colors = False
         self.show_ray_arrows = False   # Display direction arrows on rays
+        self._max_ray_depth = math.inf  # interactions a ray may have (upstream's maxRayDepth)
         self.error = None
         self.warning = None
         self.name = None               # Optional scene name for exports
@@ -219,6 +221,24 @@ class Scene:
                     f"min_brightness_exp must be a positive number or None, got {value}"
                 )
         self._min_brightness_exp = value
+
+    @property
+    def max_ray_depth(self) -> float:
+        """The number of ray-object interactions a ray may have; upstream's ``maxRayDepth``.
+
+        A ray at its limit is drawn up to the next object it meets and ends
+        there; the rays an interaction spawns have the interaction's depth.
+        ``math.inf`` (the default) is no limit. Set to None or a non-finite
+        number for no limit; a negative number is 0, as upstream's.
+        """
+        return self._max_ray_depth
+
+    @max_ray_depth.setter
+    def max_ray_depth(self, value) -> None:
+        if value is None or not math.isfinite(value):
+            self._max_ray_depth = math.inf
+        else:
+            self._max_ray_depth = max(0, int(value))
 
     def get_min_brightness_threshold(self):
         """

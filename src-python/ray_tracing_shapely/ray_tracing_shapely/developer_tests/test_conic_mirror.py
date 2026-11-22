@@ -14,7 +14,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-ConicMirror / ArcMirror, exact curved mirrors in 2D, and the
+ConicMirror / CircularArcMirror, exact curved mirrors in 2D, and the
 sheet export, and its inverse (mirrors_from_sheet_profile).
 
 Every optical check is a property with an exact answer, so a sampled or
@@ -32,7 +32,7 @@ from ray_tracing_shapely.core.scene import Scene
 from ray_tracing_shapely.core.scene_objs.light_source.single_ray import SingleRay
 from ray_tracing_shapely.core.scene_objs.mirror.mirror import Mirror
 from ray_tracing_shapely.core.simulator import Simulator
-from ray_tracing_shapely.optical_elements.mirrors import ArcMirror, ConicMirror, mirrors_from_sheet_profile
+from ray_tracing_shapely.optical_elements.mirrors import CircularArcMirror, ConicMirror, mirrors_from_sheet_profile
 from ray_tracing_shapely.optical_elements.prisms.profile_export import export_sheet_profile
 from ray_tracing_shapely.optical_elements.lenses import SingletLens
 from ray_tracing_shapely.optical_elements.prisms.profile_export import export_profile
@@ -105,7 +105,7 @@ def test_a_sphere_has_exactly_its_spherical_aberration():
     R = 30.0
     for h in (1.0, 8.0, 15.0, 20.0):
         scene = Scene()
-        scene.add_object(ArcMirror(scene, vertex, axis, R, semi_diameter=21.0, name="S"))
+        scene.add_object(CircularArcMirror(scene, vertex, axis, R, semi_diameter=21.0, name="S"))
         segs = _trace(scene, at(h, 50.0), (-axis[0], -axis[1]))
         theta = math.asin(h / R)
         assert _line_distance(at(0.0, R - R / (2 * math.cos(theta))), segs[1]) < TOL
@@ -115,7 +115,7 @@ def test_a_ray_reflected_twice_meets_the_mirror_twice():
     """A hemisphere: a parallel ray beyond 45 deg incidence reflects onto the
     mirror again. The first hit's own point is skipped, the second is not."""
     scene = Scene()
-    mirror = ArcMirror(scene, (0.0, 0.0), (1.0, 0.0), 10.0, semi_diameter=10.0, name="H")
+    mirror = CircularArcMirror(scene, (0.0, 0.0), (1.0, 0.0), 10.0, semi_diameter=10.0, name="H")
     scene.add_object(mirror)
     segs = _trace(scene, (20.0, 8.0), (-1.0, 0.0))
     hits = [(s.p2["x"], s.p2["y"]) for s in segs[:-1]]
@@ -130,7 +130,7 @@ def test_a_root_too_close_to_the_start_is_skipped_not_returned():
     is ~1e-12 away, below the simulator's minimum segment length, which would
     drop the whole object; the mirror must answer with the far crossing."""
     scene = Scene()
-    mirror = ArcMirror(scene, (0.0, 0.0), (1.0, 0.0), 10.0, semi_diameter=10.0, name="H")
+    mirror = CircularArcMirror(scene, (0.0, 0.0), (1.0, 0.0), 10.0, semi_diameter=10.0, name="H")
     p = mirror.point_at(-6.0)
     n = mirror.normal_at(-6.0)                       # towards the centre (inside)
     start = (p[0] - 1e-12 * n[0], p[1] - 1e-12 * n[1])
@@ -223,7 +223,7 @@ def test_a_paraboloid_exports_as_one_conic_span_from_the_axis():
 
 def test_an_arc_mirror_exports_as_a_circle_and_a_cone_as_one_line():
     scene = Scene()
-    arc = ArcMirror(scene, (0.0, 0.0), (1.0, 0.0), 30.0, semi_diameter=10.0, name="S")
+    arc = CircularArcMirror(scene, (0.0, 0.0), (1.0, 0.0), 30.0, semi_diameter=10.0, name="S")
     assert _sheet([arc])["spans"][0]["curve"] == {"type": "circle", "center": [30.0, 0.0], "radius": 30.0}
     upper = Mirror(scene, {"p1": {"x": 0.0, "y": 2.0}, "p2": {"x": 20.0, "y": 6.0}})
     lower = Mirror(scene, {"p1": {"x": 0.0, "y": -2.0}, "p2": {"x": 20.0, "y": -6.0}})
@@ -318,7 +318,7 @@ def test_a_zone_comes_back_in_two_and_a_cut_sheet_in_one_half():
 
 
 def test_a_sphere_and_a_flat_mirror_across_the_axis_are_joined():
-    sphere = ArcMirror(Scene(), (40.0, 0.0), (1.0, 0.0), -40.0, semi_diameter=20.0, name="S")
+    sphere = CircularArcMirror(Scene(), (40.0, 0.0), (1.0, 0.0), -40.0, semi_diameter=20.0, name="S")
     flat = Mirror(Scene(), {"p1": {"x": -5.0, "y": -3.0}, "p2": {"x": -5.0, "y": 3.0}})
     flat.name = "F"
     cone = Mirror(Scene(), {"p1": {"x": 0.0, "y": 0.0}, "p2": {"x": 10.0, "y": 5.0}})     # from the axis, slanted
@@ -327,7 +327,7 @@ def test_a_sphere_and_a_flat_mirror_across_the_axis_are_joined():
     cone_image.name = "C_far"
     s, f, c, c_image = mirrors_from_sheet_profile(Scene(), _exported_sheet([sphere, flat, cone, cone_image], (0.0, 0.0),
                                                                   (1.0, 0.0)))
-    assert type(s) is ArcMirror and s.extent == pytest.approx((-20.0, 20.0)) and s.center == pytest.approx((0.0, 0.0))
+    assert type(s) is CircularArcMirror and s.extent == pytest.approx((-20.0, 20.0)) and s.center == pytest.approx((0.0, 0.0))
     assert sorted((f.p1["y"], f.p2["y"])) == pytest.approx([-3.0, 3.0]) and f.name == "F"
     assert {(c.p2["y"]), (c_image.p2["y"])} == {5.0, -5.0} and c.name == c_image.name == "C"
 

@@ -100,7 +100,7 @@ way round.
 | **KD5** | [correctness_is_checked_against_an_external_number](KD5_correctness_is_checked_against_an_external_number.md) | A published table, or a recorded anomaly — never a case built to pass. |
 | **KD6** | [three_doc_trees_current_state_reasoning_and_decisions](KD6_three_doc_trees_current_state_reasoning_and_decisions.md) | Current state, reasoning, decisions. Different staleness, different trees. |
 | **KD7** | [human_agent_and_tools_share_one_live_kernel](KD7_human_agent_and_tools_share_one_live_kernel.md) | Which is why the tool host runs inside that process, not beside it. |
-| **KD8** | [parameter_sweeps_run_as_disposable_headless_notebooks](KD8_parameter_sweeps_run_as_disposable_headless_notebooks.md) | The same notebook a human reads, run without one. |
+| **KD8** | [parameter_sweeps_run_as_disposable_headless_notebooks](KD8_parameter_sweeps_run_as_disposable_headless_notebooks.md) | The same notebook a human reads, run without one (papermill); a scene's parameter swept as a flow, a dependent loop as a script. |
 | **KD9** | [transcribed_book_chapters_never_leave_the_private_repo](KD9_transcribed_book_chapters_never_leave_the_private_repo.md) | The reasoning derived from a source ships; the source text does not. |
 | **KD10** | [classification_runs_as_a_state_machine_with_one_fixed_diagram](KD10_classification_runs_as_a_state_machine_with_one_fixed_diagram.md) | A diagram that varies with its input is a diagram nobody can check. |
 | **KD11** | [component_boundaries_carry_assume_guarantee_contracts](KD11_component_boundaries_carry_assume_guarantee_contracts.md) | An obligation needs a named holder; a violation needs a named failure. |

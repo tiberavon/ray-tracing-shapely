@@ -77,7 +77,7 @@ contract whose `provides` names a person rather than a module.
 
 - Scene-object names are stable across the runs you intend to compare
   (`C-LABEL-01`).
-- `Beam.emis_angle` is a full divergence angle, not a half-angle and not an
+- `Beam.emisAngle` is a full divergence angle, not a half-angle and not an
   incidence angle (`C-BEAM-01`).
 - Which parameters are physical and which are numerical is your declaration,
   not something the code can infer (`C-RUN-02`).

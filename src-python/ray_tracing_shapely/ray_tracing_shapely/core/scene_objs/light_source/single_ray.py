@@ -65,6 +65,12 @@ class SingleRay(BaseSceneObj):
         'wavelength': GREEN_WAVELENGTH
     }
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream SingleRay: source and direction points, brightness, wavelength."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [e('p1', 'point', 'Source point'), e('p2', 'point', 'Direction point'),
+                e('brightness', 'number', 'Brightness'), e('wavelength', 'number', 'Wavelength', unit='nm')]
     def populate_obj_bar(self, obj_bar):
         """
         Populate the object bar with single ray controls.

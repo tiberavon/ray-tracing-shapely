@@ -80,6 +80,13 @@ agentic = [
     "mcp>=1.2,<2",
 ]
 
+# A flow as a form in a notebook cell (flows.widget): anywidget, on ipywidgets,
+# imported only when a form is made. Checked on anywidget 0.11.
+widgets = [
+    "ray-tracing-shapely[flows]",
+    "anywidget>=0.9",
+]
+
 # Jobs on Modal (flows.modal_executor): the client is imported only when a
 # ModalExecutor is made, so the rest of flows runs without it. Written and
 # checked against the 1.6 client.
@@ -92,18 +99,20 @@ modal = [
 notebook = [
     "jupyterlab",
     "papermill",
+    "matplotlib",
 ]
 
 all = [
-    "ray-tracing-shapely[radiometry,flows,eye-safety,agentic,notebook,modal]",
+    "ray-tracing-shapely[radiometry,flows,eye-safety,agentic,notebook,modal,widgets]",
 ]
 
 # What CI installs to run the suite. Deliberately narrower than `dev`:
-# the tests need pint (radiometry) and transitions with graphviz (the
-# classification flows), and no test imports jupyterlab or papermill, which
+# the tests need pint (radiometry), transitions with graphviz (the
+# classification flows) and anywidget (the flow form), and no test imports
+# jupyterlab or papermill, which
 # `all` would drag in on every matrix job.
 test = [
-    "ray-tracing-shapely[radiometry,flows,eye-safety,agentic]",
+    "ray-tracing-shapely[radiometry,flows,eye-safety,agentic,widgets]",
     "pytest>=7.0.0",
 ]
 

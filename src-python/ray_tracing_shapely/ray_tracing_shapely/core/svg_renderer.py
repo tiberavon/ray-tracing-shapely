@@ -1584,7 +1584,7 @@ class SVGRenderer:
                                     label=display_name, scene_obj=obj,
                                     label_font_size=object_label_font_size)
                 # Curved objects that draw themselves as a sampled curve
-                # (ConicMirror, ArcMirror): an open polyline
+                # (ConicMirror, CircularArcMirror): an open polyline
                 elif callable(getattr(obj, 'sample_points', None)):
                     display_name = getattr(obj, 'get_display_name', lambda: None)() if draw_obj_labels else None
                     self.draw_polyline(obj.sample_points(),

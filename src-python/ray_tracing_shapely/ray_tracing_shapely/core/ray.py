@@ -114,6 +114,7 @@ class Ray:
         self.gap: bool = False
         self.is_new: bool = True
         self.body_merging_obj: Optional[Any] = None  # Reserved for Phase 2.5 surface merging
+        self.depth: int = 0  # interactions so far (upstream's ray depth; Scene.max_ray_depth)
         # =====================================================================
         # PYTHON-SPECIFIC FEATURE: TIR (Total Internal Reflection) Tracking
         # =====================================================================
@@ -210,6 +211,7 @@ class Ray:
         new_ray.gap = self.gap
         new_ray.is_new = self.is_new
         new_ray.body_merging_obj = self.body_merging_obj
+        new_ray.depth = self.depth
         # PYTHON-SPECIFIC: Copy TIR tracking attributes
         new_ray.is_tir_result = self.is_tir_result
         new_ray.caused_tir = False  # Don't copy - caused_tir is position-specific, set by simulator

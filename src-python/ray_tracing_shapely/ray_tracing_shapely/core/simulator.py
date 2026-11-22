@@ -60,6 +60,12 @@ class Simulator:
 
     MIN_RAY_SEGMENT_LENGTH = 1e-6  # Minimum length to consider valid intersection
     UNDEFINED_BEHAVIOR_THRESHOLD = 10  # Maximum undefined behaviors before warning
+    # PYTHON-SPECIFIC (C-CORE-03): the dimmest new ray the queue keeps, by default, when
+    # the scene's own threshold is not finer. The JavaScript simulator queues whatever an
+    # object returns and leaves filtering to the object; this floor is a safety net for
+    # objects that do not filter (a mirror, a detector, a filter), so near-dark rays do not
+    # fill the queue. It never drops a ray the scene's threshold keeps: see new_ray_floor.
+    NEW_RAY_FLOOR = 1e-6
 
     def __init__(
         self,
@@ -67,6 +73,7 @@ class Simulator:
         max_rays: int = 10000,
         verbose: int = 0,
         record_surface_hits: bool = False,
+        new_ray_floor: Optional[float] = None,
     ) -> None:
         """
         Initialize the simulator.
@@ -83,11 +90,22 @@ class Simulator:
                 angle of incidence onto the incident ray segment
                 (Ray.hit_point / hit_normal / incident_angle / hit_surface_uuid).
                 Default False keeps large runs free of the per-segment cost.
+            new_ray_floor (float or None): PYTHON-SPECIFIC (C-CORE-03). A new ray
+                whose total brightness is not above this is not queued, whatever
+                object produced it. None (default): the smaller of NEW_RAY_FLOOR
+                (1e-6) and the scene's threshold (scene.get_min_brightness_threshold()),
+                read when the run starts, so a scene asking for a finer threshold
+                (min_brightness_exp above 6) is traced to it. 0 queues every ray
+                with any brightness.
         """
         self.scene: 'Scene' = scene
         self.max_rays: int = max_rays
         self.verbose: int = verbose
         self.record_surface_hits: bool = record_surface_hits
+        if new_ray_floor is not None and not new_ray_floor >= 0:
+            raise ValueError(f"new_ray_floor must be >= 0 or None, got {new_ray_floor!r}")
+        self.new_ray_floor: Optional[float] = new_ray_floor
+        self._floor: float = self.NEW_RAY_FLOOR
         self.pending_rays: List[Ray] = []
         self.processed_ray_count: int = 0
         self.ray_segments: List[Ray] = []
@@ -325,7 +343,7 @@ class Simulator:
         requires the forward pass to have already run and populated
         ``self.lineage``); pass ``central_direction`` to override.
         """
-        from .scene_objs.light_source.backward_detector_source import (
+        from ..analysis.backward_detector_source import (
             BackwardDetectorSource,
             backward_central_direction,
         )
@@ -405,6 +423,13 @@ class Simulator:
     # END PYTHON-SPECIFIC FEATURE
     # =========================================================================
 
+    def effective_new_ray_floor(self) -> float:
+        """PYTHON-SPECIFIC (C-CORE-03): the floor a run applies to new rays: ``new_ray_floor``
+        if given, else the smaller of `NEW_RAY_FLOOR` and the scene's threshold."""
+        if self.new_ray_floor is not None:
+            return self.new_ray_floor
+        return min(self.NEW_RAY_FLOOR, self.scene.get_min_brightness_threshold())
+
     def _process_rays(self) -> None:
         """
         Process all rays in the pending queue.
@@ -419,8 +444,38 @@ class Simulator:
         Surface merging is implemented: when multiple objects overlap at the same point,
         they are merged according to the surface merging rules.
         """
-        while self.pending_rays and self.processed_ray_count < self.max_rays:
-            ray: Ray = self.pending_rays.pop(0)  # FIFO queue
+        self._floor = self.effective_new_ray_floor()
+        max_depth = self.scene.max_ray_depth
+        # The queue is upstream's (Simulator.processRays): an array of slots,
+        # walked in passes. A ray that goes on after an interaction keeps its
+        # slot and is met again in the next pass; a ray an interaction spawns
+        # is appended, and met later in the same pass. The slot is the
+        # `ray_index` objects receive, which decides which weak rays the glass
+        # keeps by sampling; and a ray whose object differs from the previous
+        # ray's is marked `gap`, which exempts it from that sampling. Both
+        # depend on this order, so it is upstream's.
+        slots: List[Optional[Ray]] = list(self.pending_rays)
+        self.pending_rays = slots
+        index, left, last_hit = -1, 0, None
+        while self.processed_ray_count < self.max_rays:
+            index += 1
+            if index >= len(slots):
+                if left == 0:
+                    break
+                index, left, last_hit = -1, 0, None      # the next pass
+                continue
+            ray = slots[index]
+            if ray is None:
+                continue
+            slots[index] = None          # until the ray, or what goes on from it, is put back
+
+            def _place(new_ray: Ray, goes_on: bool) -> None:
+                # The ray that goes on from this one takes its slot; any other is appended.
+                if goes_on and slots[index] is None:
+                    slots[index] = new_ray
+                else:
+                    slots.append(new_ray)
+
             ray.is_new = False
 
             if self.verbose >= 1:
@@ -449,6 +504,10 @@ class Simulator:
             intersection_info: Optional[Dict[str, Any]] = self._find_nearest_intersection(ray)
             if self.verbose >= 1:
                 print(f"  Intersection found: {intersection_info is not None}")
+            hit = intersection_info['obj'] if intersection_info is not None else None
+            if hit is not last_hit:
+                ray.gap = True                  # upstream: last_s_obj_index != s_obj_index
+            last_hit = hit
 
             if intersection_info is None:
                 # No intersection - ray continues to p2 (already extended above)
@@ -477,6 +536,14 @@ class Simulator:
                 self.ray_segments.append(ray)
                 self.lineage.register(ray)
 
+                # Ray depth (upstream's maxRayDepth): this interaction is the ray's
+                # depth + 1, and the rays it spawns inherit that depth. Past the
+                # scene's limit the ray ends here, its segment drawn up to the object.
+                incident_depth = ray.depth + 1
+                if incident_depth > max_depth:
+                    self.processed_ray_count += 1
+                    continue
+
                 # Let the object handle the incident ray
                 if hasattr(obj, 'on_ray_incident'):
                     # IMPORTANT: Pass the ORIGINAL ray to on_ray_incident, not a modified one!
@@ -495,6 +562,7 @@ class Simulator:
                     output_ray_geom.brightness_s = ray.brightness_s
                     output_ray_geom.brightness_p = ray.brightness_p
                     output_ray_geom.wavelength = ray.wavelength
+                    output_ray_geom.gap = ray.gap
                     # =====================================================================
                     # PYTHON-SPECIFIC FEATURE: Optical Path Length (P-RAY-LINEAGE --
                     # dev_doc/architecture/components/core_simulator.md)
@@ -550,7 +618,7 @@ class Simulator:
                     # Pass surface_merging_objs and verbose flag to on_ray_incident
                     result = obj.on_ray_incident(
                         output_ray_geom,
-                        self.processed_ray_count,
+                        index,
                         incident_point,
                         surface_merging_objs,
                         verbose=self.verbose
@@ -593,8 +661,10 @@ class Simulator:
                             # newRays contains reflected and/or refracted rays,
                             # each tagged with interaction_type by refract()
                             for new_ray_geom in result['newRays']:
+                                # upstream refracts the ray in place: the refracted one goes on
+                                goes_on = getattr(new_ray_geom, 'interaction_type', None) == 'refract'
                                 new_ray = self._dict_to_ray(new_ray_geom)
-                                if new_ray and new_ray.total_brightness > 1e-6:
+                                if new_ray and new_ray.total_brightness > self._floor:
                                     # PYTHON-SPECIFIC: Propagate tir_count to new rays
                                     new_ray.tir_count = getattr(ray, 'tir_count', 0)
                                     # PYTHON-SPECIFIC: Propagate medium_index (P-RAY-LINEAGE)
@@ -604,12 +674,14 @@ class Simulator:
                                     new_ray.parent_uuid = ray.uuid
                                     new_ray.source_uuid = ray.source_uuid      # PYTHON-SPECIFIC: the emitter, inherited
                                     new_ray.source_label = ray.source_label
-                                    self.pending_rays.append(new_ray)
+                                    new_ray.depth = incident_depth
+                                    _place(new_ray, goes_on)
                         elif isinstance(result, list):
                             # Multiple output rays (e.g., beam splitter)
                             for new_ray_geom in result:
+                                goes_on = False
                                 new_ray = self._dict_to_ray(new_ray_geom)
-                                if new_ray and new_ray.total_brightness > 1e-6:
+                                if new_ray and new_ray.total_brightness > self._floor:
                                     # PYTHON-SPECIFIC: Propagate tir_count to new rays
                                     new_ray.tir_count = getattr(ray, 'tir_count', 0)
                                     # PYTHON-SPECIFIC: Propagate medium_index (P-RAY-LINEAGE)
@@ -619,11 +691,13 @@ class Simulator:
                                     new_ray.parent_uuid = ray.uuid
                                     new_ray.source_uuid = ray.source_uuid      # PYTHON-SPECIFIC: the emitter, inherited
                                     new_ray.source_label = ray.source_label
-                                    self.pending_rays.append(new_ray)
+                                    new_ray.depth = incident_depth
+                                    _place(new_ray, goes_on)
                         else:
                             # Single output ray
+                            goes_on = True
                             new_ray = self._dict_to_ray(result)
-                            if new_ray and new_ray.total_brightness > 1e-6:
+                            if new_ray and new_ray.total_brightness > self._floor:
                                 # PYTHON-SPECIFIC: Propagate tir_count to new rays
                                 new_ray.tir_count = getattr(ray, 'tir_count', 0)
                                 # PYTHON-SPECIFIC: Propagate medium_index (P-RAY-LINEAGE)
@@ -633,12 +707,14 @@ class Simulator:
                                 new_ray.parent_uuid = ray.uuid
                                 new_ray.source_uuid = ray.source_uuid      # PYTHON-SPECIFIC: the emitter, inherited
                                 new_ray.source_label = ray.source_label
-                                self.pending_rays.append(new_ray)
+                                new_ray.depth = incident_depth
+                                _place(new_ray, goes_on)
                     else:
                         # Object modified the ray in-place (TIR or other in-place modification)
                         # Convert back to Ray
+                        goes_on = True
                         new_ray = self._dict_to_ray(output_ray_geom)
-                        if new_ray and new_ray.total_brightness > 1e-6:
+                        if new_ray and new_ray.total_brightness > self._floor:
                             # =====================================================================
                             # PYTHON-SPECIFIC FEATURE: TIR Tracking
                             # =====================================================================
@@ -664,10 +740,16 @@ class Simulator:
                             new_ray.parent_uuid = ray.uuid
                             new_ray.source_uuid = ray.source_uuid      # PYTHON-SPECIFIC: the emitter, inherited
                             new_ray.source_label = ray.source_label
-                            self.pending_rays.append(new_ray)
+                            new_ray.depth = incident_depth
+                            _place(new_ray, goes_on)
                     # If brightness is zero or None returned, ray is absorbed
 
+            if slots[index] is not None:
+                left += 1
             self.processed_ray_count += 1
+
+        # What is left if max_rays stopped the run, in upstream's order.
+        self.pending_rays = [r for r in slots if r is not None]
 
     def _find_nearest_intersection(self, ray: Ray) -> Optional[Dict[str, Any]]:
         """

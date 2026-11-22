@@ -102,6 +102,8 @@ register_flow_kind("rayfile_slicing",
                    "ray_tracing_shapely.optical_elements.sources.rayfile_slicing_flow:RayfileSlicingFlow")
 register_flow_kind("targeted_resimulation",
                    "ray_tracing_shapely.analysis.targeted_resimulation_flow:TargetedResimulationFlow")
+register_flow_kind("parameter_study",
+                   "ray_tracing_shapely.analysis.parameter_study_flow:ParameterStudyFlow")
 register_flow_kind("iec62471_intake",
                    "ray_tracing_shapely.optical_elements.eye_safety_classification_flow:IEC62471IntakeFlow",
                    dirs={"classification_base_dir": "iec62471_classification"})

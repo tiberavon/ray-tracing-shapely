@@ -41,17 +41,21 @@ class Detector(LineObjMixin, BaseSceneObj):
     Attributes:
         p1 (dict): The first endpoint of the line segment {'x': float, 'y': float}
         p2 (dict): The second endpoint of the line segment {'x': float, 'y': float}
-        irrad_map (bool): Whether to display the irradiance map
-        bin_size (float): The size of each bin for the irradiance map
-        absorbing_side (int): PYTHON-SPECIFIC (C-DET-01). +1 or -1, matching
-            the `sign` convention below: which crossing direction this
-            detector absorbs. Default +1. Ignored when two_sided=True.
-        two_sided (bool): PYTHON-SPECIFIC (C-DET-01). If True, restores the
-            original signed-net-flux behaviour (both crossing directions
-            absorbed, can partially cancel). Default False -- a real
-            photodiode absorbs its front face only.
-        power (float): The measured power through the detector (absorbed
-            crossings only, unless two_sided)
+        irradMap (bool): Whether to display the irradiance map
+        binSize (float): The size of each bin for the irradiance map
+        twoSided (bool): Whether crossings in both directions count (C-DET-01).
+            Default True, as upstream's: `power` is the signed net flux, light
+            crossing left to right of p1->p2 positive, the other way negative.
+            False: only rays arriving from the front (`absorbingSide`) meet
+            the detector; a ray from the back passes as if it were not there.
+        absorbingSide (int): PYTHON-SPECIFIC (C-DET-01). +1 or -1, matching
+            the `sign` convention below: the front of a one-sided detector.
+            Default +1, upstream's only front; -1 is upstream's detector
+            drawn the other way. Ignored when twoSided.
+        power (float): The measured signed power through the detector
+        (irrad_map, bin_size, two_sided and absorbing_side are the old names
+        of these four keys; they still load, with a DeprecationWarning, and
+        still work as attributes.)
         normal (float): The measured normal force through the detector
         shear (float): The measured shear force through the detector
         bin_data (list): The measured data for each bin in the irradiance map
@@ -69,21 +73,26 @@ class Detector(LineObjMixin, BaseSceneObj):
     serializable_defaults = {
         'p1': None,
         'p2': None,
-        'irrad_map': False,
-        'bin_size': 1.0,
-        # PYTHON-SPECIFIC (C-DET-01): one-sided absorbing semantics. A real
-        # photodiode absorbs light incident on its front face only; by
-        # default this detector now does the same. absorbing_side selects
-        # which crossing direction (+1 or -1, matching the existing `sign`
-        # convention below) is the "front"; two_sided=True restores the
-        # original signed-net-flux behaviour for callers who genuinely
-        # want it (e.g. reproducing a pre-fix fixture). See C-DET-01
-        # (dev_doc/architecture/contracts/C-DET-01.md), "If A is violated",
-        # for the anomaly this default fixes.
-        'absorbing_side': 1,
-        'two_sided': False,
+        'irradMap': False,
+        'binSize': 1.0,
+        # absorbingSide is PYTHON-SPECIFIC; twoSided is upstream's, with its
+        # default (C-DET-01). A sensor's absorbed power is Photodetector.
+        'absorbingSide': 1,
+        'twoSided': True,
     }
+    legacy_keys = {'irrad_map': 'irradMap', 'bin_size': 'binSize',
+                   'two_sided': 'twoSided', 'absorbing_side': 'absorbingSide'}
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream Detector: the endpoints, two-sided, irradiance map, bin size; and PYTHON-SPECIFIC the front side."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [*super().property_schema(obj_data, scene),
+                e('twoSided', 'boolean', 'Two-sided'),
+                e('irradMap', 'boolean', 'Irradiance Map'), e('binSize', 'number', 'Bin Size'),
+                e('absorbingSide', 'dropdown', 'Front side', python_only=True,
+                  options={1: 'Left of p1 → p2 (+1)', -1: 'Right of p1 → p2 (−1)'},
+                  info='Which crossing a one-sided detector counts; ignored when two-sided.')]
     def __init__(self, scene, json_obj: Optional[Dict[str, Any]] = None):
         """
         Initialize the detector.
@@ -114,9 +123,9 @@ class Detector(LineObjMixin, BaseSceneObj):
     @property
     def bin_count(self) -> int:
         """Calculate the number of bins for the irradiance map."""
-        if self.bin_size <= 0:
+        if self.binSize <= 0:
             return 0
-        return math.ceil(self.length / self.bin_size)
+        return math.ceil(self.length / self.binSize)
 
     def scale(self, scale: float, center=None) -> bool:
         """
@@ -147,7 +156,7 @@ class Detector(LineObjMixin, BaseSceneObj):
         self.shear = 0.0
         self.hit_records = []
 
-        if self.irrad_map:
+        if self.irradMap:
             bin_num = self.bin_count
             self.bin_data = [0.0] * bin_num
         else:
@@ -163,7 +172,21 @@ class Detector(LineObjMixin, BaseSceneObj):
         Returns:
             The intersection point if they intersect, None otherwise.
         """
+        # One-sided (upstream's twoSided: false): a ray arriving from the back
+        # does not meet the detector at all, so its segment is not split there.
+        if not self.twoSided:
+            rcrosss = ((ray.p2['x'] - ray.p1['x']) * (self.p2['y'] - self.p1['y'])
+                       - (ray.p2['y'] - ray.p1['y']) * (self.p2['x'] - self.p1['x']))
+            if rcrosss * self.absorbingSide <= 0:
+                return None
         return self.check_ray_intersects_shape(ray)
+
+    def _counted(self, sign: int) -> int:
+        """PYTHON-SPECIFIC (C-DET-01): the sign a counted crossing adds to `power` and the
+        bins. Here the crossing's own direction, so `power` is a signed flux: positive
+        for light crossing left to right of p1->p2, negative the other way. A subclass
+        that reads absorbed power (`Photodetector`) counts every crossing as +1."""
+        return sign
 
     def on_ray_incident(
         self,
@@ -187,17 +210,15 @@ class Detector(LineObjMixin, BaseSceneObj):
         where sign is +1 if ray crosses from left to right (relative to p1->p2),
         -1 otherwise, and theta is the angle between the ray and the detector.
 
-        PYTHON-SPECIFIC (C-DET-01): one-sided absorbing semantics. By default
-        (two_sided=False), only crossings where sign == absorbing_side are
-        absorbed -- i.e. accumulated into power/normal/shear/bin_data and
-        recorded in hit_records -- matching a real photodiode, which
-        responds to light on its front face only. A crossing from the
-        non-absorbing side leaves every measurement untouched. Set
-        two_sided=True to restore the previous signed-net-flux behaviour
-        (both directions accumulate, and can partially cancel). The ray's
-        own propagation is unaffected either way -- see below, a detector
-        is a non-invasive probe in this simulator regardless of which side
-        is absorbing.
+        C-DET-01: by default (twoSided) every crossing counts with its sign, so
+        `power` is the net flux, and light going both ways partly cancels: the
+        detector is a flux probe. One-sided (twoSided=False), only rays from the
+        front (sign == absorbingSide) reach this method at all, as upstream's
+        (`check_ray_intersects` refuses the others); `power` keeps their sign,
+        so a detector whose front is its -1 side reads negative. A sensor
+        reading absorbed power is `Photodetector`, built on this class. The
+        ray's own propagation is unaffected either way: a detector is a
+        non-invasive probe (C-CORE-02).
 
         Also appends one entry to hit_records with the ray's wavelength and
         its angle of incidence relative to the detector's normal (radians,
@@ -252,26 +273,26 @@ class Detector(LineObjMixin, BaseSceneObj):
 
         # One-sided absorption gate (C-DET-01): a crossing is absorbed if
         # this detector is two-sided, or it came from the declared front.
-        absorbed = self.two_sided or sign == self.absorbing_side
+        absorbed = self.twoSided or sign == self.absorbingSide
 
         # Distance from p1 to incident point (along the detector), used both for
         # the irradiance bin and the lineage hit record.
         dist_x = incident_point['x'] - self.p1['x']
         dist_y = incident_point['y'] - self.p1['y']
         dist = math.sqrt(dist_x * dist_x + dist_y * dist_y)
-        bin_index = int(dist / self.bin_size) if self.bin_size > 0 else None
+        bin_index = int(dist / self.binSize) if self.binSize > 0 else None
 
         if absorbed:
             # Update measurements
-            self.power += sign * total_brightness
+            self.power += self._counted(sign) * total_brightness
             self.normal += sign * sint * total_brightness
             self.shear -= sign * cost * total_brightness
 
             # Update irradiance map if enabled
-            if self.irrad_map and self.bin_data is not None:
+            if self.irradMap and self.bin_data is not None:
                 # Make sure index is within bounds
                 if bin_index is not None and 0 <= bin_index < len(self.bin_data):
-                    self.bin_data[bin_index] += sign * total_brightness
+                    self.bin_data[bin_index] += self._counted(sign) * total_brightness
 
             # Record the incident ray's lineage identity so post-hoc analysis
             # can link detector bins back to optical paths. The simulator
@@ -311,8 +332,8 @@ class Detector(LineObjMixin, BaseSceneObj):
         result = []
         for i, power in enumerate(self.bin_data):
             result.append({
-                'position': i * self.bin_size,
-                'irradiance': power / self.bin_size if self.bin_size > 0 else 0
+                'position': i * self.binSize,
+                'irradiance': power / self.binSize if self.binSize > 0 else 0
             })
         return result
 
@@ -381,8 +402,8 @@ class Detector(LineObjMixin, BaseSceneObj):
 
         if self.bin_data is not None:
             for i, power in enumerate(self.bin_data):
-                position = i * self.bin_size
-                irradiance = power / self.bin_size if self.bin_size > 0 else 0
+                position = i * self.binSize
+                irradiance = power / self.binSize if self.binSize > 0 else 0
                 lines.append(f"{position},{irradiance}")
 
         return "\n".join(lines)
@@ -425,8 +446,8 @@ if __name__ == "__main__":
     detector = Detector(scene)
     print(f"  p1: {detector.p1}")
     print(f"  p2: {detector.p2}")
-    print(f"  irrad_map: {detector.irrad_map}")
-    print(f"  bin_size: {detector.bin_size}")
+    print(f"  irradMap: {detector.irradMap}")
+    print(f"  binSize: {detector.binSize}")
     print(f"  power: {detector.power}")
     print(f"  normal: {detector.normal}")
     print(f"  shear: {detector.shear}")
@@ -437,14 +458,14 @@ if __name__ == "__main__":
         'type': 'Detector',
         'p1': {'x': 0, 'y': 0},
         'p2': {'x': 100, 'y': 0},
-        'irrad_map': True,
-        'bin_size': 10.0
+        'irradMap': True,
+        'binSize': 10.0
     }
     detector2 = Detector(scene, json_data)
     print(f"  p1: {detector2.p1}")
     print(f"  p2: {detector2.p2}")
-    print(f"  irrad_map: {detector2.irrad_map}")
-    print(f"  bin_size: {detector2.bin_size}")
+    print(f"  irradMap: {detector2.irradMap}")
+    print(f"  binSize: {detector2.binSize}")
     print(f"  length: {detector2.length}")
     print(f"  bin_count: {detector2.bin_count}")
 
@@ -532,7 +553,7 @@ if __name__ == "__main__":
         'p2': {'x': 50, 'y': 50}
     })
     detector3.on_simulation_start()
-    print(f"  irrad_map: {detector3.irrad_map}")
+    print(f"  irradMap: {detector3.irradMap}")
     print(f"  bin_data: {detector3.bin_data}")
     print(f"  length: {detector3.length:.4f}")
 

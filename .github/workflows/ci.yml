@@ -3,12 +3,14 @@
 # This file is published to the core repository by the sync pipeline, so it
 # runs in two places — here in the private monorepo, and in
 # tiberavon/ray-tracing-shapely. Public repositories get free runner minutes
-# and the private one does not, so the matrix widens only in the public repo;
-# the private repo runs a single version.
+# and the private one does not, so the test matrix and the other platforms run
+# only in the public repo; in the private repo guards.yml runs the suite once.
 #
-# It runs where work is integrated, not on every working push: on pushes to
-# and pull requests into michele_dev and master (the public repository has
-# only master). A machine's own branch (agent-*) is checked at the end of a
+# It runs where work is integrated, not on every working push: on pull
+# requests into michele_dev and master, and on pushes to master (the public
+# repository has only master, and the sync pushes to it). A push to
+# michele_dev is the merge of a pull request already checked, so it is not
+# checked again. A machine's own branch (agent-*) is checked at the end of a
 # sprint, by the pull request that merges it into michele_dev; between
 # times, by hand with `gh workflow run ci.yml --ref <branch>`.
 #
@@ -20,7 +22,7 @@ name: CI
 
 on:
   push:
-    branches: [michele_dev, master]
+    branches: [master]
   pull_request:
     branches: [michele_dev, master]
   workflow_dispatch:
@@ -36,17 +38,19 @@ env:
   PUBLIC_REPO: tiberavon/ray-tracing-shapely
 
 jobs:
+  # Public repository only. In the private repository guards.yml runs the
+  # same suite on the floor version, and running it twice costs minutes for
+  # no information.
   test:
     name: test (${{ matrix.python }})
+    if: github.repository == 'tiberavon/ray-tracing-shapely'
     runs-on: ubuntu-latest
     strategy:
       # One Python failing must not hide the others; that is the only reason
       # for running more than one.
       fail-fast: false
       matrix:
-        # The expression must stay on one line: a newline inside ${{ }} is
-        # not reliably parsed. Public repo -> three versions, private -> one.
-        python: ${{ fromJSON(github.repository == 'tiberavon/ray-tracing-shapely' && '["3.11","3.12","3.13"]' || '["3.11"]') }}
+        python: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

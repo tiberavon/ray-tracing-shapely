@@ -40,7 +40,7 @@ class Beam(BaseSceneObj):
         p2: The second endpoint of the segment perpendicular to the beam (dict with 'x', 'y').
         brightness: The brightness of the beam (ray density).
         wavelength: The wavelength of the beam in nm (only used when "Simulate Colors" is enabled).
-        emis_angle: The angle of divergence in degrees (0 = parallel beam).
+        emisAngle: The angle of divergence in degrees (0 = parallel beam).
         lambert: Whether the beam is Lambertian (cosine intensity distribution).
         random: Whether the beam uses random ray positioning.
         random_numbers: Random numbers used for random beam (cached for consistency).
@@ -49,12 +49,12 @@ class Beam(BaseSceneObj):
         Beams are useful for:
         - Simulating collimated light (laser beams, sunlight, etc.)
         - Testing optical systems with parallel light
-        - Creating divergent beams with emis_angle > 0
+        - Creating divergent beams with emisAngle > 0
         - Lambertian sources (cosine distribution) with lambert=True
 
     Notes:
         - Beam direction is perpendicular to the line segment (p1, p2)
-        - emis_angle controls beam divergence (0° = parallel, 180° = full hemisphere)
+        - emisAngle controls beam divergence (0° = parallel, 180° = full hemisphere)
         - lambert mode applies cosine weighting to ray brightness (useful for LED simulations)
         - random mode distributes rays randomly instead of uniformly
         - In images/observer mode, divergent/random beams may cause detection issues
@@ -67,11 +67,21 @@ class Beam(BaseSceneObj):
         'p2': None,
         'brightness': 0.5,
         'wavelength': GREEN_WAVELENGTH,
-        'emis_angle': 0.0,
+        'emisAngle': 0.0,
         'lambert': False,
         'random': False
     }
+    legacy_keys = {'emis_angle': 'emisAngle'}
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream Beam: the endpoints, brightness, wavelength, emission angle, Lambertian, random."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        # upstream's Beam is LineObjMixin(BaseSceneObj): its endpoints come first
+        return [e('p1', 'point', '1st endpoint'), e('p2', 'point', '2nd endpoint'),
+                e('brightness', 'number', 'Brightness'), e('wavelength', 'number', 'Wavelength', unit='nm'),
+                e('emisAngle', 'number', 'Emission Angle', unit='°'),
+                e('lambert', 'boolean', 'Lambertian'), e('random', 'boolean', 'Random')]
     def __init__(self, scene, json_obj=None):
         """
         Initialize the beam.
@@ -124,12 +134,12 @@ class Beam(BaseSceneObj):
             )
 
         # Advanced properties
-        if obj_bar.show_advanced(not self.are_properties_default(['emis_angle', 'lambert', 'random'])):
+        if obj_bar.show_advanced(not self.are_properties_default(['emisAngle', 'lambert', 'random'])):
             obj_bar.create_number(
                 'Emission Angle (°)',
                 0, 180, 1,
-                self.emis_angle,
-                lambda obj, value: setattr(obj, 'emis_angle', value),
+                self.emisAngle,
+                lambda obj, value: setattr(obj, 'emisAngle', value),
                 'Angle of beam divergence (0° = parallel beam)'
             )
 
@@ -325,25 +335,25 @@ class Beam(BaseSceneObj):
                 - warning: Optional warning message (for image detection mode with divergence)
 
         Raises:
-            ValueError: If emis_angle is negative. C-BEAM-01
-                (dev_doc/architecture/contracts/C-BEAM-01.md): emis_angle is
+            ValueError: If emisAngle is negative. C-BEAM-01
+                (dev_doc/architecture/contracts/C-BEAM-01.md): emisAngle is
                 a full divergence angle and must be non-negative. Left
                 unguarded, a negative value drives num_angled_rays negative
                 below, silently flipping the sign of every emitted ray's
                 brightness -- this was previously this contract's one
                 confirmed-live, still-open defect.
         """
-        if self.emis_angle < 0:
+        if self.emisAngle < 0:
             raise ValueError(
-                f"Beam.emis_angle must be non-negative (it is a full "
+                f"Beam.emisAngle must be non-negative (it is a full "
                 f"divergence angle in degrees, not a signed rotation), got "
-                f"{self.emis_angle}. See C-BEAM-01."
+                f"{self.emisAngle}. See C-BEAM-01."
             )
 
         # Check for image detection warning
         if (hasattr(self.scene, 'mode') and
             (self.scene.mode == 'images' or self.scene.mode == 'observer') and
-            (self.emis_angle > 0 or self.random)):
+            (self.emisAngle > 0 or self.random)):
             self.warning = 'Beam with divergence or randomness may cause issues in image detection mode'
         else:
             self.warning = None
@@ -372,7 +382,7 @@ class Beam(BaseSceneObj):
             normal = math.atan2(step_x, step_y) + math.pi / 2.0
 
             # Calculate number of angled rays
-            half_angle = self.emis_angle / 180.0 * math.pi * 0.5
+            half_angle = self.emisAngle / 180.0 * math.pi * 0.5
             num_angled_rays = 1.0 + math.floor(half_angle / s) * 2.0
             ray_brightness = 1.0 / num_angled_rays
 
@@ -582,21 +592,21 @@ if __name__ == "__main__":
             return (self._rng_counter * 137.5) % 1.0
 
     # Test 1: Parallel beam (no divergence)
-    print("Test 1: Parallel beam (emis_angle = 0°)")
+    print("Test 1: Parallel beam (emisAngle = 0°)")
     scene = MockScene()
     beam = Beam(scene, {
         'p1': {'x': 0, 'y': 0},
         'p2': {'x': 50, 'y': 0},
         'brightness': 0.5,
         'wavelength': GREEN_WAVELENGTH,
-        'emis_angle': 0.0,
+        'emisAngle': 0.0,
         'lambert': False,
         'random': False
     })
 
     print(f"  Beam segment: ({beam.p1['x']}, {beam.p1['y']}) to ({beam.p2['x']}, {beam.p2['y']})")
     print(f"  Brightness: {beam.brightness}")
-    print(f"  Emission angle: {beam.emis_angle}°")
+    print(f"  Emission angle: {beam.emisAngle}°")
 
     result = beam.on_simulation_start()
     print(f"  Rays generated: {len(result['newRays'])}")
@@ -608,19 +618,19 @@ if __name__ == "__main__":
         print(f"  First ray brightness: {total_brightness:.4f} (s={ray.brightness_s:.4f}, p={ray.brightness_p:.4f})")
 
     # Test 2: Divergent beam
-    print("\nTest 2: Divergent beam (emis_angle = 30°)")
+    print("\nTest 2: Divergent beam (emisAngle = 30°)")
     beam_div = Beam(scene, {
         'p1': {'x': 0, 'y': 0},
         'p2': {'x': 10, 'y': 0},
         'brightness': 0.5,
         'wavelength': GREEN_WAVELENGTH,
-        'emis_angle': 30.0,
+        'emisAngle': 30.0,
         'lambert': False,
         'random': False
     })
 
     print(f"  Beam segment: ({beam_div.p1['x']}, {beam_div.p1['y']}) to ({beam_div.p2['x']}, {beam_div.p2['y']})")
-    print(f"  Emission angle: {beam_div.emis_angle}°")
+    print(f"  Emission angle: {beam_div.emisAngle}°")
 
     result_div = beam_div.on_simulation_start()
     print(f"  Rays generated: {len(result_div['newRays'])}")
@@ -634,13 +644,13 @@ if __name__ == "__main__":
         'p2': {'x': 10, 'y': 0},
         'brightness': 0.5,
         'wavelength': GREEN_WAVELENGTH,
-        'emis_angle': 30.0,
+        'emisAngle': 30.0,
         'lambert': True,
         'random': False
     })
 
     print(f"  Lambert mode: {beam_lambert.lambert}")
-    print(f"  Emission angle: {beam_lambert.emis_angle}°")
+    print(f"  Emission angle: {beam_lambert.emisAngle}°")
 
     result_lambert = beam_lambert.on_simulation_start()
     print(f"  Rays generated: {len(result_lambert['newRays'])}")
@@ -660,13 +670,13 @@ if __name__ == "__main__":
         'p2': {'x': 10, 'y': 0},
         'brightness': 0.5,
         'wavelength': GREEN_WAVELENGTH,
-        'emis_angle': 20.0,
+        'emisAngle': 20.0,
         'lambert': False,
         'random': True
     })
 
     print(f"  Random mode: {beam_random.random}")
-    print(f"  Emission angle: {beam_random.emis_angle}°")
+    print(f"  Emission angle: {beam_random.emisAngle}°")
 
     result_random = beam_random.on_simulation_start()
     print(f"  Rays generated: {len(result_random['newRays'])}")
@@ -681,7 +691,7 @@ if __name__ == "__main__":
         'p2': {'x': 5, 'y': 0},
         'brightness': 0.3,
         'wavelength': 650,  # Red
-        'emis_angle': 0.0,
+        'emisAngle': 0.0,
         'lambert': False,
         'random': False
     })
@@ -730,7 +740,7 @@ if __name__ == "__main__":
         'p1': {'x': 0, 'y': 0},
         'p2': {'x': 10, 'y': 0},
         'brightness': 0.5,
-        'emis_angle': 20.0
+        'emisAngle': 20.0
     })
 
     result_warning = beam_warning.on_simulation_start()

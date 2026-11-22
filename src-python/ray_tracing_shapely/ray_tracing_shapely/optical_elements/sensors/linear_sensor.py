@@ -150,8 +150,9 @@ class LinearSensor:
             'type': 'Detector',
             'p1': detector_start,
             'p2': detector_end,
-            'irrad_map': True,
-            'bin_size': pixel_pitch,
+            'irradMap': True,
+            'binSize': pixel_pitch,
+            'twoSided': False,      # a sensor: its front face only (C-DET-01)
         })
         self._detector._name = f'{name}_detector'
         scene.add_object(self._detector)

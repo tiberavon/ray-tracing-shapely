@@ -53,6 +53,13 @@ class BaseFilter(BaseSceneObj):
     For now, they serve as documentation of what properties should be exposed to users and how they should be configured.        
     """
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream BaseFilter: the wavelength filter."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [e('filter', 'boolean', 'Filter'), e('invert', 'boolean', 'Invert'),
+                e('wavelength', 'number', 'Wavelength', unit='nm'),
+                e('bandwidth', 'number', 'Bandwidth', unit='nm')]
     def populate_obj_bar(self, obj_bar):
         """
         Populate the object bar with filter-related UI controls.

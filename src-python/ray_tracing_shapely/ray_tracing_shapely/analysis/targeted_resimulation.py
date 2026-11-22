@@ -133,7 +133,7 @@ def targeted_source_for_path(
         'p2': dict(root_ray.p2),
         'brightness': brightness if brightness is not None else original_source.brightness,
         'wavelength': original_source.wavelength,
-        'emis_angle': 2.0 * cone_half_angle_deg,
+        'emisAngle': 2.0 * cone_half_angle_deg,
         'symmetric': True,
     })
     targeted.name = f"{original_source.get_display_name()}_targeted"

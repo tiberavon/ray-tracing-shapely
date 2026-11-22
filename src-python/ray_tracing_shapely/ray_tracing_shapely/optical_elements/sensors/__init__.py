@@ -31,5 +31,6 @@ scene objects.
 """
 
 from .linear_sensor import LinearSensor
+from .photodetector import Photodetector
 
-__all__ = ['LinearSensor']
+__all__ = ['LinearSensor', 'Photodetector']

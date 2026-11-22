@@ -26,7 +26,7 @@ flat mirror across it.
 
     line     Mirror, from its two points
     conic    ConicMirror, from its descriptor; the extent from the samples
-    circle   ArcMirror, its vertex on the axis on the samples' side
+    circle   CircularArcMirror, its vertex on the axis on the samples' side
     spline   SplineMirror, through the span's points and their mirror images
 ===============================================================================
 """
@@ -37,7 +37,7 @@ import math
 from typing import Any, List, Mapping, Tuple
 
 from ..roles import Mechanism, Role
-from .conic import ArcMirror, ConicMirror, max_single_valued_s
+from .conic import CircularArcMirror, ConicMirror, max_single_valued_s
 
 XY = Tuple[float, float]
 
@@ -98,7 +98,7 @@ def _curved(scene: Any, span: Mapping[str, Any], pts: List[XY], point: XY, u: XY
         side = sum((p[0] - centre[0]) * u[0] + (p[1] - centre[1]) * u[1] for p in pts)
         side = 1.0 if side >= 0.0 else -1.0
         vertex = (centre[0] + side * r * u[0], centre[1] + side * r * u[1])
-        axis, radius, conic, cls = u, -side * r, 0.0, ArcMirror
+        axis, radius, conic, cls = u, -side * r, 0.0, CircularArcMirror
     length = math.hypot(*axis)
     cross = (axis[0] * u[1] - axis[1] * u[0]) / length
     if abs(_left(vertex, point, u)) > tol or abs(cross) > 1e-12:
@@ -125,8 +125,8 @@ def _curved(scene: Any, span: Mapping[str, Any], pts: List[XY], point: XY, u: XY
 
     def make(extent: Tuple[float, float]) -> Any:
         kwargs = {"extent": extent, "name": label}
-        if cls is ArcMirror:
-            return _labelled(ArcMirror(scene, vertex, axis, radius, **kwargs), span)
+        if cls is CircularArcMirror:
+            return _labelled(CircularArcMirror(scene, vertex, axis, radius, **kwargs), span)
         return _labelled(ConicMirror(scene, vertex, axis, radius, conic, **kwargs), span)
 
     if not far:
@@ -163,7 +163,7 @@ def mirrors_from_sheet_profile(scene: Any, profile: Mapping[str, Any], *, tol: f
     """The 2D mirrors a ``body: "sheet"`` profile is the half-section of.
 
     Each span becomes a ``Mirror`` (a line), a ``ConicMirror`` (a conic), an
-    ``ArcMirror`` (a circle) or a ``SplineMirror`` (a spline), named by its
+    ``CircularArcMirror`` (a circle) or a ``SplineMirror`` (a spline), named by its
     short label, with its role.
     The far side of the axis is rebuilt by mirroring, unless
     ``symmetry.azimuth_deg`` cuts it away (the 3D sheet has nothing there).

@@ -14,13 +14,21 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-Exact curved mirrors: ConicMirror and its circle case ArcMirror, SplineMirror
+Exact curved mirrors: ConicMirror and its circle case CircularArcMirror, SplineMirror
 on a curve through designed points and normals; and the 2D mirrors a sheet
 profile is the half-section of (mirrors_from_sheet_profile).
 """
 
-from .conic import ArcMirror, ConicMirror, conic_sag, max_single_valued_s
+from .conic import CircularArcMirror, ConicMirror, conic_sag, max_single_valued_s
 from .sheet_profile import mirrors_from_sheet_profile
 from .spline import SplineMirror
 
-__all__ = ["ConicMirror", "ArcMirror", "SplineMirror", "conic_sag", "max_single_valued_s", "mirrors_from_sheet_profile"]
+__all__ = ["ConicMirror", "CircularArcMirror", "SplineMirror", "conic_sag", "max_single_valued_s", "mirrors_from_sheet_profile"]
+
+
+def __getattr__(name):
+    if name == "ArcMirror":         # the old name of CircularArcMirror, with a warning
+        from . import conic
+        return conic.__getattr__(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+

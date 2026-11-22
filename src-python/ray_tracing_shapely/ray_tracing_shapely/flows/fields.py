@@ -78,6 +78,28 @@ FIELD_KINDS = {
 }
 
 
+#: How a ``json`` question's answer can be asked as a form, field by field, instead of typed
+#: (`ObservableFlow.question_form`). A form is plain JSON:
+#:
+#: - ``{"kind": "object", "fields": [field, ...]}`` answers an object: each field's value under
+#:   its ``name``, a blank optional field left out;
+#: - either may carry ``prompt``, the question in a form's words, shown instead of the field's
+#:   (which is written for a typed answer);
+#: - ``{"kind": "list", "item": form, "min": 1, "max": 2, "item_label": "axis", "add_label": ...}``
+#:   answers a list of ``item`` answers;
+#: - a field is ``{"name", "label", "kind", "help", "default", "optional"}``, its kind one of
+#:   ``choice`` (``choices``: values, or ``{"value", "label"}``; or ``choices_by``:
+#:   ``{"field": other field, "map": {that field's value: choices}}``, choices that depend on
+#:   another field), ``number``, ``integer``, ``numbers`` (a list of numbers, typed with commas),
+#:   ``text``, ``bool``; ``when``: ``{"field", "is": [values]}`` shows it only then; ``local``:
+#:   true for a field that only shapes the form and is not part of the answer.
+#:
+#: The form is a convenience over the same answer: what it builds is checked by the box as any
+#: typed answer is.
+FORM_KINDS = ("object", "list")
+FORM_FIELD_KINDS = ("choice", "number", "integer", "numbers", "text", "bool")
+
+
 @dataclass(frozen=True)
 class FlowField:
     """A question a flow's box asks, as data: what kind of answer it takes,
@@ -94,6 +116,8 @@ class FlowField:
         unit: The expected unit, for a ``quantity``.
         default: The answer `answer_default` gives, or `REQUIRED`.
         choices: The allowed answers, for a ``choice``.
+        pattern: For a ``path``, the files that fit, as a glob (``"*.scene.json"``):
+            a form offers the matching files it finds, and its browser shows them.
     """
 
     name: str
@@ -104,6 +128,7 @@ class FlowField:
     unit: Optional[str] = None
     default: Any = REQUIRED
     choices: Optional[tuple] = None
+    pattern: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.kind not in FIELD_KINDS:
@@ -157,4 +182,6 @@ class FlowField:
             d["default"] = list(self.default) if isinstance(self.default, tuple) else self.default
         if self.choices is not None:
             d["choices"] = list(self.choices)
+        if self.pattern is not None:
+            d["pattern"] = self.pattern
         return d

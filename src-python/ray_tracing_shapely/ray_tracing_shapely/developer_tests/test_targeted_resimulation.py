@@ -98,8 +98,8 @@ def _build_scene():
         'type': 'Detector',
         'p1': {'x': -30, 'y': -60},
         'p2': {'x': 30, 'y': -60},
-        'irrad_map': True,
-        'bin_size': 2.0,
+        'irradMap': True,
+        'binSize': 2.0,
     })
     det.name = 'det'
     scene.add_object(det)

@@ -79,6 +79,7 @@ pip install "ray-tracing-shapely[flows]"         # observable step-by-step proce
 pip install "ray-tracing-shapely[eye-safety]"    # IEC 60825-1 / IEC 62471
 pip install "ray-tracing-shapely[agentic]"       # the MCP tool surface
 pip install "ray-tracing-shapely[modal]"         # flows' jobs on Modal (the Modal client)
+pip install "ray-tracing-shapely[widgets]"       # a flow as a form in a notebook cell (anywidget)
 pip install "ray-tracing-shapely[notebook]"      # running the example notebooks (jupyterlab, papermill)
 pip install "ray-tracing-shapely[all]"           # everything
 ```
@@ -157,8 +158,8 @@ This project began as a translation of the
 [doi:10.5281/zenodo.6386611](https://doi.org/10.5281/zenodo.6386611)), and has grown a
 great deal of new work on top of it.
 
-Of this distribution's 220 source files, **35 are translations** of
-that project — the ray-tracing engine and its scene objects — and **185
+Of this distribution's 237 source files, **36 are translations** of
+that project — the ray-tracing engine and its scene objects — and **201
 were written for this project**: the analysis layer, the nonimaging design
 methods, the radiometric and photobiological layers, the agentic surface,
 and the tests and examples. Every file says which it is in its own header,

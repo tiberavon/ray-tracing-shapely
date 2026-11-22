@@ -50,6 +50,9 @@ not the engine, is where quantities carry their units and are checked.
 | `optical_elements/physics/photoconversion.py` | Light arriving on a detector becomes current, then voltage. |
 | `optical_elements/physics/photoemission.py`, `liv_curve.py` | A source's emitted power as a function of drive current. |
 | `optical_elements/sensors/linear_sensor.py` | `LinearSensor`: a real linear CCD or CMOS array, built from a `Detector` and a `Blocker`, described by pixel count and pitch. |
+| `optical_elements/sensors/photodetector.py` | `Photodetector`: a `Detector` that reads the light absorbed on its front face, never negative, whichever way its line is drawn; one-sided always (`C-DET-01`). |
+| `optical_elements/curved_glass.py` | `CurvedGlass`: a `Glass` whose path entries may carry a `curve` descriptor (`core/glass_curves.py`), each such edge intersected exactly with its exact normal; saved as type `CurvedGlass`. Every designed element (`BasePrism`) is one. |
+| `optical_elements/ground_glass.py` | `GroundGlass`: a diffusing surface (type `GroundGlass`; `ground_glass` in a version 1.0 scene file). |
 
 ## What it produces
 

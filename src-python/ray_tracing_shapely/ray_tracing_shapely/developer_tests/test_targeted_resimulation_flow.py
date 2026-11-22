@@ -169,7 +169,7 @@ def test_over_a_minute_is_asked_and_false_goes_back(live, tmp_path, monkeypatch)
 def test_the_density_starts_the_rays_asked(run):
     scene = run[0]
     for rays, emis in ((300, 2.0), (1000, 0.5), (7, 40.0)):
-        src = AngleSource(scene, {"p1": {"x": 0, "y": 0}, "p2": {"x": 1, "y": 0}, "emis_angle": emis,
+        src = AngleSource(scene, {"p1": {"x": 0, "y": 0}, "p2": {"x": 1, "y": 0}, "emisAngle": emis,
                                   "symmetric": True, "brightness": 1.0})
         kept = scene.ray_density
         scene.ray_density = density_for(rays, emis)
@@ -226,11 +226,11 @@ def test_two_runs_of_one_scene_keep_their_own_detector_hits(run):
 def _two_source_scene():
     """The slab with a second, wide source beside the first, and a narrow cone in place of the first."""
     scene, source, det = _build_scene()
-    other = AngleSource(scene, {"p1": {"x": 20, "y": 30}, "p2": {"x": 20, "y": 29}, "emis_angle": 60,
+    other = AngleSource(scene, {"p1": {"x": 20, "y": 30}, "p2": {"x": 20, "y": 29}, "emisAngle": 60,
                                 "symmetric": True, "brightness": 1.0})
     other.name = "other"
     scene.add_object(other)
-    narrow = AngleSource(scene, {"p1": dict(source.p1), "p2": dict(source.p2), "emis_angle": 2,
+    narrow = AngleSource(scene, {"p1": dict(source.p1), "p2": dict(source.p2), "emisAngle": 2,
                                  "symmetric": True, "brightness": 1.0})
     narrow.name = "src_targeted"
     return scene, source, other, narrow, det

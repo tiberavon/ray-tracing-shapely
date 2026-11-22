@@ -129,8 +129,8 @@ def test_detector_records_single_hit():
         'type': 'Detector',
         'p1': {'x': 200, 'y': 0},
         'p2': {'x': 200, 'y': 160},
-        'irrad_map': True,
-        'bin_size': 10.0,
+        'irradMap': True,
+        'binSize': 10.0,
     })
     scene.add_object(detector)
 
@@ -162,7 +162,7 @@ def test_detector_never_terminates_ray():
             'type': 'Detector',
             'p1': {'x': 200, 'y': 0},
             'p2': {'x': 200, 'y': 160},
-            'absorbing_side': absorbing_side,
+            'absorbingSide': absorbing_side,
         })
         scene.add_object(detector)
 
@@ -197,8 +197,8 @@ def test_hit_uuid_resolves_in_lineage():
         'type': 'Detector',
         'p1': {'x': 200, 'y': 0},
         'p2': {'x': 200, 'y': 160},
-        'irrad_map': True,
-        'bin_size': 10.0,
+        'irradMap': True,
+        'binSize': 10.0,
     })
     scene.add_object(detector)
 
@@ -219,8 +219,8 @@ def test_hit_records_reset_on_rerun():
         'type': 'Detector',
         'p1': {'x': 200, 'y': 0},
         'p2': {'x': 200, 'y': 160},
-        'irrad_map': True,
-        'bin_size': 10.0,
+        'irradMap': True,
+        'binSize': 10.0,
     })
     scene.add_object(detector)
 
@@ -330,7 +330,7 @@ def test_incident_angle_is_bounded():
         'type': 'Detector',
         'p1': {'x': 200, 'y': 160},  # reversed p1/p2 relative to other tests
         'p2': {'x': 200, 'y': 0},
-        'two_sided': True,
+        'twoSided': True,
     })
     scene.add_object(detector)
 
@@ -344,9 +344,9 @@ def test_incident_angle_is_bounded():
 # 4. One-sided absorbing semantics (C-DET-01)
 # ---------------------------------------------------------------------------
 
-def test_one_sided_absorption_is_default():
-    """A crossing from the non-absorbing side is a complete no-op: no
-    power, no hit record. absorbing_side defaults to +1."""
+def test_a_front_crossing_counts_by_default():
+    """A crossing from the +1 side counts on a default detector (two-sided)
+    and on a one-sided one, whose absorbingSide defaults to +1."""
     scene = Scene()
     _horizontal_ray(scene)  # travels in +x, crosses the vertical detector
     detector = Detector(scene, {
@@ -358,8 +358,7 @@ def test_one_sided_absorption_is_default():
     _run(scene)
 
     # This orientation/direction combination crosses with sign=+1 (see
-    # test_incident_angle_at_normal_incidence's fixture) -- absorbed by
-    # the default absorbing_side=1.
+    # test_incident_angle_at_normal_incidence's fixture).
     assert len(detector.get_hit_records()) == 1
     assert detector.power > 0.0
 
@@ -371,11 +370,15 @@ def test_non_absorbing_side_is_a_complete_no_op():
         'type': 'Detector',
         'p1': {'x': 200, 'y': 0},
         'p2': {'x': 200, 'y': 160},
-        'absorbing_side': -1,  # flip: this ray's crossing (+1) is now the back
+        'twoSided': False,
+        'absorbingSide': -1,  # flip: this ray's crossing (+1) is now the back
     })
     scene.add_object(detector)
-    _run(scene)
+    _, segments = _run(scene)
 
+    # As upstream's one-sided detector: the ray from the back does not meet it,
+    # so its segment is not split at the detector (x = 200) either.
+    assert all(abs(seg.p2['x'] - 200) > 1e-9 for seg in segments)
     assert detector.get_hit_records() == []
     assert detector.power == 0.0
     assert detector.normal == 0.0
@@ -391,7 +394,7 @@ def test_absorbing_side_flip_recovers_the_hit():
         'type': 'Detector',
         'p1': {'x': 200, 'y': 160},  # reversed orientation -> sign flips
         'p2': {'x': 200, 'y': 0},
-        'absorbing_side': -1,
+        'absorbingSide': -1,
     })
     scene.add_object(detector)
     _run(scene)
@@ -417,7 +420,7 @@ def test_two_sided_restores_signed_net_flux():
         'type': 'Detector',
         'p1': {'x': 200, 'y': 0},
         'p2': {'x': 200, 'y': 160},
-        'two_sided': True,
+        'twoSided': True,
     })
     scene.add_object(detector)
     _run(scene)
@@ -479,7 +482,7 @@ def test_rxi_receiver_acceptance_curve_matches_15_bidirectional_3_4():
             'type': 'Detector',
             'p1': {'x': -3.0, 'y': -46.0},
             'p2': {'x': 3.0, 'y': -46.0},
-            'two_sided': two_sided,
+            'twoSided': two_sided,
         })
         scene.add_object(det)
 
@@ -511,8 +514,8 @@ def test_rank_paths_by_detector_leaves():
         'type': 'Detector',
         'p1': {'x': 200, 'y': 0},
         'p2': {'x': 200, 'y': 160},
-        'irrad_map': True,
-        'bin_size': 10.0,
+        'irradMap': True,
+        'binSize': 10.0,
     })
     scene.add_object(detector)
 
@@ -716,7 +719,7 @@ def test_beam_negative_emis_angle_raises():
         beam.on_simulation_start()
         raise AssertionError("expected ValueError for negative emis_angle")
     except ValueError as exc:
-        assert 'emis_angle' in str(exc)
+        assert 'emisAngle' in str(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -734,7 +737,7 @@ def _run_all() -> int:
         test_incident_angle_at_normal_incidence,
         test_incident_angle_at_45_degrees,
         test_incident_angle_is_bounded,
-        test_one_sided_absorption_is_default,
+        test_a_front_crossing_counts_by_default,
         test_non_absorbing_side_is_a_complete_no_op,
         test_absorbing_side_flip_recovers_the_hit,
         test_two_sided_restores_signed_net_flux,

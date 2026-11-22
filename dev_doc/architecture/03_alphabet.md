@@ -94,7 +94,7 @@ edited afterwards.
 | `p1`, `p2` | The line the beam is emitted from. | two points |
 | `brightness` | Starting brightness. Default 0.5. | number |
 | `wavelength` | Default green. | number |
-| `emis_angle` | The **full** angle the beam spreads across, 0 to 180°. Not a half-angle. Negative values raise (`C-BEAM-01`). | number |
+| `emisAngle` (formerly `emis_angle`) | The **full** angle the beam spreads across, 0 to 180°. Not a half-angle. Negative values raise (`C-BEAM-01`). | number |
 | `lambert` | Emit more straight ahead and less to the sides, as a diffuse surface does. | yes/no |
 | `random` | Place rays randomly across the spread rather than evenly. | yes/no |
 
@@ -174,6 +174,28 @@ the same context when the package has registered a loader
 
 A schema version and a confidence field are required by `C-RUN-01` and not
 yet written.
+
+## `P-SCENE-FILE` — a whole scene, saved
+
+Written by `save_scene` and read by `load_scene`, as JSON, a plain text
+format for nested lists and records. By convention the file is named
+`<name>.scene.json`.
+
+| Field | Meaning | Type |
+|---|---|---|
+| `schema` | Always `"ray_tracing_shapely.scene"`. A file saying anything else is refused. | text |
+| `version` | Currently `"1.0"`. A file whose first number differs from the reader's is refused rather than misread. | text |
+| `settings` | The scene's settings by name: `mode`, `color_mode`, `ray_mode_density`, `image_mode_density`, `min_brightness_exp` (null: the colour mode's default), `length_scale`, `simulate_colors`, `show_ray_arrows`, the three grazing thresholds, and the scene's `name`. | record |
+| `objects` | Every object, in the scene's order: one entry each, of the three kinds below. | list of records |
+| `objects[i].name` | The object's name, where it has one. Names are unique within a file (`C-LABEL-01`). | text, optional |
+| `objects[i].object` | **A primitive** — an object the engine builds from a record of its own fields: its `serialize()` record, with `type` the JavaScript simulator's type name (`"Mirror"`, `"Glass"`, `"Beam"`, `"PointSource"`, `"Detector"`, …). | record |
+| `objects[i].recipe`, `.args` | **A designed element** — one built from requirements: the name of its constructor (`"TIRCollimator"`, `"RRLens"`, …) and the arguments it was built with, by name, defaults included. A point is written `{"$point": [x, y]}`, a role or mechanism `{"$enum": "Role", "value": "wall"}`. | text, record |
+| `objects[i].part_of`, `.attribute`, `.index` | **A part** — an object an element's constructor made: the entry of the element that made it, and where the element keeps it (`primary`, entry 0). It is taken from the rebuilt element, not built again. | whole number, text, whole number (optional) |
+| `objects[i].in_scene` | `false` for an element written only because the scene holds its parts; it is built and not added. Absent means true. | true or false, optional |
+| `objects[i].role`, `.edge_labels` | The object's role, and its edges' labels (`{"0": ["B", "Base"]}`), where they were set by hand. | text, record, optional |
+
+Lengths are in the scene's own length unit, and angles in degrees where an
+argument's name ends `_deg`; the file adds no unit of its own.
 
 ## `P-PROFILE` — a designed outline, ready to become 3D
 

@@ -58,9 +58,10 @@ if TYPE_CHECKING:
 from ...core.glass_curves import curve_from_descriptor, transform_descriptor
 from ...core.glass_spans import GlassSpan, glass_spans, outline_coords
 from ...core.scene_objs.glass.glass import Glass
+from ..curved_glass import CurvedGlass
 
 
-class BasePrism(Glass):
+class BasePrism(CurvedGlass):
     """
     Base class for all prisms with convenient constructors.
 

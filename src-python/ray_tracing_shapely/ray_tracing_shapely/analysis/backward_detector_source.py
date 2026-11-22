@@ -37,10 +37,10 @@ from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 if __name__ == "__main__":
     from ray_tracing_shapely.core.ray import Ray
 else:
-    from ...ray import Ray
+    from ..core.ray import Ray
 
 if TYPE_CHECKING:
-    from ...ray_lineage import RayLineage
+    from ..core.ray_lineage import RayLineage
 
 
 def _unit(dx: float, dy: float) -> Optional[Tuple[float, float]]:

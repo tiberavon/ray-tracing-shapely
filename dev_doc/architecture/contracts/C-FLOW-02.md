@@ -3,12 +3,12 @@ id: C-FLOW-02
 title: Every box that asks has one question as data and one trigger, so one verb answers any flow; a refused answer leaves the flow where it was, with its reason and an example; a send-back is stated; nine generic tools drive every flow with JSON only
 parties:
   provides: flows (fields.FlowField, flow_base.ObservableFlow.answer, kinds, agentic); the flows with FIELDS (RayfileSlicingFlow, IEC62471IntakeFlow, IEC60825_1IntakeFlow)
-  relies:   an agent, through flow_kinds, flow_start, flow_question, flow_answer, flow_reset, flow_result; a person or notebook through answer()
+  relies:   an agent, through flow_kinds, flow_start, flow_question, flow_answer, flow_reset, flow_result; a person or notebook through answer() or the flow form (widget.flow_form); a reader through the transcript
 port: P-AGENTIC-ENVELOPE
 viewpoint: agentic
 status: enforced
 failure_mode: loud
-checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_tools.py::test_every_asking_box_has_a_field_and_one_trigger; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_tools.py::test_answer_refuses_shapes_and_checks_and_keeps_the_flow_in_place; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_tools.py::test_the_generic_tools_drive_the_slicing_flow; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_tools.py::test_the_mcp_server_publishes_the_nine_tools_and_drives_the_flow
+checked_by: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_tools.py::test_every_asking_box_has_a_field_and_one_trigger; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_tools.py::test_answer_refuses_shapes_and_checks_and_keeps_the_flow_in_place; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_tools.py::test_the_generic_tools_drive_the_slicing_flow; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_tools.py::test_the_mcp_server_publishes_the_nine_tools_and_drives_the_flow; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_widget.py::test_the_slicing_flow_driven_through_the_form_ends_as_answer_does; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_widget.py::test_a_refusal_and_a_reset_show_in_what_the_page_draws; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_transcript.py::test_the_page_tells_the_run_in_order_with_its_answers_and_result; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_widget.py::test_the_forms_answers_as_a_person_fills_them_are_accepted
 witness: src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_tools.py::test_a_field_shapes_answers_and_reads_as_json; src-python/ray_tracing_shapely/ray_tracing_shapely/developer_tests/test_flow_tools.py::test_a_hazard_value_asks_in_the_unit_alpha_implies
 tracked_by: null
 conflicts_with: null
@@ -35,7 +35,11 @@ trigger, whose `before` check raises `ValueError` or `TypeError` to refuse.
   names its table's limits in its example.
 - **What a question is answered from.** `question_context()` is the data a
   question needs, as JSON, or None: the slicing flow's choice carries its
-  table there.
+  table there. A `json` question may also come with `question_form()`: the
+  same answer asked field by field, its choices and defaults from the run
+  (the parameter study's sweep and measure). What a form builds is an
+  ordinary answer, checked by the box as a typed one is. A `path` field may
+  name the files that fit it (`pattern`).
 - **One verb.**
   - `answer(value)` shapes the value for its kind and fires the box's own
     trigger, found from the machine;
@@ -44,6 +48,10 @@ trigger, whose `before` check raises `ValueError` or `TypeError` to refuse.
 
   Each returns `accepted` and the run's `question_state`: state, question,
   context, explanation, last refusal, job, attempt.
+- **Every answer is recorded.** Each answer given, by any of the ways in,
+  is an event (`field`, `answer`) before the box's check runs: the run's
+  record says what was answered, not only what was asked, and a refusal or
+  a send-back follows it as its own event. The transcript reads this.
 - **A refusal moves nothing.** An answer of the wrong shape, or one the
   box's check refuses, leaves the flow in the same box. It is recorded as an
   event (`refused`, `reason`) and as `last_refusal`, and the box's

@@ -41,10 +41,10 @@ class AngleSource(BaseSceneObj):
         p2: Another point on the reference line, defining the reference direction (dict with 'x', 'y').
         brightness: The brightness of the source (0.01 to 1.0).
         wavelength: The wavelength of emitted light in nm (only used when "Simulate Colors" is enabled).
-        emis_angle: The angle of emission in degrees (0° to 180°).
+        emisAngle: The angle of emission in degrees (0° to 180°).
         symmetric: Whether the emission is symmetric about the reference line.
-                  If True, rays spread ±emis_angle/2 around the reference direction.
-                  If False, rays spread from 0° to emis_angle on one side only.
+                  If True, rays spread ±emisAngle/2 around the reference direction.
+                  If False, rays spread from 0° to emisAngle on one side only.
 
     Usage:
         Angle sources are useful for:
@@ -67,10 +67,19 @@ class AngleSource(BaseSceneObj):
         'p2': None,
         'brightness': 0.5,
         'wavelength': GREEN_WAVELENGTH,
-        'emis_angle': 36.001,  # Default to ~36 degrees
+        'emisAngle': 36.001,  # Default to ~36 degrees
         'symmetric': True
     }
+    legacy_keys = {'emis_angle': 'emisAngle'}
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream AngleSource: source and direction points, brightness, wavelength, emission angle, symmetric."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [e('p1', 'point', 'Source point'), e('p2', 'point', 'Direction point'),
+                e('brightness', 'number', 'Brightness'), e('wavelength', 'number', 'Wavelength', unit='nm'),
+                e('emisAngle', 'number', 'Emission Angle', unit='°'),
+                e('symmetric', 'boolean', 'Symmetric')]
     def populate_obj_bar(self, obj_bar):
         """
         Populate the object bar with angle source controls.
@@ -110,8 +119,8 @@ class AngleSource(BaseSceneObj):
         obj_bar.create_number(
             'Emission Angle (°)',
             0, 180, 1,
-            self.emis_angle,
-            lambda obj, value: setattr(obj, 'emis_angle', value),
+            self.emisAngle,
+            lambda obj, value: setattr(obj, 'emisAngle', value),
             'Angular spread of emitted rays'
         )
 
@@ -296,14 +305,14 @@ class AngleSource(BaseSceneObj):
             i0 = 0
 
         # Calculate angle range
-        emis_angle_rad = math.pi / 180.0 * self.emis_angle
+        emis_angle_rad = math.pi / 180.0 * self.emisAngle
 
         if self.symmetric:
-            # Symmetric emission: spread ±emis_angle/2 around reference direction
+            # Symmetric emission: spread ±emisAngle/2 around reference direction
             i_start = i0 - emis_angle_rad / 2.0
             i_end = i0 + emis_angle_rad / 2.0 - 1e-5
         else:
-            # Asymmetric emission: spread from 0° to emis_angle
+            # Asymmetric emission: spread from 0° to emisAngle
             i_start = i0
             i_end = i0 + emis_angle_rad - 1e-5
 
@@ -417,14 +426,14 @@ if __name__ == "__main__":
         'p2': {'x': 10, 'y': 0},  # Reference direction: +X axis
         'brightness': 0.5,
         'wavelength': GREEN_WAVELENGTH,
-        'emis_angle': 36.0,
+        'emisAngle': 36.0,
         'symmetric': True
     })
 
     print(f"  Source position (p1): ({source.p1['x']}, {source.p1['y']})")
     print(f"  Reference point (p2): ({source.p2['x']}, {source.p2['y']})")
     print(f"  Brightness: {source.brightness}")
-    print(f"  Emission angle: {source.emis_angle}°")
+    print(f"  Emission angle: {source.emisAngle}°")
     print(f"  Symmetric: {source.symmetric}")
 
     result = source.on_simulation_start()
@@ -443,11 +452,11 @@ if __name__ == "__main__":
         'p2': {'x': 10, 'y': 0},
         'brightness': 0.5,
         'wavelength': GREEN_WAVELENGTH,
-        'emis_angle': 45.0,
+        'emisAngle': 45.0,
         'symmetric': False  # Asymmetric
     })
 
-    print(f"  Emission angle: {source_asym.emis_angle}°")
+    print(f"  Emission angle: {source_asym.emisAngle}°")
     print(f"  Symmetric: {source_asym.symmetric}")
 
     result_asym = source_asym.on_simulation_start()
@@ -478,12 +487,12 @@ if __name__ == "__main__":
         'p2': {'x': 15, 'y': 5},
         'brightness': 0.3,
         'wavelength': 650,  # Red
-        'emis_angle': 60.0,
+        'emisAngle': 60.0,
         'symmetric': True
     })
 
     print(f"  Wavelength: {source_color.wavelength} nm (red)")
-    print(f"  Emission angle: {source_color.emis_angle}°")
+    print(f"  Emission angle: {source_color.emisAngle}°")
 
     result_color = source_color.on_simulation_start()
     print(f"  Rays generated: {len(result_color['newRays'])}")
@@ -498,7 +507,7 @@ if __name__ == "__main__":
         'p1': {'x': 0, 'y': 0},
         'p2': {'x': 10, 'y': 0},
         'brightness': 0.5,
-        'emis_angle': 36.0
+        'emisAngle': 36.0
     })
 
     print(f"  Initial: p1=({source_test.p1['x']}, {source_test.p1['y']}), p2=({source_test.p2['x']}, {source_test.p2['y']})")
@@ -534,7 +543,7 @@ if __name__ == "__main__":
         'p1': {'x': 0, 'y': 0},
         'p2': {'x': 10, 'y': 0},
         'brightness': 0.8,  # High brightness
-        'emis_angle': 90.0
+        'emisAngle': 90.0
     })
 
     result_bright = source_bright.on_simulation_start()
@@ -557,7 +566,7 @@ if __name__ == "__main__":
         'p1': {'x': 0, 'y': 0},
         'p2': {'x': 10, 'y': 0},
         'brightness': 0.5,
-        'emis_angle': 180.0,
+        'emisAngle': 180.0,
         'symmetric': True
     })
 
@@ -565,7 +574,7 @@ if __name__ == "__main__":
         'p1': {'x': 0, 'y': 0},
         'p2': {'x': 10, 'y': 0},
         'brightness': 0.5,
-        'emis_angle': 10.0,
+        'emisAngle': 10.0,
         'symmetric': True
     })
 

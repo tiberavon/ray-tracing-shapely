@@ -38,8 +38,8 @@ if __name__ == "__main__":
     from ray_tracing_shapely.core.scene_objs.base_scene_obj import BaseSceneObj, SimulationReturn
     from ray_tracing_shapely.core.scene_objs.line_obj_mixin import LineObjMixin
 else:
-    from .base_scene_obj import BaseSceneObj, SimulationReturn
-    from .line_obj_mixin import LineObjMixin
+    from ..core.scene_objs.base_scene_obj import BaseSceneObj, SimulationReturn
+    from ..core.scene_objs.line_obj_mixin import LineObjMixin
 
 
 class GroundGlass(LineObjMixin, BaseSceneObj):
@@ -63,7 +63,7 @@ class GroundGlass(LineObjMixin, BaseSceneObj):
     Example:
         >>> from ray_tracing_shapely.core import Scene
         >>> scene = Scene()
-        >>> diffuser = scene.add_object('ground_glass', {
+        >>> diffuser = scene.add_object('GroundGlass', {
         ...     'p1': {'x': 100, 'y': 0},
         ...     'p2': {'x': 100, 'y': 100},
         ...     'scatter_rays': 7,
@@ -71,7 +71,7 @@ class GroundGlass(LineObjMixin, BaseSceneObj):
         ... })
     """
 
-    type = 'ground_glass'
+    type = 'GroundGlass'
     serializable_defaults = {
         'p1': {'x': 0, 'y': 0},
         'p2': {'x': 100, 'y': 0},
@@ -82,6 +82,18 @@ class GroundGlass(LineObjMixin, BaseSceneObj):
         'two_sided': True,
     }
     is_optical = True
+
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """The endpoints, then the diffuser's own properties (all Python-only)."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [*super().property_schema(obj_data, scene),
+                e('scatter_rays', 'number', 'Scattered rays', python_only=True),
+                e('scatter_angle', 'number', 'Scatter half-angle', unit='°', python_only=True),
+                e('scatter_mode', 'dropdown', 'Scatter mode', python_only=True,
+                  options={'deterministic': 'Deterministic (uniform)', 'pseudorandom': 'Pseudorandom'}),
+                e('reflection_fraction', 'number', 'Reflected fraction', python_only=True),
+                e('two_sided', 'boolean', 'Two-sided', python_only=True)]
 
     def __init__(self, scene, json_obj: Optional[Dict[str, Any]] = None):
         """

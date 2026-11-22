@@ -37,7 +37,7 @@ D = 5.0
 
 def _lens(scene, r1, r2, d=D):
     return SphericalLens(scene, {
-        "p1": {"x": 0, "y": 10}, "p2": {"x": 0, "y": -10}, "def_by": "DR1R2",
+        "p1": {"x": 0, "y": 10}, "p2": {"x": 0, "y": -10}, "defBy": "DR1R2",
         "params": {"d": d, "r1": r1, "r2": r2}, "refIndex": N, "cauchyB": 0.0,
     })
 

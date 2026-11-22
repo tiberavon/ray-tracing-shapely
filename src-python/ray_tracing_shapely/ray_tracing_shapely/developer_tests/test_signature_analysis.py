@@ -66,8 +66,8 @@ def _build_and_run_dtirc_bidirectional(n_prism, ray_density=8):
         'type': 'Detector',
         'p1': {'x': r1['x'], 'y': r1['y'] - offset},
         'p2': {'x': r2['x'], 'y': r2['y'] - offset},
-        'irrad_map': True,
-        'bin_size': 1.0,
+        'irradMap': True,
+        'binSize': 1.0,
     })
     det.name = 'exit_detector'
     scene.add_object(det)

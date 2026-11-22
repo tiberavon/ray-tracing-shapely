@@ -34,6 +34,7 @@ from ray_tracing_shapely.core.glass_curves import ConicCurve, SplineCurve, curve
 from ray_tracing_shapely.core.glass_spans import glass_spans
 from ray_tracing_shapely.core.scene import Scene
 from ray_tracing_shapely.core.scene_objs.glass.glass import Glass
+from ray_tracing_shapely.optical_elements.curved_glass import CurvedGlass
 from ray_tracing_shapely.core.scene_objs.light_source.single_ray import SingleRay
 from ray_tracing_shapely.core.simulator import Simulator
 from ray_tracing_shapely.optical_elements.prisms.base_prism import BasePrism
@@ -172,7 +173,7 @@ def test_a_spline_face_converges_to_the_conic_and_a_polyline_does_not():
     pts = _spline_desc(65)["points"]
     scene = Scene()
     poly = Glass(scene, {"path": [{"x": X0, "y": Y0 + H, "arc": False}, {"x": X0, "y": Y0 - H, "arc": False}]
-                         + [{"x": p[0], "y": p[1], "arc": False} for p in pts], "refIndex": N, "not_done": False})
+                         + [{"x": p[0], "y": p[1], "arc": False} for p in pts], "refIndex": N, "notDone": False})
     xs = _axis_crossings(poly)
     assert max(xs) - min(xs) > 1.0                  # the same 65 points, faceted
 
@@ -184,10 +185,10 @@ def test_a_ray_that_enters_through_a_curve_leaves_through_it():
     left, right = c.point(-2.9), c.point(2.9)                          # s left of (0, -1) is +x
     for x0 in (0.0, 0.5, 3.0, 30.0, 300.0):
         scene = Scene()
-        dome = Glass(scene, {"path": [{"x": right[0] + x0, "y": right[1], "arc": False,
+        dome = CurvedGlass(scene, {"path": [{"x": right[0] + x0, "y": right[1], "arc": False,
                                        "curve": {**c.descriptor(), "vertex": [x0, 3.0]}},
                                       {"x": left[0] + x0, "y": left[1], "arc": False}],
-                             "refIndex": 1.5, "not_done": False})
+                             "refIndex": 1.5, "notDone": False})
         scene.add_object(dome)
         # enters the curve near its left end, crosses the dome, must leave by the same curve
         scene.add_object(SingleRay(scene, {"p1": {"x": x0 - 20.0, "y": 2.4}, "p2": {"x": x0 - 19.0, "y": 2.36}}))

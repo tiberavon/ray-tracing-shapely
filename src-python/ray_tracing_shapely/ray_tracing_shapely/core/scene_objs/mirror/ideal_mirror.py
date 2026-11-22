@@ -74,6 +74,11 @@ class IdealMirror(LineObjMixin, BaseFilter):
         'bandwidth': 10
     }
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream IdealMirror: the endpoints and filter, then the focal length."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [*super().property_schema(obj_data, scene), e('focalLength', 'number', 'Focal length')]
     def __init__(self, scene: 'Scene', json_obj: Optional[Dict[str, Any]] = None) -> None:
         """
         Initialize an ideal mirror.

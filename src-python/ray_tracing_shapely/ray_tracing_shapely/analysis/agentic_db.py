@@ -710,12 +710,13 @@ def _populate_detectors(
     Includes a LinearSensor's internal Detector, since it is added to
     scene.objs directly by LinearSensor.__init__.
     """
+    from ..core.scene_objs.other.detector import Detector  # noqa: PLC0415
+
     detector_rows: List[tuple] = []
     hit_rows: List[tuple] = []
 
     for obj in scene.objs:
-        obj_type = getattr(obj.__class__, 'type', None) or obj.__class__.__name__
-        if obj_type != 'Detector' or not hasattr(obj, 'get_hit_records'):
+        if not isinstance(obj, Detector) or not hasattr(obj, 'get_hit_records'):
             continue
 
         detector_rows.append((

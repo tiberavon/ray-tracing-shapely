@@ -45,7 +45,8 @@ a 3D export carries no reflectance (the bridge takes one per span).
 Labels: the object's ``name`` is its short label, its ``role`` defaults to
 ``Role.WALL``, its mechanism is ``Mechanism.REFLECT`` (C-LABEL-02).
 
-``ArcMirror`` is the circle case (``K = 0``), exported with a ``circle``
+``CircularArcMirror`` (``ArcMirror`` before the name was left to the JavaScript
+simulator's three-point mirror) is the circle case (``K = 0``), exported with a ``circle``
 descriptor. It is not Ray Optics Simulation's three-point ``ArcMirror``,
 which is not ported: that one may reach past the equator; this one is a
 spherical cap that a revolve can make exact.
@@ -303,14 +304,14 @@ class ConicMirror(BaseSceneObj):
         return True
 
 
-class ArcMirror(ConicMirror):
+class CircularArcMirror(ConicMirror):
     """A spherical-cap mirror: the circle case of ConicMirror (``K = 0``).
 
     Exported with a ``circle`` descriptor (centre and radius), which is what
     a circular arc is everywhere else in profile.json.
     """
 
-    type = 'ArcMirror'
+    type = 'CircularArcMirror'
 
     def __init__(self, scene: 'Scene', vertex: XY, axis: XY, radius: float, *,
                  semi_diameter: Optional[float] = None,
@@ -327,4 +328,16 @@ class ArcMirror(ConicMirror):
         return {"type": "circle", "center": list(self.center), "radius": abs(self.radius)}
 
 
-__all__ = ["ConicMirror", "ArcMirror", "conic_sag", "max_single_valued_s"]
+__all__ = ["ConicMirror", "CircularArcMirror", "conic_sag", "max_single_valued_s"]
+
+
+def __getattr__(name):
+    # PYTHON-SPECIFIC: the old name, kept for code written before the rename.
+    # ``ArcMirror`` is the JavaScript simulator's three-point mirror's type name.
+    if name == "ArcMirror":
+        import warnings
+        warnings.warn("ArcMirror is now CircularArcMirror (ArcMirror is the JavaScript "
+                      "simulator's three-point mirror)", DeprecationWarning, stacklevel=2)
+        return CircularArcMirror
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+

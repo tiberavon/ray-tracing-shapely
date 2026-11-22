@@ -23,12 +23,10 @@ if __name__ == "__main__":
     from ray_tracing_shapely.core.scene_objs.base_glass import BaseGlass
     from ray_tracing_shapely.core.constants import MIN_RAY_SEGMENT_LENGTH, EDGE_DETECTION_THRESHOLD_SQUARED
     from ray_tracing_shapely.core import geometry
-    from ray_tracing_shapely.core.glass_curves import curve_from_descriptor, transform_descriptor
 else:
     from ..base_glass import BaseGlass
     from ...constants import MIN_RAY_SEGMENT_LENGTH, EDGE_DETECTION_THRESHOLD_SQUARED
     from ... import geometry
-    from ...glass_curves import curve_from_descriptor, transform_descriptor
 
 if TYPE_CHECKING:
     from ...ray import Ray
@@ -40,9 +38,9 @@ class Glass(BaseGlass):
     Glass of arbitrary shape consisting of line segments, circular arcs, and
     exact conic or spline edges.
 
-    A path entry with a ``curve`` descriptor (core.glass_curves) starts a
-    curve edge that ends at the next entry: an exact conic section or a
-    cubic Hermite spline, intersected exactly (core.glass_curves).
+    Edges are straight lines and circular arcs, as upstream's. A path entry
+    with a ``curve`` descriptor is refused; a glass whose edges are exact
+    conics, aspheres or splines is a `CurvedGlass` (optical_elements).
 
     The glass shape is defined by a path of points. Each point has coordinates (x, y)
     and an 'arc' flag. If path[i].arc is True, then the segment path[i-1]→path[i]→path[i+1]
@@ -52,9 +50,9 @@ class Glass(BaseGlass):
         path: List of points defining the glass boundary. Each point is a dict with:
               - x, y: Coordinates
               - arc: Boolean flag (True = circular arc, False = line segment)
-        not_done: Whether the user is still drawing the glass (UI construction mode).
+        notDone: Whether the user is still drawing the glass (UI construction mode).
         refIndex: The refractive index, or Cauchy coefficient A if "Simulate Colors" is on.
-        cauchy_b: The Cauchy coefficient B if "Simulate Colors" is on (in μm²).
+        cauchyB: The Cauchy coefficient B if "Simulate Colors" is on (in μm²).
 
     Usage:
         Glass objects are useful for:
@@ -64,7 +62,7 @@ class Glass(BaseGlass):
         - Custom glass shapes for specific optical designs
 
     Notes:
-        - The path forms a closed polygon when not_done=False
+        - The path forms a closed polygon when notDone=False
         - Circular arcs are defined by three consecutive points
         - Supports surface merging with other glass objects
         - Refractive index can be wavelength-dependent (Cauchy equation)
@@ -75,11 +73,29 @@ class Glass(BaseGlass):
     merges_with_glass = True
     serializable_defaults = {
         'path': [],
-        'not_done': False,
+        'notDone': False,
         'refIndex': 1.5,
-        'cauchy_b': 0.004
+        'cauchyB': 0.004,
+        'partialReflect': True,
     }
+    legacy_keys = {'cauchy_b': 'cauchyB', 'not_done': 'notDone'}
 
+    #: Not drawing. A subclass with defaults of its own (SphericalLens) has no
+    #: ``notDone`` key, as upstream's has none: it reads False.
+    notDone = False
+
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream Glass: the vertices (each a point, and whether it is an arc's through-point), then BaseGlass's."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [e('path', 'array', 'Vertices', itemSchema=cls._path_item_schema()),
+                *super().property_schema(obj_data, scene)]
+
+    @classmethod
+    def _path_item_schema(cls):
+        """One path entry's properties (upstream's itemSchema)."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [e('', 'point', 'Vertex'), e('arc', 'boolean', 'Circular arc')]
     def __init__(self, scene: 'Scene', json_obj: Optional[Dict[str, Any]] = None) -> None:
         """
         Initialize the glass object.
@@ -119,7 +135,7 @@ class Glass(BaseGlass):
         if not self.path:
             return
 
-        if self.not_done:
+        if self.notDone:
             # Still under construction - draw partial path
             self._draw_path(canvas_renderer, is_hovered, closed=False)
         else:
@@ -170,9 +186,6 @@ class Glass(BaseGlass):
         for point in self.path:
             point['x'] += diff_x
             point['y'] += diff_y
-            if point.get('curve'):
-                point['curve'] = transform_descriptor(
-                    point['curve'], lambda q: (q[0] + diff_x, q[1] + diff_y), lambda v: v)
         return True
 
     def rotate(self, angle, center=None):
@@ -198,9 +211,6 @@ class Glass(BaseGlass):
 
         for point in self.path:
             point['x'], point['y'] = turn((point['x'], point['y']))
-            if point.get('curve'):
-                point['curve'] = transform_descriptor(
-                    point['curve'], turn, lambda v: (v[0] * cos_a - v[1] * sin_a, v[0] * sin_a + v[1] * cos_a))
 
         return True
 
@@ -224,8 +234,6 @@ class Glass(BaseGlass):
 
         for point in self.path:
             point['x'], point['y'] = stretch((point['x'], point['y']))
-            if point.get('curve'):
-                point['curve'] = transform_descriptor(point['curve'], stretch, lambda v: v, scale_factor)
 
         return True
 
@@ -257,7 +265,7 @@ class Glass(BaseGlass):
         Returns:
             The nearest intersection point, or None if no intersection.
         """
-        if self.not_done or self.refIndex <= 0 or not self.path:
+        if self.notDone or self.refIndex <= 0 or not self.path:
             return None
 
         # Convert ray points to Point objects if they're dicts
@@ -293,8 +301,7 @@ class Glass(BaseGlass):
         next_next_i = (i + 2) % len(self.path)
 
         if self.path[i].get('curve') and not self.path[i].get('arc'):
-            # An exact conic or spline edge from path[i] to path[i+1]
-            return self._check_curve_intersection(ray, i, next_i)
+            self._refuse_curve(i)
         if self.path[next_i].get('arc') and not self.path[i].get('arc'):
             # Circular arc from path[i] through path[i+1] to path[i+2]
             return self._check_arc_intersection(ray, i, next_i, next_next_i)
@@ -303,6 +310,14 @@ class Glass(BaseGlass):
             return self._check_line_segment_intersection(ray, i, next_i)
 
         return None
+
+    def _refuse_curve(self, i):
+        """PYTHON-SPECIFIC: a ``curve`` entry is not upstream's Glass format."""
+        raise ValueError(
+            f"{self.get_display_name() if hasattr(self, 'get_display_name') else 'Glass'}: path "
+            f"entry {i} has a 'curve', which a Glass does not read (the JavaScript simulator's "
+            "Glass has straight edges and arcs only). Use "
+            "ray_tracing_shapely.optical_elements.curved_glass.CurvedGlass")
 
     def _check_line_segment_intersection(self, ray, i, next_i):
         """
@@ -336,43 +351,6 @@ class Glass(BaseGlass):
             return intersection
 
         return None
-
-    def _curve(self, i, next_i):
-        """The exact curve of the edge from path[i] to path[next_i] (cached per descriptor
-        and end points, which move, rotate and scale replace)."""
-        desc = self.path[i]['curve']
-        start = (self.path[i]['x'], self.path[i]['y'])
-        end = (self.path[next_i]['x'], self.path[next_i]['y'])
-        key = (id(desc), start, end)
-        cache = self.__dict__.setdefault('_curve_cache', {})
-        hit = cache.get(i)
-        if hit is None or hit[0] != key or hit[2] is not desc:
-            hit = (key, curve_from_descriptor(desc, start, end), desc)
-            cache[i] = hit
-        return hit[1]
-
-    def _curve_hits(self, ray_p1, ray_p2, i, next_i):
-        """Points where a ray meets the curve edge, farther than the minimum segment
-        length from its start, nearest first: [(dist_sq, point)]."""
-        curve = self._curve(i, next_i)
-        direction = (ray_p2.x - ray_p1.x, ray_p2.y - ray_p1.y)
-        min_seg_len_sq = MIN_RAY_SEGMENT_LENGTH ** 2 * self.scene.length_scale ** 2
-        out = []
-        for t, _ in curve.line_hits((ray_p1.x, ray_p1.y), direction, slack=1e-12):
-            if t <= 0.0:
-                continue
-            q = geometry.point(ray_p1.x + t * direction[0], ray_p1.y + t * direction[1])
-            dist_sq = geometry.distance_squared(ray_p1, q)
-            if dist_sq > min_seg_len_sq:  # per root: a ray starting on the curve keeps its far root
-                out.append((dist_sq, q))
-        return sorted(out, key=lambda h: h[0])
-
-    def _check_curve_intersection(self, ray, i, next_i):
-        """Nearest intersection of a ray with an exact curve edge, or None."""
-        ray_p1 = geometry.point(ray.p1['x'], ray.p1['y']) if isinstance(ray.p1, dict) else ray.p1
-        ray_p2 = geometry.point(ray.p2['x'], ray.p2['y']) if isinstance(ray.p2, dict) else ray.p2
-        hits = self._curve_hits(ray_p1, ray_p2, i, next_i)
-        return hits[0][1] if hits else None
 
     def _check_arc_intersection(self, ray, i, mid_i, next_i):
         """
@@ -491,7 +469,7 @@ class Glass(BaseGlass):
             print(f"  Ray: p2=({ray.p2['x'] if isinstance(ray.p2, dict) else ray.p2.x:.4f}, {ray.p2['y'] if isinstance(ray.p2, dict) else ray.p2.y:.4f})")
             print(f"  surface_merging_objs: {len(surface_merging_objs) if surface_merging_objs else 0} objects")
 
-        if self.not_done:
+        if self.notDone:
             return None
 
         # NOTE: No offset workaround needed! The JavaScript version doesn't have it.
@@ -702,8 +680,7 @@ class Glass(BaseGlass):
         }
 
         if self.path[i].get('curve') and not self.path[i].get('arc'):
-            # An exact conic or spline edge
-            self._process_curve_segment(ray, ray2, i, next_i, result)
+            self._refuse_curve(i)
         elif self.path[next_i].get('arc') and not self.path[i].get('arc'):
             # Circular arc
             self._process_arc_segment(ray, ray2, i, next_i, next_next_i, result)
@@ -712,36 +689,6 @@ class Glass(BaseGlass):
             self._process_line_segment(ray, ray2, i, next_i, result)
 
         return result
-
-    def _process_curve_segment(self, ray, ray2, i, next_i, result):
-        """Process an exact curve edge for incident data.
-
-        The normal points back towards the side the ray comes from, as for a
-        line or an arc; a hit within the edge threshold of either end point
-        is flagged as near an edge; the test ray's crossings are counted for
-        the inside/outside parity.
-        """
-        ray_p1 = geometry.point(ray.p1['x'], ray.p1['y']) if isinstance(ray.p1, dict) else ray.p1
-        ray_p2 = geometry.point(ray.p2['x'], ray.p2['y']) if isinstance(ray.p2, dict) else ray.p2
-        hits = self._curve_hits(ray_p1, ray_p2, i, next_i)
-        if hits:
-            dist_sq, rp = hits[0]
-            result['point'] = rp
-            result['distance_sq'] = dist_sq
-            curve = self._curve(i, next_i)
-            _, param = curve.nearest((rp.x, rp.y))
-            nx, ny = curve.left_normal(param)
-            if nx * (ray_p2.x - ray_p1.x) + ny * (ray_p2.y - ray_p1.y) > 0.0:
-                nx, ny = -nx, -ny
-            result['normal_x'], result['normal_y'] = nx, ny
-            edge_threshold_sq = EDGE_DETECTION_THRESHOLD_SQUARED * self.scene.length_scale ** 2
-            for k in (i, next_i):
-                end = geometry.point(self.path[k]['x'], self.path[k]['y'])
-                if geometry.distance_squared(rp, end) < edge_threshold_sq:
-                    result['near_edge'] = True
-        r2p1 = geometry.point(ray2.p1['x'], ray2.p1['y']) if isinstance(ray2.p1, dict) else ray2.p1
-        r2p2 = geometry.point(ray2.p2['x'], ray2.p2['y']) if isinstance(ray2.p2, dict) else ray2.p2
-        result['ray2_intersect_count'] += len(self._curve_hits(r2p1, r2p2, i, next_i))
 
     def _process_line_segment(self, ray, ray2, i, next_i, result):
         """Process a line segment for incident data."""
@@ -899,14 +846,14 @@ if __name__ == "__main__":
             {'x': 100, 'y': 0, 'arc': False},
             {'x': 50, 'y': 86.6, 'arc': False}  # Equilateral triangle
         ],
-        'not_done': False,
+        'notDone': False,
         'refIndex': 1.5,
-        'cauchy_b': 0.004
+        'cauchyB': 0.004
     })
 
     print(f"  Number of points: {len(prism.path)}")
     print(f"  Refractive index: {prism.refIndex}")
-    print(f"  Construction complete: {not prism.not_done}")
+    print(f"  Construction complete: {not prism.notDone}")
 
     center = prism.get_default_center()
     print(f"  Geometric center: ({center['x']:.1f}, {center['y']:.1f})")
@@ -920,7 +867,7 @@ if __name__ == "__main__":
             {'x': 10, 'y': 10, 'arc': False},
             {'x': 0, 'y': 10, 'arc': False}
         ],
-        'not_done': False,
+        'notDone': False,
         'refIndex': 1.5
     })
 
@@ -943,7 +890,7 @@ if __name__ == "__main__":
             {'x': 20, 'y': 20, 'arc': False},
             {'x': 10, 'y': 20, 'arc': False}
         ],
-        'not_done': False,
+        'notDone': False,
         'refIndex': 1.5
     })
 
@@ -969,7 +916,7 @@ if __name__ == "__main__":
             {'x': 10, 'y': 0, 'arc': False},
             {'x': 5, 'y': 10, 'arc': False}
         ],
-        'not_done': False
+        'notDone': False
     })
 
     print("  Before scale:")
@@ -989,7 +936,7 @@ if __name__ == "__main__":
             {'x': 20, 'y': 0, 'arc': False},
             {'x': 15, 'y': 10, 'arc': False}
         ],
-        'not_done': False
+        'notDone': False
     })
 
     center_before = prism_rotate.get_default_center()

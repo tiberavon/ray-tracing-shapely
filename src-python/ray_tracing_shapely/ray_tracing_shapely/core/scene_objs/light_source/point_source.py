@@ -64,6 +64,11 @@ class PointSource(BaseSceneObj):
         'wavelength': GREEN_WAVELENGTH
     }
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream PointSource: the object is its own point (key ''), then brightness and wavelength."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [e('', 'point', 'Source point'), e('brightness', 'number', 'Brightness'), e('wavelength', 'number', 'Wavelength', unit='nm')]
     def populate_obj_bar(self, obj_bar):
         """
         Populate the object bar with point source controls.

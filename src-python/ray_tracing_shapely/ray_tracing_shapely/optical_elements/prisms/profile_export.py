@@ -83,7 +83,7 @@ spans lying along it are dropped (revolving them makes no surface). The
 top-level ``body`` is ``"solid"``: a BasePrism is glass with an interior.
 
 Sheets: ``export_sheet_profile`` exports mirrors -- flat
-``Mirror`` segments and exact ``ConicMirror``/``ArcMirror`` curves -- that
+``Mirror`` segments and exact ``ConicMirror``/``CircularArcMirror`` curves -- that
 are not glass and enclose nothing. ``body`` is ``"sheet"``, every span's
 mechanism is ``reflect``, and there is no interior material; reflectance is
 not in the profile (the bridge takes one per span). Revolve only: the
@@ -93,7 +93,7 @@ axis on the revolve axis (a tilted or offset one revolves into something
 that is not a conic of revolution: a CPC, out of scope). A conic span runs
 from the end nearest the axis outwards; its descriptor is ``{"type":
 "conic", "vertex", "axis", "radius", "conic"}`` (``circle`` for an
-ArcMirror), its normals the curve's own, towards the vertex's centre of
+CircularArcMirror), its normals the curve's own, towards the vertex's centre of
 curvature. A sheet has no outside, so a line's stored normal is simply its
 direction turned 90 degrees counter-clockwise.
 
@@ -528,7 +528,7 @@ def _sheet_member(mirror):
     if getattr(mirror, "type", None) == "Mirror" and p1 is not None and p2 is not None:
         return "line", ((float(p1["x"]), float(p1["y"])), (float(p2["x"]), float(p2["y"])))
     raise TypeError(f"{type(mirror).__name__} is not an exportable mirror "
-                    "(Mirror, ConicMirror, ArcMirror or SplineMirror).")
+                    "(Mirror, ConicMirror, CircularArcMirror or SplineMirror).")
 
 
 def _sheet_distance(member, q, tol: float) -> float:
@@ -569,7 +569,7 @@ def export_sheet_profile(
     """Export mirrors as a profile.json-shaped dict with ``body: "sheet"`` (schema 1.1).
 
     Args:
-        mirrors: ``Mirror``, ``ConicMirror``, ``ArcMirror`` and ``SplineMirror`` objects, each
+        mirrors: ``Mirror``, ``ConicMirror``, ``CircularArcMirror`` and ``SplineMirror`` objects, each
             with a distinct ``name`` (its span's short label). Their
             ``role`` is exported as is; the mechanism is ``reflect``.
         symmetry: ``{"kind": "revolve", "axis": {"point": [a, b],

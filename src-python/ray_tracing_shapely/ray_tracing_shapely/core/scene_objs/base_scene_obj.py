@@ -17,12 +17,168 @@ limitations under the License.
 
 import json
 import copy
+import functools
+import inspect
+import threading
+import sys
 import uuid as uuid_module
+from pathlib import Path
+import warnings
 from typing import Optional, Dict, Any, List, TypedDict, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..ray import Ray
     from ..geometry import Point
+
+
+# =============================================================================
+# PYTHON-SPECIFIC FEATURE: Construction record
+# =============================================================================
+# The JavaScript objects are built from their serialized form only, so the
+# serialized form is all there is to save. The elements this package designs
+# are built from requirements instead (a collimator from its focal distance,
+# an RR lens from its edge rays), and their serialized form is the outline the
+# requirement produced, not the requirement. A scene saved from `serialize()`
+# alone would lose what such an element was built from.
+#
+# So every object records how it was constructed:
+# - `_construction_args`: for a constructor that is not `(scene, json_obj)`,
+#   its arguments, defaults applied, `self` and `scene` left out;
+# - `_built_inside`: the object whose constructor was running when this one was
+#   built (an XR concentrator's primary mirrors), or None.
+# Both are read by `analysis.scene_file`, which saves a designed element as
+# its constructor and arguments and rebuilds it by calling the constructor
+# again. Recording costs one signature bind per keyword-style construction.
+# =============================================================================
+
+_construction = threading.local()
+
+
+def _construction_stack() -> List[Any]:
+    stack = getattr(_construction, "stack", None)
+    if stack is None:
+        stack = _construction.stack = []
+    return stack
+
+
+def _recording_init(cls: type, init: Any) -> Any:
+    """Wrap `cls`'s own `__init__` so the instance records its construction.
+
+    Only the class whose `__init__` is the instance's own (the first in its MRO
+    defining one) records arguments: a `super().__init__(...)` call inside a
+    subclass's constructor is a step of that construction, not a construction.
+    """
+    signature = inspect.signature(init)
+    names = list(signature.parameters)
+    keyword_style = names[1:3] != ["scene", "json_obj"]
+
+    @functools.wraps(init)
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        stack = _construction_stack()
+        stack.append(self)
+        try:
+            init(self, *args, **kwargs)
+        finally:
+            stack.pop()
+        own = next(k for k in type(self).__mro__ if "__init__" in k.__dict__)
+        if own is not cls:
+            return
+        if keyword_style:
+            self._construction_args = _bound_arguments(signature, self, args, kwargs)
+        outer = next((o for o in reversed(stack) if o is not self), None)
+        self._built_inside = outer
+
+    __init__._records_construction = True  # type: ignore[attr-defined]
+    return __init__
+
+
+#: The value types a property schema entry may have: upstream's vocabulary
+#: (getPropertySchema), and PYTHON-SPECIFIC ``curve`` (a `core.glass_curves`
+#: descriptor, which a `CurvedGlass` path entry may carry).
+PROPERTY_TYPES = ("point", "number", "boolean", "array", "dropdown", "equation", "text",
+                  "style", "stroke", "curve")
+
+
+def schema_entry(key: str, type: str, label: str, *, unit: Optional[str] = None,
+                 info: Optional[str] = None, python_only: bool = False, **extra: Any) -> Dict[str, Any]:
+    """One property schema entry, as upstream's ``{key, type, label, ...}``.
+
+    Args:
+        key: The value's key path (`core.key_path`): ``"p1"``, ``"path.0"``,
+            ``""`` for the object itself.
+        type: One of `PROPERTY_TYPES`.
+        label: Upstream's English label, without the unit.
+        unit: PYTHON-SPECIFIC: the unit upstream writes into the label
+            (``"nm"``, ``"°"``, ``"μm²"``), as a display string; None when the
+            value is in the scene's length unit or has none. Units never enter
+            core as quantities.
+        info: Upstream's longer explanation, as plain text.
+        python_only: PYTHON-SPECIFIC: True for an entry upstream does not have.
+        extra: ``itemSchema`` (an array's entries, for each item), ``options``
+            (a dropdown's value -> label), as upstream's.
+    """
+    if type not in PROPERTY_TYPES:
+        raise ValueError(f"property type {type!r} is not one of {PROPERTY_TYPES}")
+    entry: Dict[str, Any] = {"key": key, "type": type, "label": label}
+    if unit is not None:
+        entry["unit"] = unit
+    if info is not None:
+        entry["info"] = info
+    if python_only:
+        entry["python_only"] = True
+    entry.update(extra)
+    return entry
+
+
+def _alias(name: str) -> property:
+    """A property reading and writing attribute `name` (a legacy key's old name)."""
+    return property(lambda self: getattr(self, name),
+                    lambda self, value: setattr(self, name, value),
+                    doc=f"Old name of ``{name}``.")
+
+
+_SCENE_OBJS_DIR = str(Path(__file__).resolve().parent)
+
+
+def _caller_level() -> int:
+    """The `stacklevel` that names the first frame outside `core/scene_objs`.
+
+    A warning attributed to this package's own constructors would be hidden by
+    Python's default filters; attributed to the user's line, it is shown.
+    """
+    level, frame = 1, sys._getframe(1)
+    while frame is not None and frame.f_code.co_filename.startswith(_SCENE_OBJS_DIR):
+        level += 1
+        frame = frame.f_back
+    return level
+
+
+def _bound_arguments(signature: inspect.Signature, obj: Any, args: tuple,
+                     kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The constructor's arguments by name, defaults applied, `**kwargs` merged;
+    None when they cannot be bound by name (a `*args` constructor)."""
+    try:
+        bound = signature.bind(obj, *args, **kwargs)
+    except TypeError:
+        return None
+    bound.apply_defaults()
+    out: Dict[str, Any] = {}
+    for name, value in bound.arguments.items():
+        kind = signature.parameters[name].kind
+        if name in ("self", "scene"):
+            continue
+        if kind is inspect.Parameter.VAR_POSITIONAL:
+            if value:
+                return None
+            continue
+        if kind is inspect.Parameter.VAR_KEYWORD:
+            out.update(value)
+            continue
+        out[name] = value
+    try:
+        return copy.deepcopy(out)
+    except Exception:
+        return dict(out)
 
 
 class ConstructReturn(TypedDict, total=False):
@@ -112,6 +268,17 @@ class BaseSceneObj:
             y = self.p1['y']
     """
 
+    legacy_keys: Dict[str, str] = {}
+    """
+    PYTHON-SPECIFIC: serialized keys an earlier version of this package used,
+    each mapped to its current name, which is the JavaScript simulator's
+    (``{'emis_angle': 'emisAngle'}``). A json_obj with an old key still loads,
+    with a DeprecationWarning; `serialize()` writes the current name only. The
+    old name also stays an attribute: a property reading and writing the
+    current one, made by `__init_subclass__`. A subclass extends its parent's
+    map (``{**Parent.legacy_keys, ...}``).
+    """
+
     is_optical: bool = False
     """Whether the object is optical (i.e. is a light source, interacts with rays, or detects rays)."""
 
@@ -124,6 +291,20 @@ class BaseSceneObj:
     will be called only on the other one (glass or not), with the N glasses being in
     `surface_merging_objs`. Otherwise, the behavior is undefined, and a warning will be shown.
     """
+
+    # PYTHON-SPECIFIC FEATURE: Construction record (see `_recording_init`).
+    _construction_args: Optional[Dict[str, Any]] = None
+    _built_inside: Optional["BaseSceneObj"] = None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        init = cls.__dict__.get("__init__")
+        if init is not None and not getattr(init, "_records_construction", False):
+            cls.__init__ = _recording_init(cls, init)  # type: ignore[method-assign]
+        # PYTHON-SPECIFIC: each legacy key's old name, an alias of the current attribute.
+        for old, new in cls.__dict__.get("legacy_keys", {}).items():
+            if not hasattr(cls, old):
+                setattr(cls, old, _alias(new))
 
     # =========================================================================
     # PYTHON-SPECIFIC FEATURE: Object Identification
@@ -161,6 +342,18 @@ class BaseSceneObj:
         """Optional Role tag (optical_elements.roles.Role) for structural path
         auditing -- what this object does in a device, independent of name."""
 
+        legacy = self.__class__.legacy_keys
+        if json_obj and legacy and any(k in json_obj for k in legacy):
+            old_keys = sorted(k for k in json_obj if k in legacy)
+            warnings.warn(
+                f"{self.__class__.type}: {', '.join(old_keys)} renamed to "
+                f"{', '.join(legacy[k] for k in old_keys)} (upstream's names); the old "
+                f"names are read for now and will stop being read in a later version",
+                DeprecationWarning, stacklevel=_caller_level())
+            # The current name wins when both are present.
+            renamed = {legacy[k]: v for k, v in json_obj.items() if k in legacy}
+            json_obj = {**renamed, **{k: v for k, v in json_obj.items() if k not in legacy}}
+
         # Check for unknown keys in the json_obj
         if json_obj:
             serializable_defaults = self.__class__.serializable_defaults
@@ -189,6 +382,24 @@ class BaseSceneObj:
             serializable_defaults = self.__class__.serializable_defaults
             for prop_name, default_value in serializable_defaults.items():
                 setattr(self, prop_name, copy.deepcopy(default_value))
+
+    @classmethod
+    def property_schema(cls, obj_data: Any = None, scene: Any = None) -> List[Dict[str, Any]]:
+        """The object's editable properties, in order: upstream's getPropertySchema.
+
+        Each entry is a `schema_entry`: a key path into the object, its type,
+        its label and, where there is one, its unit. A form, a sidebar or a
+        typed construction surface reads the object through it, with
+        `core.key_path.get_by_key_path` and `set_by_key_path`. Subclasses
+        extend their parent's list, as upstream's do, so the order is
+        upstream's.
+
+        Args:
+            obj_data: The object or its serialized dict, for schemas that
+                depend on its values (none of the ported ones do yet).
+            scene: The scene, likewise.
+        """
+        return []
 
     def serialize(self) -> Dict[str, Any]:
         """

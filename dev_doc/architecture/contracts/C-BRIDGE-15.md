@@ -33,7 +33,7 @@ since: 0.3
   `BasePrism.from_profile`: a revolve profile's half-section is mirrored
   about its axis and a face the axis cut is joined. Each sheet's mirrors are
   rebuilt by `mirrors_from_sheet_profile`: a line as a `Mirror`, a conic as
-  a `ConicMirror`, a circle as an `ArcMirror`, the far side mirrored unless
+  a `ConicMirror`, a circle as a `CircularArcMirror`, the far side mirrored unless
   the azimuth cut removes it, and a curve or flat mirror the axis cut
   joined. The rebuild of each element of the revolved pilots, solid or
   sheet, traces as the design it was exported from: the same faces, the

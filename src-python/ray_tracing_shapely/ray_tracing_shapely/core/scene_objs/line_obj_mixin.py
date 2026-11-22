@@ -46,6 +46,12 @@ class LineObjMixin:
           In Python's MRO (Method Resolution Order), mixins should come before the base class.
     """
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream LineObjMixin: the two endpoints, then the class's own entries."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [e('p1', 'point', '1st endpoint'), e('p2', 'point', '2nd endpoint'),
+                *super().property_schema(obj_data, scene)]
     def move(self, diff_x: float, diff_y: float) -> bool:
         """
         Move the line segment by the given displacement.

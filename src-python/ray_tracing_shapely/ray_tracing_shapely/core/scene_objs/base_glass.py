@@ -72,6 +72,14 @@ class BaseGlass(BaseSceneObj):
     # and automatic cardinal direction labeling based on edge orientation.
     # =========================================================================
 
+    @classmethod
+    def property_schema(cls, obj_data=None, scene=None):
+        """Upstream BaseGlass: the index (or Cauchy A), Cauchy B, partial reflection."""
+        from ray_tracing_shapely.core.scene_objs.base_scene_obj import schema_entry as e
+        return [e('refIndex', 'number', 'Refractive index (Cauchy coefficient A)',
+                  info='When "Simulate Colors" is on, it serves as the Cauchy coefficient A instead. *Relative if inside another glass. If this object is to be simulated with (absolute) refractive index n₁, but is placed inside another glass with refractive index n₀, then you should set the refractive index to n₁/n₀ here. In more complicated cases that several glasses overlap together, the effective refractive index of the overlapping region equals the product of the refractive indices of individual ones.'),
+                e('cauchyB', 'number', 'Cauchy coefficient B', unit='μm²'),
+                e('partialReflect', 'boolean', 'Simulate partial reflections')]
     def _get_edge_count(self) -> int:
         """
         Get the number of edges in this glass object.
@@ -618,8 +626,15 @@ class BaseGlass(BaseSceneObj):
 
             # Fresnel equations for reflection coefficients
             # Reference: http://en.wikipedia.org/wiki/Fresnel_equations
-            R_s = ((n1 * cos1 - cos2) / (n1 * cos1 + cos2)) ** 2
-            R_p = ((n1 * cos2 - cos1) / (n1 * cos2 + cos1)) ** 2
+            # partialReflect (upstream's; default True) switches the Fresnel
+            # reflection off: all the light is refracted. A glass class with
+            # defaults of its own and no such key reflects, as upstream's.
+            if getattr(self, 'partialReflect', True):
+                R_s = ((n1 * cos1 - cos2) / (n1 * cos1 + cos2)) ** 2
+                R_p = ((n1 * cos2 - cos1) / (n1 * cos2 + cos1)) ** 2
+            else:
+                R_s = 0.0
+                R_p = 0.0
 
             # Transmission coefficients
             T_s = 1 - R_s

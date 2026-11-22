@@ -75,7 +75,7 @@ def _hits(result, det):
 
 
 def _narrow(scene, source, emis=3.0):
-    narrow = AngleSource(scene, {"p1": dict(source.p1), "p2": dict(source.p2), "emis_angle": emis,
+    narrow = AngleSource(scene, {"p1": dict(source.p1), "p2": dict(source.p2), "emisAngle": emis,
                                  "symmetric": True, "brightness": 1.0})
     narrow.name = "src_narrow"
     return narrow
@@ -119,7 +119,7 @@ def test_a_designed_element_travels_as_its_profile():
     prism = RefractometerPrism.from_critical_ray_path(scene, n_prism=1.72, n_target=1.33, ray_path_length=20.0)
     prism.name = "prism"
     scene.add_object(prism)
-    src = AngleSource(scene, {"p1": {"x": 0, "y": 30}, "p2": {"x": 0, "y": 29}, "emis_angle": 20,
+    src = AngleSource(scene, {"p1": {"x": 0, "y": 30}, "p2": {"x": 0, "y": 29}, "emisAngle": 20,
                               "symmetric": True, "brightness": 1.0})
     src.name = "src"
     scene.add_object(src)

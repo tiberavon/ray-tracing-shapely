@@ -43,7 +43,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from .ray_geometry_queries import (
     get_object_by_name,
-    get_objects_by_type,
     find_rays_inside_glass,
     find_rays_crossing_edge,
     find_rays_by_angle_to_edge,
@@ -924,7 +923,8 @@ def list_detectors() -> Dict[str, Any]:
     """
     try:
         scene, _segments = _require_context()
-        detectors = get_objects_by_type(scene, 'Detector')
+        from ..core.scene_objs.other.detector import Detector  # noqa: PLC0415
+        detectors = [o for o in scene.objs if isinstance(o, Detector)]   # Photodetectors too
 
         summaries = []
         for det in detectors:

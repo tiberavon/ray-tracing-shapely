@@ -69,7 +69,9 @@ as one step), and keeps the handle in the heartbeat; `poll` follows the handle,
 `wait` polls until the job ends or the timeout. Nothing
 here looks for the work in the process list.
 
-**Questions as data.** A box that asks a question has a `FlowField` (the
+**Questions as data.** Every answer given is an event (``answer``), before its
+check runs, so a run's record says what was answered, not only what was asked.
+A box that asks a question has a `FlowField` (the
 class's `FIELDS`, by state): the kind of answer, its unit, its default, the
 question and why it is asked. `pending_field()` is the current one; `answer
 (value)` fires the box's own `provide_*` trigger, found from the machine, so
@@ -396,6 +398,8 @@ class ObservableFlow:
             return {"accepted": False, "reason": _with_example(f"{field.name}: no answer given", field),
                     **self.question_state()}
         before = self.state
+        # every answer given is recorded, before the box's check: a refusal follows it as its own event
+        self.emit_event(field=field.name, answer=_as_recorded(value), message=f"{field.name}: answered")
         try:
             shaped = field.coerce(value)
             getattr(self, self._answer_trigger())(shaped)
@@ -454,6 +458,12 @@ class ObservableFlow:
         choose from), or None. Override in a flow whose question needs it."""
         return None
 
+    def question_form(self) -> Optional[Dict[str, Any]]:
+        """How the current ``json`` question can be asked field by field (`fields.FORM_KINDS`),
+        built from the run's own context: the choices, the defaults. None: the answer is typed.
+        Override in a flow whose json question a person should not have to type."""
+        return None
+
     def question_state(self) -> Dict[str, Any]:
         """Where the run is, as JSON: its state, the question it waits on (or
         None) and what it is answered from, what the box says, the last
@@ -462,6 +472,7 @@ class ObservableFlow:
         return {"run_id": self.run_id, "flow": self.name, "state": self.state,
                 "finished": self.is_finished, "question": field.to_dict() if field else None,
                 "context": self.question_context() if field else None,
+                "form": self.question_form() if field else None,
                 "explanation": self.explain_current_state(), "last_refusal": self.last_refusal,
                 "job": self._job, "attempt": self.attempt}
 
@@ -775,6 +786,17 @@ def _with_example(reason: str, field: FlowField) -> str:
     if not field.example or field.example in reason:
         return reason
     return f"{reason} -- {field.example}"
+
+
+def _as_recorded(value: Any, n: int = 2000) -> Any:
+    """An answer as its event keeps it: JSON as it is while short, else cut short as `_short`."""
+    import json  # noqa: PLC0415
+
+    try:
+        text = json.dumps(value)
+    except (TypeError, ValueError):
+        return _short(value)
+    return value if len(text) <= n else text[:n] + "..."
 
 
 def _short(value: Any, n: int = 200) -> Any:

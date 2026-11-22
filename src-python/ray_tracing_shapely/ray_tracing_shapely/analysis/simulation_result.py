@@ -119,9 +119,11 @@ def detector_hits_of(scene: 'Scene') -> Dict[str, List[Dict[str, Any]]]:
     """Each detector's hit records as they stand, by uuid: a copy, so a later
     run of the scene does not change it. A LinearSensor's internal detector
     is included, since it is in ``scene.objs``."""
+    from ..core.scene_objs.other.detector import Detector  # noqa: PLC0415
+
     out: Dict[str, List[Dict[str, Any]]] = {}
     for obj in scene.objs:
-        if (getattr(obj.__class__, 'type', None) or obj.__class__.__name__) != 'Detector':
+        if not isinstance(obj, Detector):         # a Photodetector or a LinearSensor's included
             continue
         if hasattr(obj, 'get_hit_records'):
             out[obj.uuid] = [dict(r) for r in obj.get_hit_records()]

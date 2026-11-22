@@ -41,6 +41,7 @@ from ray_tracing_shapely.core.glass_curves import (ASPHERE_INTERVALS, AsphereCur
                                                    curve_from_descriptor, transform_descriptor)
 from ray_tracing_shapely.core.scene import Scene
 from ray_tracing_shapely.core.scene_objs.glass.glass import Glass
+from ray_tracing_shapely.optical_elements.curved_glass import CurvedGlass
 from ray_tracing_shapely.core.scene_objs.light_source.single_ray import SingleRay
 from ray_tracing_shapely.core.simulator import Simulator
 from ray_tracing_shapely.optical_elements.prisms.base_prism import BasePrism
@@ -65,11 +66,11 @@ def _sag(s, radius, conic, coefficients):
 def _lens(scene, desc, face):
     """Flat face at x0, the curve ``face`` (vertex at x0 + T, axis -x) from y0 - h to y0 + h."""
     lo, hi = face.point(H), face.point(-H)
-    return Glass(scene, {"path": [{"x": X0, "y": Y0 + H, "arc": False},
+    return CurvedGlass(scene, {"path": [{"x": X0, "y": Y0 + H, "arc": False},
                                   {"x": X0, "y": Y0 - H, "arc": False},
                                   {"x": lo[0], "y": lo[1], "arc": False, "curve": desc},
                                   {"x": hi[0], "y": hi[1], "arc": False}],
-                         "refIndex": N, "not_done": False})
+                         "refIndex": N, "notDone": False})
 
 
 def _exits(face, heights):

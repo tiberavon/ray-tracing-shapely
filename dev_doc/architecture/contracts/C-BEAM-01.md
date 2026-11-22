@@ -1,6 +1,6 @@
 ---
 id: C-BEAM-01
-title: Beam.emis_angle is a full (total) divergence angle in [0, 180] degrees; it is not an incidence angle and is not signed
+title: Beam.emisAngle is a full (total) divergence angle in [0, 180] degrees; it is not an incidence angle and is not signed
 parties:
   provides: scene builders (notebooks, papermill templates) setting Beam attributes directly
   relies:   core_scene_objects (Beam.on_simulation_start)
@@ -19,7 +19,8 @@ since: 0.2
 
 # C-BEAM-01 — A beam's spread angle is the whole spread, from zero to 180 degrees
 
-**Assumptions.** Whoever sets `emis_angle` on a `Beam` gives the full angle
+**Assumptions.** Whoever sets `emisAngle` on a `Beam` (the JavaScript
+simulator's name; `emis_angle`, this package's earlier one, still works) gives the full angle
 the beam fans out across, in degrees, between 0 and 180. Not half of it.
 Not an angle of incidence. Not negative.
 

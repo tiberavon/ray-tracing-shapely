@@ -233,7 +233,7 @@ def test_rxi_receiver_cavity_collects_light():
         'type': 'Detector',
         'p1': {'x': -3.0, 'y': -45.0 - 1.0},
         'p2': {'x': 3.0, 'y': -45.0 - 1.0},
-        'irrad_map': True, 'bin_size': 0.3,
+        'irradMap': True, 'binSize': 0.3,
     })
     det.name = 'receiver_detector'
     scene.add_object(det)

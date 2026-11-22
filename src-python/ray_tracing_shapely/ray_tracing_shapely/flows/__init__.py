@@ -34,8 +34,10 @@ dev_doc/architecture/components/flows.md.
                        against its process and its job (list_runs)
     agentic            the nine flow tools (flow_kinds ... flow_cancel), added by register()
     dashboard          a page showing runs as they happen
+    transcript         a run's record as a markdown page (transcript_markdown)
+    widget             a flow as a form in a notebook cell (flow_form; the widgets extra)
 
-Everything but `flow_base` needs nothing outside the standard library, so
+Everything but `flow_base` and `widget` needs nothing outside the standard library, so
 reading a run's record never loads the machinery that ran it [KC7]. The
 flows themselves live with their domain: the eye-safety classification and
 intake flows, the rayfile slicing flow.

@@ -51,7 +51,7 @@ def main():
     lens = SphericalLens(scene, {
         'p1': {'x': 180, 'y': 220},
         'p2': {'x': 220, 'y': 380},
-        'def_by': 'DR1R2',
+        'defBy': 'DR1R2',
         'params': {'d': 60, 'r1': 200, 'r2': -200},
         'refIndex': 1.5
     })

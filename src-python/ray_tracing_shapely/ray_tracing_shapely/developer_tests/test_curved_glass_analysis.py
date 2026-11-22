@@ -56,7 +56,7 @@ from ray_tracing_shapely.optical_elements.prisms.refractometer import Refractome
 
 def _lens(scene=None, r1=20.0, r2=-60.0):
     return SphericalLens(scene or Scene(), {
-        "p1": {"x": 0, "y": 10}, "p2": {"x": 0, "y": -10}, "def_by": "DR1R2",
+        "p1": {"x": 0, "y": 10}, "p2": {"x": 0, "y": -10}, "defBy": "DR1R2",
         "params": {"d": 5.0, "r1": r1, "r2": r2}, "refIndex": 1.5, "cauchyB": 0.0,
     })
 
