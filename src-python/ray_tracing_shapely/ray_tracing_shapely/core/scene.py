@@ -76,6 +76,10 @@ class Scene:
         self.simulate_colors = False
         self.show_ray_arrows = False   # Display direction arrows on rays
         self._max_ray_depth = math.inf  # interactions a ray may have (upstream's maxRayDepth)
+        # Upstream's editing settings (Scene.js), read by core.mouse.Mouse:
+        self.scale = 1.0               # screen pixels per scene unit, for click extents
+        self.grid_size = 20.0          # the grid's spacing, in scene units
+        self.snap_to_grid = False      # whether the pointer snaps to the grid
         self.error = None
         self.warning = None
         self.name = None               # Optional scene name for exports

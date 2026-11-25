@@ -63,6 +63,7 @@ way round.
 | **KA7** | [a_tool_is_registered_in_three_places_or_it_is_unreachable](KA7_a_tool_is_registered_in_three_places_or_it_is_unreachable.md) | Defined, catalogued, published — two of three is unreachable; the published list is derived, and the agreement tested. |
 | **KA8** | [tool_output_is_budgeted_against_the_context_window](KA8_tool_output_is_budgeted_against_the_context_window.md) | Summarise and filter by construction; return a descriptor, not the payload. |
 | **KA9** | [every_argument_is_parsed_and_checked_at_the_agent_boundary](KA9_every_argument_is_parsed_and_checked_at_the_agent_boundary.md) | Quantities parsed and dimension-checked, names resolved, SQL keyword-filtered. |
+| **KA10** | [the_graph_is_a_view_of_compiled_notebook_code](KA10_the_graph_is_a_view_of_compiled_notebook_code.md) | A graph of blocks runs only as the notebook it compiles to, so there is no second engine. |
 
 ### Representing and analysing a simulation
 

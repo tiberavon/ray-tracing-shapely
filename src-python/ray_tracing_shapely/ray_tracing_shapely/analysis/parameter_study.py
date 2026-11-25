@@ -53,7 +53,7 @@ import itertools
 import math
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, TypedDict
 
 #: The parameters every object in the scene has, applied after it is built.
 TRANSFORMS: Tuple[str, ...] = ("rotate_deg", "move_x", "move_y")
@@ -365,7 +365,19 @@ def sources_and_detectors(scene: Any) -> Tuple[List[str], List[str]]:
     return sources, detectors
 
 
-def read_detector(scene: Any, result: Any, detector: str, *, profile: bool = False) -> Dict[str, Any]:
+class DetectorReading(TypedDict, total=False):
+    """What `read_detector` gives (the block type ``detector_reading``): ``power`` and ``hits``
+    always; ``profile`` only when asked for."""
+
+    power: float
+    emitted: float
+    share: Optional[float]
+    centroid: Optional[float]
+    hits: int
+    profile: Dict[str, Any]
+
+
+def read_detector(scene: Any, result: Any, detector: str, *, profile: bool = False) -> DetectorReading:
     """What one detector measured in a traced scene.
 
     Returns:
@@ -384,7 +396,7 @@ def read_detector(scene: Any, result: Any, detector: str, *, profile: bool = Fal
     weights = [r["sign"] * r["brightness_total"] for r in records]
     total = sum(weights)
     centroid = (sum(w * r["position"] for w, r in zip(weights, records)) / total) if total else None
-    out: Dict[str, Any] = {"power": det.power, "emitted": emitted, "share": det.power / emitted if emitted else None,
+    out: DetectorReading = {"power": det.power, "emitted": emitted, "share": det.power / emitted if emitted else None,
                            "centroid": centroid, "hits": len(records)}
     if profile:
         bins = det.bin_count if det.bin_size > 0 else 0
@@ -412,7 +424,7 @@ def trace_point(data: Dict[str, Any], changes: Sequence[Dict[str, Any]], *, dete
     sim = Simulator(scene, max_rays=max_rays)
     result = sim.run_with_result()
     sim_s = time.perf_counter() - t0
-    reading = read_detector(scene, result, detector, profile=profile)
+    reading: Dict[str, Any] = dict(read_detector(scene, result, detector, profile=profile))
     reading.update(segments=result.segment_count, truncated=sim.processed_ray_count >= max_rays,
                    sim_s=sim_s)
     return scene, result, reading
@@ -642,7 +654,7 @@ def plot_svg(rows: Sequence[Dict[str, Any]], axes: Sequence[Dict[str, Any]], mea
     return Path(path)
 
 
-__all__ = ["MAX_POINTS", "MEASURES", "READINGS", "SOURCE_TYPES", "StudyError", "TRANSFORMS", "build_point",
+__all__ = ["DetectorReading", "MAX_POINTS", "MEASURES", "READINGS", "SOURCE_TYPES", "StudyError", "TRANSFORMS", "build_point",
            "study_arrays", "study_result", "study_rows", "study_table_markdown",
            "corner_points", "current_value", "parameter_table", "plot_svg", "point_label", "read_detector",
            "sources_and_detectors", "study_points_job", "sweep_axes", "sweep_points", "trace_point"]

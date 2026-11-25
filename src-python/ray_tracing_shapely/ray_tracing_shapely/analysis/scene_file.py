@@ -87,6 +87,7 @@ VERSION = "1.1"
 SETTINGS: Tuple[str, ...] = (
     "name", "mode", "color_mode", "simulate_colors", "show_ray_arrows", "length_scale",
     "ray_mode_density", "image_mode_density", "min_brightness_exp", "max_ray_depth",
+    "grid_size", "snap_to_grid",
     "grazing_angle_threshold", "grazing_polarization_ratio_threshold",
     "grazing_transmission_threshold",
 )
@@ -598,6 +599,23 @@ def scene_from_dict(data: Dict[str, Any]) -> Any:
     return scene
 
 
+def assemble(entries: List[Dict[str, Any]], settings: Optional[Dict[str, Any]] = None) -> Any:
+    """A scene from its entries, in order: what a scene file of them would give.
+
+    Args:
+        entries: Scene-file entries (``{"name"?, "object": ...}``,
+            ``{"name"?, "recipe": ..., "args": ...}``), as a constructor block
+            or `RayfileSlice.scene_entry` gives them.
+        settings: Scene settings (`SETTINGS`), or None for the defaults.
+
+    Raises:
+        SceneFileError: As `scene_from_dict`: a name shared (C-LABEL-01), an
+            unknown setting, or an entry that cannot be built.
+    """
+    return scene_from_dict({"schema": SCHEMA, "version": VERSION, "settings": dict(settings or {}),
+                            "objects": list(entries)})
+
+
 def save_scene(scene: Any, path: Union[str, Path]) -> Path:
     """Write a scene to a file, whole or not at all.
 
@@ -644,8 +662,159 @@ def load_scene(path: Union[str, Path]) -> Any:
     return scene_from_dict(data)
 
 
+# =============================================================================
+# The JavaScript simulator's own scene files (phydemo.app/ray-optics)
+# =============================================================================
+
+#: The web simulator's scene format version this reads and writes.
+WEB_VERSION = 5
+
+#: The web simulator's types this package has, each read by the class that
+#: reads its `serialize()` dict: the same names and, since the realignment,
+#: the same keys.
+WEB_TYPES: Tuple[str, ...] = (
+    "AngleSource", "Beam", "Blocker", "Detector", "Glass", "IdealLens", "IdealMirror",
+    "Mirror", "PointSource", "SingleRay", "SphericalLens",
+)
+
+#: The web scene's settings this package keeps, and the `Scene` attribute each is.
+WEB_SETTINGS: Dict[str, str] = {
+    "name": "name", "mode": "mode", "rayModeDensity": "ray_mode_density",
+    "imageModeDensity": "image_mode_density", "colorMode": "color_mode",
+    "simulateColors": "simulate_colors", "showRayArrows": "show_ray_arrows",
+    "lengthScale": "length_scale", "maxRayDepth": "max_ray_depth",
+    "gridSize": "grid_size", "snapToGrid": "snap_to_grid",
+}
+
+#: Keys of a web scene that describe its view or its editor, not its optics:
+#: read by nothing here, and not reported.
+WEB_VIEW_KEYS = {"version", "objs", "width", "height", "origin", "scale", "showGrid", "lockObjs",
+                 "theme", "observer", "importedFromBeta"}
+
+
+def scene_from_web_dict(data: Dict[str, Any]) -> Tuple[Any, Dict[str, Any]]:
+    """A scene from the web simulator's scene file content.
+
+    Every object of a type this package has (`WEB_TYPES`) is built from its
+    entry as it stands, and named by its type and a number (the web format has
+    no names; `C-LABEL-01` wants them). Anything else is left out and listed.
+
+    Args:
+        data: The parsed JSON of a scene the web simulator saved (version 5).
+
+    Returns:
+        ``(scene, report)``: ``report["skipped"]`` lists ``{"index", "type",
+        "reason"}`` for each object left out, ``report["ignored_settings"]``
+        the settings with no counterpart here.
+
+    Raises:
+        SceneFileError: Not a web scene, or another version (open and save it
+            in the web simulator, which updates old files, then read it again).
+    """
+    from ..core.scene import Scene  # noqa: PLC0415
+
+    if not isinstance(data, dict) or "objs" not in data:
+        raise SceneFileError("not a web simulator scene: it has no 'objs'")
+    version = data.get("version")
+    if version != WEB_VERSION:
+        raise SceneFileError(f"web scene version {version!r}; this reads version {WEB_VERSION}. Open and save "
+                             "it in the web simulator, which updates older files, then read it again")
+    scene = Scene()
+    report: Dict[str, Any] = {"skipped": [], "ignored_settings": []}
+    for key, value in data.items():
+        if key in WEB_SETTINGS:
+            setattr(scene, WEB_SETTINGS[key], value)
+        elif key not in WEB_VIEW_KEYS and value not in ({}, [], None):
+            report["ignored_settings"].append(key)
+    counts: Dict[str, int] = {}
+    for index, entry in enumerate(data["objs"]):
+        kind = entry.get("type") if isinstance(entry, dict) else None
+        if kind not in WEB_TYPES:
+            report["skipped"].append({"index": index, "type": kind, "reason": "not a type this package has"})
+            continue
+        scene.error = None
+        obj = _resolve(_PRIMITIVES[kind])(scene, {k: v for k, v in entry.items()})
+        if scene.error:
+            report["skipped"].append({"index": index, "type": kind, "reason": scene.error})
+            scene.error = None
+            continue
+        counts[kind] = counts.get(kind, 0) + 1
+        obj.name = f"{kind}{counts[kind]}"
+        scene.add_object(obj)
+    return scene, report
+
+
+def load_web_scene(path: Union[str, Path]) -> Tuple[Any, Dict[str, Any]]:
+    """Read a scene file the web simulator saved: ``(scene, report)`` (`scene_from_web_dict`)."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SceneFileError(f"{path}: not JSON: {exc}") from exc
+    return scene_from_web_dict(data)
+
+
+def is_web_scene(data: Any) -> bool:
+    """Whether parsed JSON is the web simulator's format rather than this package's."""
+    return isinstance(data, dict) and "objs" in data and data.get("schema") != SCHEMA
+
+
+def web_scene_dict(scene: Any) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """The scene in the web simulator's format, to open at phydemo.app/ray-optics.
+
+    A primitive of a web type is written as its `serialize()` dict; a designed
+    element whose outline is straight edges and arcs, as the `Glass` it traces
+    as (what it was built from is not kept: the web format has no recipes).
+    Anything else (a curved edge, a type the web simulator lacks) is left out
+    and listed.
+
+    Returns:
+        ``(data, report)``: ``report["skipped"]`` lists ``{"name", "type", "reason"}``.
+    """
+    from ..core.scene_objs.glass.glass import Glass  # noqa: PLC0415
+
+    data: Dict[str, Any] = {"version": WEB_VERSION}
+    for key, attr in WEB_SETTINGS.items():
+        value = getattr(scene, attr, None)
+        if key == "maxRayDepth" and value == float("inf"):
+            continue
+        if value is not None and key != "name":
+            data[key] = value
+    if getattr(scene, "name", None):
+        data["name"] = scene.name
+    objs: List[Dict[str, Any]] = []
+    report: Dict[str, Any] = {"skipped": []}
+    glass_defaults = Glass.serializable_defaults
+    for obj in scene.objs:
+        kind = getattr(type(obj), "type", "")
+        if kind in WEB_TYPES and _primitive_type(obj) == kind:
+            objs.append(json.loads(json.dumps(obj.serialize())))
+        elif isinstance(obj, Glass) and obj.path and not any(p.get("curve") for p in obj.path):
+            entry: Dict[str, Any] = {"type": "Glass",
+                                     "path": [{"x": p["x"], "y": p["y"], "arc": bool(p.get("arc"))} for p in obj.path]}
+            for key in ("refIndex", "cauchyB", "partialReflect"):
+                value = getattr(obj, key, glass_defaults[key])
+                if value != glass_defaults[key]:
+                    entry[key] = value
+            objs.append(entry)
+        else:
+            reason = ("it has curved edges, which the web simulator's Glass does not"
+                      if isinstance(obj, Glass) else "the web simulator has no such type")
+            report["skipped"].append({"name": obj.name, "type": kind, "reason": reason})
+    data["objs"] = objs
+    return data, report
+
+
+def save_web_scene(scene: Any, path: Union[str, Path]) -> Dict[str, Any]:
+    """Write the scene in the web simulator's format (`web_scene_dict`); the report."""
+    data, report = web_scene_dict(scene)
+    Path(path).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
 __all__ = [
     "SCHEMA", "SETTINGS", "VERSION", "SceneFileError",
-    "list_primitives", "list_recipes", "load_scene", "recipe_class", "recipe_parameters",
-    "register_recipe", "save_scene", "scene_from_dict", "scene_to_dict",
+    "WEB_SETTINGS", "WEB_TYPES", "WEB_VERSION",
+    "assemble", "is_web_scene", "list_primitives", "list_recipes", "load_scene", "load_web_scene",
+    "recipe_class", "recipe_parameters", "register_recipe", "save_scene", "save_web_scene",
+    "scene_from_dict", "scene_from_web_dict", "scene_to_dict", "web_scene_dict",
 ]

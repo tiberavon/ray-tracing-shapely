@@ -105,6 +105,9 @@ class XRConcentrator(BasePrism):
     _apex_vertex_index: ClassVar[Optional[int]] = None
     _supports_refinement: ClassVar[bool] = False
     type = 'XRConcentrator'
+    #: The constructor's arguments that are positions (a point, or a sequence of points):
+    #: what moving the whole element shifts, its directions left as they are.
+    placement_points = ('r1', 'r2', 'p0')   # n0 is a direction
 
     def __init__(
         self,

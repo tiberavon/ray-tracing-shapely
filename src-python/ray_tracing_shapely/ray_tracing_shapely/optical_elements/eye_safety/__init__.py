@@ -101,7 +101,7 @@ from .pupil_aperture import (
     average_over_aperture,
 )
 from .spectral_data import SpectralPowerDistribution, interp_log
-from .hazard_functions import S_actinic_uv, B_blue_light, R_retinal_thermal
+from .hazard_functions import HAZARD_WEIGHTINGS, S_actinic_uv, B_blue_light, R_retinal_thermal, weighted_fraction
 from .correction_factors import (
     c3_iec60825_1,
     c4_iec60825_1,
@@ -133,6 +133,8 @@ __all__ = [
     'S_actinic_uv',
     'B_blue_light',
     'R_retinal_thermal',
+    'HAZARD_WEIGHTINGS',
+    'weighted_fraction',
     'c3_iec60825_1',
     'c4_iec60825_1',
     'c6_iec60825_1',

@@ -49,6 +49,12 @@ On top of that sit layers the original simulator does not have:
   Several runs are held at once as named contexts, a saved run is reloaded by
   reference, and a package built on the library adds tools of its own beside
   the core's.
+- **Designs as blocks and graphs** — the steps from a rayfile to a risk group
+  (slice a rayfile, make a source, place a collimator and a detector, trace,
+  read, weight for a hazard, classify) as typed blocks, each input with its
+  unit. An agent builds with six generic tools over them, and hands its work
+  back as a graph. A person draws the same graph on a canvas, runs only what
+  an edit made stale, and compiles it to the notebook that runs it.
 - **Long runs, off the notebook** — a procedure is a flow: a fixed diagram
   whose every step is recorded, so a run that stops can be read back. Its long
   jobs go to local processes or to Modal's serverless containers, each with an
@@ -79,12 +85,14 @@ pip install "ray-tracing-shapely[flows]"         # observable step-by-step proce
 pip install "ray-tracing-shapely[eye-safety]"    # IEC 60825-1 / IEC 62471
 pip install "ray-tracing-shapely[agentic]"       # the MCP tool surface
 pip install "ray-tracing-shapely[modal]"         # flows' jobs on Modal (the Modal client)
-pip install "ray-tracing-shapely[widgets]"       # a flow as a form in a notebook cell (anywidget)
+pip install "ray-tracing-shapely[widgets]"       # a flow's form, the scene builder and the graph editor in a notebook cell (anywidget)
+pip install "ray-tracing-shapely[web]"           # the same three, as pages for hosts without widgets (experimental)
 pip install "ray-tracing-shapely[notebook]"      # running the example notebooks (jupyterlab, papermill)
 pip install "ray-tracing-shapely[all]"           # everything
 ```
 
-Python 3.11 or newer.
+Python 3.11 or newer. The blocks and the graph editor read quantities with
+their units, so they need `radiometry` beside `widgets` or `web`.
 
 ## Thirty seconds
 
@@ -120,11 +128,83 @@ internally, and splits at each surface it meets. Render the result as SVG with
 object that produced it, so a diagram can be clicked back to the simulation
 that made it.
 
+## Drawing a scene, filling in a flow
+
+In a notebook (VS Code, JupyterLab, Colab), with the `widgets` extra:
+
+```python
+from ray_tracing_shapely.builder import scene_builder
+from ray_tracing_shapely.flows.widget import flow_form
+
+scene_builder(path="my.scene.json")   # draw and edit a scene with the pointer; Save writes the file
+flow_form(flow)                       # a flow's questions as a form, answered in the cell
+```
+
+The scene builder places primitives from a palette and designed elements
+from a form of their arguments, edits by dragging, as the web Ray Optics
+Simulation does, and traces after every change. It saves a scene file, which a
+parameter study or an agent reads, and opens and exports the web simulator's
+own files. Every rule runs in Python; the page only draws.
+
+```python
+from ray_tracing_shapely.graph import graph_editor
+
+graph_editor(path="design.graph.json")   # blocks joined by wires; Compile writes the notebook that runs them
+```
+
+The graph editor draws a design as blocks joined by wires: a rayfile slice
+feeds a source, the source and a detector feed a scene, the scene a trace,
+and so on to a risk group. A wire of the wrong type is refused as it is
+drawn, with the reason. The graph is saved as a small file and compiled to
+a notebook, one cell per block; the graph runs only as that notebook.
+
+**Run** runs that notebook's cells in the editor and keeps each block's
+result, so after an edit only the blocks it made stale run again; each block
+shows whether it is fresh, stale, running or failed, and a fresh block's
+values. A trace estimated at over a minute goes to a worker process, given
+one (`graph_editor(runner=GraphRunner(executor=...))`), and is refused with
+its estimate otherwise.
+
+The blocks are also what an agent builds with. With the `agentic` extra,
+`blocks.agentic.register()` adds six tools to the MCP server: list the
+blocks, describe one, run one (its outputs kept under handles, wired into the
+next block as `{"ref": "v3"}`), read or list the kept values, and
+`block_graph`, which writes the agent's work as a graph file. The person opens
+that file in the graph editor, or compiles it.
+
+### In solveit (experimental)
+
+solveit runs Jupyter "except for ipywidgets", so the widgets above do not show
+there. With the `web` extra, the same views are served as pages from a
+FastHTML app in the dialog, and shown in an iframe:
+
+```python
+from fasthtml.common import FastHTML
+from fasthtml.jupyter import JupyUvi
+from ray_tracing_shapely.web import Views
+
+app = FastHTML()
+views = Views(base_url="https://<your instance's public URL>")
+views.mount(app)                              # the pages' routes, under /rts
+server = JupyUvi(app)                         # serves the app on port 8000
+
+views.embed(views.builder(path="my.scene.json"))   # the scene builder
+views.embed(views.flow(flow))                       # a flow's form
+views.embed(views.graph(path="design.graph.json"))  # the graph editor
+```
+
+**Experimental.** The pages and their routes are tested in a browser against
+a local server, not yet inside a solveit dialog. The step most likely to need
+adjusting is the iframe's address: `base_url` is assumed to be the instance's
+public URL for port 8000, which solveit's reference manual describes; check it
+there, and pass whatever address reaches the app from the dialog. Outside
+solveit, `views.serve()` runs the pages on a local server for any browser.
+
 ## Documentation
 
 The code is documented in two layers, both shipped with the package:
 
-- **`dev_doc/concepts/`** — why the code has the shape it has. Thirty-seven
+- **`dev_doc/concepts/`** — why the code has the shape it has. Thirty-eight
   numbered concepts, each stating one claim and the evidence for it, written
   for a reader who wants to understand the design rather than just call it.
 - **`dev_doc/architecture/`** — what is true now: a component map, a port
@@ -158,8 +238,8 @@ This project began as a translation of the
 [doi:10.5281/zenodo.6386611](https://doi.org/10.5281/zenodo.6386611)), and has grown a
 great deal of new work on top of it.
 
-Of this distribution's 237 source files, **36 are translations** of
-that project — the ray-tracing engine and its scene objects — and **201
+Of this distribution's 269 source files, **37 are translations** of
+that project — the ray-tracing engine and its scene objects — and **232
 were written for this project**: the analysis layer, the nonimaging design
 methods, the radiometric and photobiological layers, the agentic surface,
 and the tests and examples. Every file says which it is in its own header,

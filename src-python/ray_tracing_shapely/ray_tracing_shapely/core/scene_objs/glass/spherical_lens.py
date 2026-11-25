@@ -211,6 +211,138 @@ class SphericalLens(Glass):
             return super().scale(scale_factor, center)
         return False
 
+    # =========================================================================
+    # Editing hooks (SphericalLens.js): placed by its two aperture points; a
+    # drag keeps it a symmetric lens about its axis.
+    # =========================================================================
+
+    _AXIS_DIRECTIONS = [{'x': 1, 'y': 0}, {'x': 0, 'y': 1}, {'x': 1, 'y': 1}, {'x': 1, 'y': -1}]
+
+    def create_lens(self):
+        """A default lens on the aperture p1-p2 (or the current one's): ten length units thick."""
+        p1 = self.p1 or geometry.midpoint(geometry.point(self.path[0]['x'], self.path[0]['y']),
+                                          geometry.point(self.path[1]['x'], self.path[1]['y']))
+        p2 = self.p2 or geometry.midpoint(geometry.point(self.path[3]['x'], self.path[3]['y']),
+                                          geometry.point(self.path[4]['x'], self.path[4]['y']))
+        p1x, p1y = (p1['x'], p1['y']) if isinstance(p1, dict) else (p1.x, p1.y)
+        p2x, p2y = (p2['x'], p2['y']) if isinstance(p2, dict) else (p2.x, p2.y)
+        length = math.hypot(p1x - p2x, p1y - p2y)
+        if length == 0:
+            self.path = None
+            return
+        dx, dy = (p2x - p1x) / length, (p2y - p1y) / length
+        dpx, dpy = dy, -dx
+        cx, cy = (p1x + p2x) * .5, (p1y + p2y) * .5
+        thick = 10 * self.scene.length_scale
+        self.path = [
+            {'x': p1x - dpx * thick, 'y': p1y - dpy * thick, 'arc': False},
+            {'x': p1x + dpx * thick, 'y': p1y + dpy * thick, 'arc': False},
+            {'x': cx + dpx * thick * 2, 'y': cy + dpy * thick * 2, 'arc': True},
+            {'x': p2x + dpx * thick, 'y': p2y + dpy * thick, 'arc': False},
+            {'x': p2x - dpx * thick, 'y': p2y - dpy * thick, 'arc': False},
+            {'x': cx - dpx * thick * 2, 'y': cy - dpy * thick * 2, 'arc': True},
+        ]
+
+    def _snapped_p2(self, mouse, shift):
+        if shift:
+            return mouse.get_pos_snapped_to_direction(self.construction_point, self._AXIS_DIRECTIONS)
+        return mouse.get_pos_snapped_to_grid()
+
+    def on_construct_mouse_down(self, mouse, ctrl, shift):
+        if getattr(self, 'construction_point', None) is None:
+            self.construction_point = mouse.get_pos_snapped_to_grid()
+            self.p1 = self.construction_point
+            self.p2 = self.construction_point
+            self.path = None
+            self.params = None
+        self.p2 = self._snapped_p2(mouse, shift)
+        self.create_lens()
+        return {'requiresObjBarUpdate': True}
+
+    def on_construct_mouse_move(self, mouse, ctrl, shift):
+        self.p2 = self._snapped_p2(mouse, shift)
+        c = self.construction_point
+        self.p1 = ({'x': 2 * c['x'] - self.p2['x'], 'y': 2 * c['y'] - self.p2['y']} if ctrl else c)
+        self.create_lens()
+        return {'requiresObjBarUpdate': True}
+
+    def on_construct_mouse_up(self, mouse, ctrl, shift):
+        if not mouse.snaps_on_point(self.p1):
+            self.p1 = None
+            self.p2 = None
+            self.params = None
+            self.construction_point = None
+            return {'isDone': True, 'requiresObjBarUpdate': True}
+        return None
+
+    def on_construct_undo(self):
+        return {'isCancelled': True}
+
+    def check_mouse_over(self, mouse):
+        if not self.path:
+            if self.p1 and self.p2:
+                for p in (self.p1, self.p2):
+                    if mouse.is_on_point(p):
+                        return {'part': -1, 'targetPoint': p}
+            return None
+        drag_context = super().check_mouse_over(mouse)
+        if drag_context and drag_context['part'] != 0:
+            drag_context['requiresObjBarUpdate'] = True
+        return drag_context
+
+    def on_drag(self, mouse, drag_context, ctrl, shift):
+        if drag_context['part'] == -1:
+            return
+        path = self.path
+
+        def mid(a, b):
+            return {'x': (a['x'] + b['x']) / 2, 'y': (a['y'] + b['y']) / 2}
+
+        p1, p2 = mid(path[0], path[1]), mid(path[3], path[4])
+        length = math.hypot(p1['x'] - p2['x'], p1['y'] - p2['y'])
+        dx, dy = (p2['x'] - p1['x']) / length, (p2['y'] - p1['y']) / length
+        dpx, dpy = dy, -dx
+        cx, cy = (p1['x'] + p2['x']) * .5, (p1['y'] + p2['y']) * .5
+        othick = math.hypot(path[0]['x'] - p1['x'], path[0]['y'] - p1['y'])
+        cthick2 = math.hypot(path[2]['x'] - cx, path[2]['y'] - cy)
+        cthick5 = math.hypot(path[5]['x'] - cx, path[5]['y'] - cy)
+        if drag_context['part'] == 1:
+            oldx, oldy = path[drag_context['index']]['x'], path[drag_context['index']]['y']
+
+        super().on_drag(mouse, drag_context, ctrl, shift)
+
+        if drag_context.get('isByHandle') or drag_context['part'] != 1:
+            return
+        mouse_pos = mouse.get_pos_snapped_to_grid()
+        index = drag_context['index']
+        if index in (2, 5):
+            # the centre points stay on the optical axis
+            off = (mouse_pos.x - cx) * dpx + (mouse_pos.y - cy) * dpy
+            self.path[index] = {'x': cx + dpx * off, 'y': cy + dpy * off, 'arc': True}
+            return
+        thick = abs((mouse_pos.x - cx) * dpx + (mouse_pos.y - cy) * dpy)
+        # the centre thicknesses follow, so the curvature stays
+        cthick2 += thick - othick
+        cthick5 += thick - othick
+        mpt = self.path[index]
+        lchange = (mpt['x'] - oldx) * dx + (mpt['y'] - oldy) * dy
+        if index < 2:
+            p1 = {'x': p1['x'] + lchange * dx, 'y': p1['y'] + lchange * dy}
+        else:
+            p2 = {'x': p2['x'] + lchange * dx, 'y': p2['y'] + lchange * dy}
+        length = math.hypot(p1['x'] - p2['x'], p1['y'] - p2['y'])
+        dx, dy = (p2['x'] - p1['x']) / length, (p2['y'] - p1['y']) / length
+        dpx, dpy = dy, -dx
+        cx, cy = (p1['x'] + p2['x']) * .5, (p1['y'] + p2['y']) * .5
+        self.path = [
+            {'x': p1['x'] - dpx * thick, 'y': p1['y'] - dpy * thick, 'arc': False},
+            {'x': p1['x'] + dpx * thick, 'y': p1['y'] + dpy * thick, 'arc': False},
+            {'x': cx + dpx * cthick2, 'y': cy + dpy * cthick2, 'arc': True},
+            {'x': p2['x'] + dpx * thick, 'y': p2['y'] + dpy * thick, 'arc': False},
+            {'x': p2['x'] - dpx * thick, 'y': p2['y'] - dpy * thick, 'arc': False},
+            {'x': cx - dpx * cthick5, 'y': cy - dpy * cthick5, 'arc': True},
+        ]
+
     def check_ray_intersects(self, ray):
         """Check if ray intersects (only if lens is built)."""
         if not self.path:

@@ -204,6 +204,33 @@ class PointSource(BaseSceneObj):
 
         return True
 
+    # Editing hooks (PointSource.js): the source is its own point.
+
+    def on_construct_mouse_down(self, mouse, ctrl, shift):
+        """Placed where the pointer is (newly placed sources are dimmer outside default colour mode)."""
+        mouse_pos = mouse.get_pos_snapped_to_grid()
+        self.x, self.y = mouse_pos.x, mouse_pos.y
+        if self.scene.color_mode != 'default':
+            self.brightness = 0.1
+        return None
+
+    def on_construct_mouse_up(self, mouse, ctrl, shift):
+        return {'isDone': True}
+
+    def check_mouse_over(self, mouse):
+        if mouse.is_on_point({'x': self.x, 'y': self.y}):
+            return {'part': 0, 'targetPoint': geometry.point(self.x, self.y), 'snapContext': {}}
+        return None
+
+    def on_drag(self, mouse, drag_context, ctrl, shift):
+        if shift:
+            mouse_pos = mouse.get_pos_snapped_to_direction(
+                drag_context['targetPoint'], [{'x': 1, 'y': 0}, {'x': 0, 'y': 1}], drag_context['snapContext'])
+        else:
+            mouse_pos = mouse.get_pos_snapped_to_grid()
+            drag_context['snapContext'] = {}
+        self.x, self.y = mouse_pos.x, mouse_pos.y
+
     def get_default_center(self):
         """
         Get the default center for rotation/scaling.

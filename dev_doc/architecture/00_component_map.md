@@ -40,6 +40,8 @@ and the procedures a caller drives step by step.
 |---|---|---|
 | `agentic_layer` | `KA9` `KA4` `KA3` `KA2` `KA5` `KA6` `KA7` `KA8` | Tools, the SQL surface, the context registry, MCP exposure. |
 | `flows` | `KD10` `KA4` `KA9` `KC7` | The observable state machine any multi-step procedure is built on: questions as data, long steps through executors, fixed ends; a run's record, the run list, the dashboard; nine generic agent tools. |
+| `blocks` | `KA9` `KC2` `KC4` `KA3` | Calls with typed inputs and outputs: a vocabulary of value types (JSON and live forms, a wire rule), declared function blocks, and every constructor as a block giving its scene entry. |
+| `graph` | `KA10` `KA9` `KD7` | Blocks joined by wires: a versioned graph document, checked by the blocks' wire rule, compiled to the notebook that runs it, one cell per node; edited on a canvas whose every rule is in Python; run cell by cell, only what an edit made stale. |
 
 ## The physical layer
 
@@ -58,6 +60,8 @@ Above the simulator. Turns dimensionless brightness into physical quantity.
 | Component | Realises | What it is |
 |---|---|---|
 | `svg_renderer` | `KB6` `KA1` `KC7` | The scene as an addressable SVG, including the annotation layer. |
+| `builder` | `KB6` `KC2` `KC7` | The scene builder: a scene drawn and edited with the pointer in a notebook cell, every rule in Python, saved as a scene file. |
+| `web` | `KC7` `KD7` | The flow form and the scene builder as pages served by routes in the kernel's web app, for hosts without notebook widgets (a solveit dialog). |
 | `optiland_scene_bridge` | `KB7` `KC7` `KD3` `KD5` `KD13` | A 2D profile into placed 3D solids, mirrors and plates, and back, aspheres of revolution included; sources and measured LEDs in 3D; the same rays compared in 2D and 3D; irradiance maps; a collimator in Optiland's sequential engine; static 3D pictures. |
 | `optiland_sms_plugin` | `KB7` `KC2` | A profile's spline span as an Optiland sequential surface, differentiable: the `optiland-sms` distribution. |
 | `optiland_nsq_viewer` | `KC7` `KD7` | An NSQ scene into a notebook cell over WebGL. |

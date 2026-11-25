@@ -56,7 +56,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -85,6 +85,9 @@ class RayfileSlice:
         flux_unit: The rayfile's flux unit.
         direction_deg: The LED's axis in the 2D scene, from +a.
         roll_deg: The roll the slice was taken at.
+        position: The LED's origin in the 2D scene it was sliced at.
+        rayfile_path: The file the rayfile was read from, if any: with the
+            other parameters, what the slice is made again from.
     """
 
     points: np.ndarray
@@ -97,6 +100,8 @@ class RayfileSlice:
     flux_unit: str
     direction_deg: float = 0.0
     roll_deg: float = 0.0
+    position: Tuple[float, float] = (0.0, 0.0)
+    rayfile_path: Optional[str] = None
 
     @property
     def kept_flux(self) -> float:
@@ -146,6 +151,11 @@ class RayfileSlice:
                                         flux_per_brightness=peak, **kwargs)
         source.name = name
         return source
+
+    def scene_entry(self, name: str = "rayfile slice", wavelength_nm: Optional[float] = None) -> Dict[str, Any]:
+        """`source_2d` as a scene file's entry (`P-SCENE-FILE`): ``{"name", "object"}``."""
+        from ...core.scene import Scene  # noqa: PLC0415
+        return {"name": name, "object": self.source_2d(Scene(), name, wavelength_nm).serialize()}
 
 
 def slice_rayfile(rayfile: Rayfile, position: Sequence[float], direction_deg: float, *,
@@ -199,7 +209,9 @@ def slice_rayfile(rayfile: Rayfile, position: Sequence[float], direction_deg: fl
     return RayfileSlice(points=points[keep], directions=directions[keep], flux=rayfile.flux[keep].copy(),
                         indices=np.flatnonzero(keep), offsets_mm=h, max_offset_mm=float(max_offset_mm),
                         total_flux=rayfile.total_flux, flux_unit=rayfile.flux_unit,
-                        direction_deg=float(direction_deg), roll_deg=float(roll_deg))
+                        direction_deg=float(direction_deg), roll_deg=float(roll_deg),
+                        position=(float(position[0]), float(position[1])),
+                        rayfile_path=None if rayfile.path is None else str(rayfile.path))
 
 
 __all__ = ["RayfileSlice", "slice_rayfile"]

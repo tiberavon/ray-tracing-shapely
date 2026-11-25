@@ -113,6 +113,77 @@ def list_folder(folder: Optional[str], pattern: Optional[str], cwd: Optional[Pat
             "files": [{"name": p.name, "path": _shown(p, cwd)} for p in files], "others": others}
 
 
+class FlowFormModel:
+    """The flow form's model with no widget library: what the page draws (``state``,
+    ``last``, ``browse``) and the messages it sends (`handle`). The ``anywidget``
+    widget wraps it, and so does any other host (`ray_tracing_shapely.web`)."""
+
+    def __init__(self, flow: Any) -> None:
+        self.flow = flow
+        self.state: Dict[str, Any] = {}
+        self.last: Dict[str, Any] = {}
+        self.browse: Dict[str, Any] = {}
+        self.refresh()
+
+    def traits(self) -> Dict[str, Any]:
+        """What the page reads with ``model.get``."""
+        return {"state": self.state, "last": self.last, "browse": self.browse}
+
+    def handle(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply one message from the page, as the page sends it, and return what it now draws.
+
+        ``{"kind": "answer", "value": v}`` answers the current question with ``v``
+        (JSON, as an agent's ``flow_answer``); ``"default"`` takes its default;
+        ``"reset"`` starts a new attempt at the first question; ``"poll"`` follows
+        the run's job; ``"refresh"`` only redraws; ``{"kind": "browse", "dir": d}`` lists a
+        folder for a path question (``browse``), its files filtered by the question's pattern.
+        """
+        kind = (message or {}).get("kind")
+        flow = self.flow
+        if kind == "answer":
+            out = flow.answer(message.get("value"))
+        elif kind == "default":
+            out = flow.answer_default()
+        elif kind == "reset":
+            flow.reset()
+            if "begin" in flow.machine.get_triggers(flow.state):
+                flow.begin()
+            out = {"accepted": True, "reset": True}
+        elif kind == "poll":
+            flow.poll()
+            out = None
+        elif kind == "refresh":
+            out = None
+        elif kind == "browse":
+            question = self.state.get("question") or {}
+            self.browse = _plain(list_folder(message.get("dir"), question.get("pattern")))
+            return self.state
+        else:
+            out = {"accepted": False, "reason": f"unknown message kind {kind!r}"}
+        if out is not None:
+            self.last = _plain({k: out.get(k) for k in ("accepted", "reason", "sent_back", "reset")
+                                if out.get(k) is not None})
+        self.refresh()
+        return self.state
+
+    def refresh(self) -> None:
+        """Read the flow again: its question, its diagram, its result once finished."""
+        flow = self.flow
+        state = flow.question_state()
+        folder = persistence.run_dir(flow.base_dir, flow.run_id)
+        svg = folder / "state.svg"
+        state["diagram"] = svg.read_text(encoding="utf-8") if svg.exists() else None
+        question = state.get("question") or {}
+        if question.get("kind") == "path":
+            state["files"] = {"cwd": str(Path.cwd().resolve()), "pattern": question.get("pattern"),
+                              "matches": find_files(question.get("pattern"))}
+        if flow.is_finished:
+            saved = persistence.read_result(flow.base_dir, flow.run_id)
+            state["result"] = (saved or {}).get("result")
+            state["status"] = (saved or {}).get("status", flow.state)
+        self.state = _plain(state)
+
+
 def _form_class() -> type:
     """The widget class, made on first use, so importing this module needs no anywidget."""
     global _FORM_CLASS
@@ -132,66 +203,29 @@ def _form_class() -> type:
 
         def __init__(self, flow: Any, **kwargs: Any) -> None:
             super().__init__(**kwargs)
-            self.flow = flow
+            self.model = FlowFormModel(flow)
             self.on_msg(self._on_msg)
-            self.refresh()
+            self._sync()
+
+        @property
+        def flow(self) -> Any:
+            return self.model.flow
 
         def _on_msg(self, _widget: Any, content: Any, _buffers: Any = None) -> None:
             self.handle(content)
 
-        def handle(self, message: Dict[str, Any]) -> Dict[str, Any]:
-            """Apply one message from the page, as the page sends it, and return what it now draws.
+        def _sync(self) -> None:
+            self.browse, self.last, self.state = self.model.browse, self.model.last, self.model.state
 
-            ``{"kind": "answer", "value": v}`` answers the current question with ``v``
-            (JSON, as an agent's ``flow_answer``); ``"default"`` takes its default;
-            ``"reset"`` starts a new attempt at the first question; ``"poll"`` follows
-            the run's job; ``"refresh"`` only redraws; ``{"kind": "browse", "dir": d}`` lists a
-            folder for a path question (``browse``), its files filtered by the question's pattern.
-            """
-            kind = (message or {}).get("kind")
-            flow = self.flow
-            if kind == "answer":
-                out = flow.answer(message.get("value"))
-            elif kind == "default":
-                out = flow.answer_default()
-            elif kind == "reset":
-                flow.reset()
-                if "begin" in flow.machine.get_triggers(flow.state):
-                    flow.begin()
-                out = {"accepted": True, "reset": True}
-            elif kind == "poll":
-                flow.poll()
-                out = None
-            elif kind == "refresh":
-                out = None
-            elif kind == "browse":
-                question = self.state.get("question") or {}
-                self.browse = _plain(list_folder(message.get("dir"), question.get("pattern")))
-                return self.state
-            else:
-                out = {"accepted": False, "reason": f"unknown message kind {kind!r}"}
-            if out is not None:
-                self.last = _plain({k: out.get(k) for k in ("accepted", "reason", "sent_back", "reset")
-                                    if out.get(k) is not None})
-            self.refresh()
-            return self.state
+        def handle(self, message: Dict[str, Any]) -> Dict[str, Any]:
+            """Apply one message from the page (`FlowFormModel.handle`); what it now draws."""
+            out = self.model.handle(message)
+            self._sync()
+            return out
 
         def refresh(self) -> None:
-            """Read the flow again: its question, its diagram, its result once finished."""
-            flow = self.flow
-            state = flow.question_state()
-            folder = persistence.run_dir(flow.base_dir, flow.run_id)
-            svg = folder / "state.svg"
-            state["diagram"] = svg.read_text(encoding="utf-8") if svg.exists() else None
-            question = state.get("question") or {}
-            if question.get("kind") == "path":
-                state["files"] = {"cwd": str(Path.cwd().resolve()), "pattern": question.get("pattern"),
-                                  "matches": find_files(question.get("pattern"))}
-            if flow.is_finished:
-                saved = persistence.read_result(flow.base_dir, flow.run_id)
-                state["result"] = (saved or {}).get("result")
-                state["status"] = (saved or {}).get("status", flow.state)
-            self.state = _plain(state)
+            self.model.refresh()
+            self._sync()
 
     _FORM_CLASS = FlowForm
     return FlowForm

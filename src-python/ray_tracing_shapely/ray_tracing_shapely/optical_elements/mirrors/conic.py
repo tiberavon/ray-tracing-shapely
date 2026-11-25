@@ -104,6 +104,9 @@ class ConicMirror(BaseSceneObj):
     """
 
     type = 'ConicMirror'
+    #: The constructor's arguments that are positions (a point, or a sequence of points):
+    #: what moving the whole element shifts, its directions left as they are.
+    placement_points = ('vertex',)
     is_optical = True
     merges_with_glass = False
     mechanism = Mechanism.REFLECT

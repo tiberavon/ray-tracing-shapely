@@ -13,9 +13,9 @@ Simulation project:
     doi:10.5281/zenodo.6386611
     Licensed under the Apache License, Version 2.0
 
-36 of this distribution's 237
+37 of this distribution's 269
 source files are translations of that work, each carrying both
-copyright notices in its own header. The remaining 201 were
+copyright notices in its own header. The remaining 232 were
 written for this project and carry only this project's notice.
 
 The translated files are:
@@ -26,6 +26,7 @@ The translated files are:
     ray_tracing_shapely/core/equation.py
     ray_tracing_shapely/core/geometry.py
     ray_tracing_shapely/core/key_path.py
+    ray_tracing_shapely/core/mouse.py
     ray_tracing_shapely/core/ray.py
     ray_tracing_shapely/core/scene.py
     ray_tracing_shapely/core/scene_objs/__init__.py

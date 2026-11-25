@@ -93,6 +93,9 @@ class RXConcentrator(BasePrism):
     _apex_vertex_index: ClassVar[Optional[int]] = None
     _supports_refinement: ClassVar[bool] = False
     type = 'RXConcentrator'
+    #: The constructor's arguments that are positions (a point, or a sequence of points):
+    #: what moving the whole element shifts, its directions left as they are.
+    placement_points = ('r1', 'r2')
 
     def __init__(
         self,

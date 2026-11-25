@@ -80,11 +80,19 @@ agentic = [
     "mcp>=1.2,<2",
 ]
 
-# A flow as a form in a notebook cell (flows.widget): anywidget, on ipywidgets,
-# imported only when a form is made. Checked on anywidget 0.11.
+# A flow as a form, the scene builder and the graph editor in a notebook cell
+# (flows.widget, builder, graph): anywidget, on ipywidgets, imported only when one is made
+# (the graph editor's blocks also need radiometry). Checked on anywidget 0.11.
 widgets = [
     "ray-tracing-shapely[flows]",
     "anywidget>=0.9",
+]
+# The flow form, the scene builder and the graph editor as pages served by the kernel's own web
+# app, for hosts without notebook widgets (a solveit dialog's FastHTML app).
+web = [
+    "ray-tracing-shapely[flows]",
+    "starlette>=0.37",
+    "uvicorn>=0.23",
 ]
 
 # Jobs on Modal (flows.modal_executor): the client is imported only when a
@@ -103,7 +111,7 @@ notebook = [
 ]
 
 all = [
-    "ray-tracing-shapely[radiometry,flows,eye-safety,agentic,notebook,modal,widgets]",
+    "ray-tracing-shapely[radiometry,flows,eye-safety,agentic,notebook,modal,widgets,web]",
 ]
 
 # What CI installs to run the suite. Deliberately narrower than `dev`:
@@ -112,8 +120,9 @@ all = [
 # jupyterlab or papermill, which
 # `all` would drag in on every matrix job.
 test = [
-    "ray-tracing-shapely[radiometry,flows,eye-safety,agentic,widgets]",
+    "ray-tracing-shapely[radiometry,flows,eye-safety,agentic,widgets,web]",
     "pytest>=7.0.0",
+    "httpx>=0.24",            # Starlette's test client, for the web views' tests
 ]
 
 dev = [

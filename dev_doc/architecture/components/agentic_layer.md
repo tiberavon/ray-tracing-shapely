@@ -150,10 +150,10 @@ checks it.
 | `C-AGENT-01` | **Makes** it. Every tool answers with the `ok`/`error` shape; nothing raises an exception toward the assistant. |
 | `C-AGENT-02` | **Makes** it. The three lists agree: the published list is derived, and the agreement is tested. |
 | `C-AGENT-03` | **Makes** it, with `optiland_nsq_run_registry`. A package's tools join the same lists through `register_tool`, and its live objects the same registry through `set_extension_context`. |
-| `C-AGENT-04` | **Makes** it. The tools read the active context only; a context made under a name is not switched to; clearing one closes only its own databases. |
+| `C-AGENT-04` | **Makes** it. The tools read the active context only; a context made under a name is not switched to; clearing one closes only its own databases. `blocks.agentic`'s six tools keep their outputs in the blocks' own store of handles, so building a scene switches no context. |
 | `C-AGENT-06` | **Makes** it, with `analysis_run_registry`. A targeted re-simulation goes into a new context, leaves the run it came from (and its detector hits) as it was, and is saved. |
 | `C-AGENT-05` | **Makes** it, with `analysis_run_registry`. A saved run loads by reference, read-only, into a new context; the tools that need the live scene say the run was loaded; a save never overwrites. |
-| `C-FLOW-02` | **Hosts** it. `flows` adds nine generic tools through `register_tool`: one set drives every flow, by questions stated as data. |
+| `C-FLOW-02` | **Hosts** it. `flows` adds nine generic tools through `register_tool`: one set drives every flow, by questions stated as data. `blocks` adds five the same way: one set runs every block. |
 | `C-NSQ-RUN-03` | **Relies** on it. The query machinery does not care what the tables are called, so the 2D and 3D databases share one implementation. |
 | `C-UNITS-02` | **Relies** on it. The unit checking is done by `optical_elements_units`; this component only calls it. |
 

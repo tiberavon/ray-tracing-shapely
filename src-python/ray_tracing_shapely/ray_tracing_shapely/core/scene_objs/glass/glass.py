@@ -237,6 +237,133 @@ class Glass(BaseGlass):
 
         return True
 
+    # =========================================================================
+    # Editing hooks (Glass.js): construction by clicks, drags of a vertex or
+    # of the whole polygon. Points from the mouse are core.mouse.MousePoint.
+    # =========================================================================
+
+    def on_construct_mouse_down(self, mouse, ctrl, shift):
+        """A click while constructing: start the polygon, or fix the point being placed.
+
+        A click on the first point, with at least three placed, closes it.
+        """
+        mouse_pos = mouse.get_pos_snapped_to_grid()
+        if not self.notDone:
+            self.notDone = True
+            self.path = [{'x': mouse_pos.x, 'y': mouse_pos.y, 'arc': False}]
+        if len(self.path) > 1:
+            if len(self.path) > 3 and mouse.snaps_on_point(self.path[0]):
+                self.path.pop()                      # clicked the first point: closed
+                self.notDone = False
+                return None
+            self.path[-1] = {'x': mouse_pos.x, 'y': mouse_pos.y, 'arc': True}   # the last point
+        return None
+
+    def on_construct_mouse_move(self, mouse, ctrl, shift):
+        """The pointer moving while constructing: the point being placed follows it.
+
+        Moved far enough from a point just pressed, an arc's through-point is
+        left behind and a new point follows.
+        """
+        if not self.notDone:
+            return None
+        mouse_pos = mouse.get_pos_snapped_to_grid()
+        last = self.path[-1]
+        if 'arc' in last:
+            if last['arc'] and math.hypot(last['x'] - mouse_pos.x, last['y'] - mouse_pos.y) >= 5 * self.scene.length_scale:
+                self.path.append({'x': mouse_pos.x, 'y': mouse_pos.y})
+        else:
+            self.path[-1] = {'x': mouse_pos.x, 'y': mouse_pos.y}
+        return None
+
+    def on_construct_mouse_up(self, mouse, ctrl, shift):
+        """A release while constructing: a straight point, or the arc's end point."""
+        if not self.notDone:
+            return {'isDone': True}
+        if len(self.path) > 3 and mouse.snaps_on_point(self.path[0]):
+            self.path.pop()                          # released on the first point: closed
+            self.notDone = False
+            return {'isDone': True}
+        if (len(self.path) >= 2 and not self.path[-2].get('arc')
+                and mouse.snaps_on_point(self.path[-2])):
+            self.path[-1].pop('arc', None)
+        else:
+            mouse_pos = mouse.get_pos_snapped_to_grid()
+            self.path[-1] = {'x': mouse_pos.x, 'y': mouse_pos.y, 'arc': False}
+            self.path.append({'x': mouse_pos.x, 'y': mouse_pos.y})
+        return None
+
+    def on_construct_undo(self):
+        """Undo the last point placed; with too few left, cancel the construction."""
+        if len(self.path) <= 2:
+            return {'isCancelled': True}
+        self.path.pop()
+        if self.path[-2].get('arc'):
+            self.path.pop()
+        self.path[-1].pop('arc', None)
+        return None
+
+    def check_mouse_over(self, mouse):
+        """The part under the pointer: a vertex (part 1, its index), or an edge (part 0)."""
+        n = len(self.path)
+        best, target = math.inf, -1
+        for i in range(n):
+            if mouse.is_on_point(self.path[i]):
+                d = (mouse.pos.x - self.path[i]['x']) ** 2 + (mouse.pos.y - self.path[i]['y']) ** 2
+                if d <= best:
+                    best, target = d, i
+        if target != -1:
+            return {'part': 1, 'index': target,
+                    'targetPoint': geometry.point(self.path[target]['x'], self.path[target]['y'])}
+
+        def whole():
+            mouse_pos = mouse.get_pos_snapped_to_grid()
+            return {'part': 0, 'mousePos0': mouse_pos, 'mousePos1': mouse_pos, 'snapContext': {}}
+
+        for i in range(n):
+            a, b = self.path[i % n], self.path[(i + 1) % n]
+            if b.get('arc') and not a.get('arc'):
+                p1 = geometry.point(a['x'], a['y'])
+                p2 = geometry.point(self.path[(i + 2) % n]['x'], self.path[(i + 2) % n]['y'])
+                p3 = geometry.point(b['x'], b['y'])
+                center = geometry.lines_intersection(
+                    geometry.perpendicular_bisector(geometry.line(p1, p3)),
+                    geometry.perpendicular_bisector(geometry.line(p2, p3)))
+                if math.isfinite(center.x) and math.isfinite(center.y):
+                    r = geometry.distance(center, p3)
+                    a1 = math.atan2(p1.y - center.y, p1.x - center.x)
+                    a2 = math.atan2(p2.y - center.y, p2.x - center.x)
+                    a3 = math.atan2(p3.y - center.y, p3.x - center.x)
+                    a_m = math.atan2(mouse.pos.y - center.y, mouse.pos.x - center.x)
+                    on_arc = ((a2 < a3 < a1) or (a1 < a2 < a3) or (a3 < a1 < a2)) == \
+                        ((a2 < a_m < a1) or (a1 < a2 < a_m) or (a_m < a1 < a2))
+                    if abs(geometry.distance(center, mouse.pos) - r) < mouse.get_click_extent() and on_arc:
+                        return whole()
+                elif mouse.is_on_segment(geometry.line(p1, p2)):
+                    return whole()                   # a collinear arc: its chord
+            elif not b.get('arc') and not a.get('arc'):
+                if mouse.is_on_segment(geometry.line(geometry.point(a['x'], a['y']),
+                                                     geometry.point(b['x'], b['y']))):
+                    return whole()
+        return None
+
+    def on_drag(self, mouse, drag_context, ctrl, shift):
+        """Move the vertex dragged (part 1) or the whole polygon (part 0)."""
+        mouse_pos = mouse.get_pos_snapped_to_grid()
+        if drag_context['part'] == 1:
+            self.path[drag_context['index']]['x'] = mouse_pos.x
+            self.path[drag_context['index']]['y'] = mouse_pos.y
+        if drag_context['part'] == 0:
+            if shift:
+                snapped = mouse.get_pos_snapped_to_direction(
+                    drag_context['mousePos0'], [{'x': 1, 'y': 0}, {'x': 0, 'y': 1}],
+                    drag_context['snapContext'])
+            else:
+                snapped = mouse.get_pos_snapped_to_grid()
+                drag_context['snapContext'] = {}
+            self.move(snapped.x - drag_context['mousePos1']['x'], snapped.y - drag_context['mousePos1']['y'])
+            drag_context['mousePos1'] = snapped
+
     def get_default_center(self):
         """
         Get the default center for rotation/scaling.

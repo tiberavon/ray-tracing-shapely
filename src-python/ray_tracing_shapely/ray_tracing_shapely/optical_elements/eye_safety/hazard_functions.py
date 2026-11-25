@@ -56,6 +56,8 @@ notation for the same tail (Sec. 5 of that document).
 
 from __future__ import annotations
 
+import bisect
+
 from .spectral_data import interp_log
 
 # =============================================================================
@@ -223,3 +225,65 @@ def R_retinal_thermal(wavelength_nm: float) -> float:
     if wavelength_nm <= 1200.0:
         return 0.2 * (10.0 ** (-0.02 * (wavelength_nm - 1150.0)))
     return _R_FLAT_IRA_VALUE
+
+
+#: Each hazard's weighting, and the band it is defined over (nm): the
+#: unweighted bands (near UV, IR) weigh 1 inside, as IEC 62471 integrates them.
+HAZARD_WEIGHTINGS = {
+    "actinic_uv": (S_actinic_uv, (180.0, 400.0)),
+    "near_uv": (lambda _nm: 1.0, (315.0, 400.0)),
+    "blue_light": (B_blue_light, (300.0, 700.0)),
+    "retinal_thermal": (R_retinal_thermal, (380.0, 1400.0)),
+    "ir": (lambda _nm: 1.0, (780.0, 3000.0)),
+}
+
+
+def weighted_fraction(spectrum_nm, hazard: str, step_nm: float = 1.0) -> float:
+    """A hazard-weighted quantity over the unweighted one: integral of S(l)W(l) over that of S(l).
+
+    A quantity measured over the whole spectrum (an irradiance, a radiance)
+    times this is the hazard's weighted quantity, for a source of that
+    spectral shape; above 1 where W is (R(l) reaches 10). S(l) is linear
+    between the spectrum's samples. The weighted integral is taken over the
+    hazard's band only (its edges are steps, not smeared over a sample
+    interval), by the trapezoidal rule on the samples, the band's edges and
+    a grid of ``step_nm`` inside it.
+
+    Args:
+        spectrum_nm: (k, 2) rows of (wavelength in nm, relative power), as a
+            rayfile's ``spectrum_nm``; wavelengths increasing.
+        hazard: One of `HAZARD_WEIGHTINGS`.
+        step_nm: The grid inside the band, nm.
+
+    Raises:
+        ValueError: An unknown hazard, fewer than two samples, wavelengths not
+            increasing, or a spectrum with no power.
+    """
+    if hazard not in HAZARD_WEIGHTINGS:
+        raise ValueError(f"unknown hazard {hazard!r}; hazards: {', '.join(HAZARD_WEIGHTINGS)}")
+    rows = [(float(r[0]), float(r[1])) for r in spectrum_nm]
+    if len(rows) < 2:
+        raise ValueError("a spectrum needs at least two samples")
+    if any(b[0] <= a[0] for a, b in zip(rows, rows[1:])):
+        raise ValueError("a spectrum's wavelengths must increase")
+    nm = [r[0] for r in rows]
+    power = [r[1] for r in rows]
+    total = sum((b - a) * (pa + pb) / 2.0 for a, b, pa, pb in zip(nm, nm[1:], power, power[1:]))
+    if total <= 0.0:
+        raise ValueError("the spectrum has no power")
+    weight, (lo, hi) = HAZARD_WEIGHTINGS[hazard]
+    lo, hi = max(lo, nm[0]), min(hi, nm[-1])
+    if hi <= lo:
+        return 0.0
+    n = int((hi - lo) // step_nm)
+    grid = sorted({lo, hi, *(x for x in nm if lo < x < hi), *(lo + k * step_nm for k in range(1, n + 1)
+                                                               if lo + k * step_nm < hi)})
+
+    def s_at(x: float) -> float:
+        k = min(bisect.bisect_right(nm, x) - 1, len(nm) - 2)
+        t = (x - nm[k]) / (nm[k + 1] - nm[k])
+        return power[k] + t * (power[k + 1] - power[k])
+
+    f = [s_at(x) * weight(x) for x in grid]
+    kept = sum((b - a) * (fa + fb) / 2.0 for a, b, fa, fb in zip(grid, grid[1:], f, f[1:]))
+    return kept / total
