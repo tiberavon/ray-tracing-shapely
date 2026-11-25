@@ -23,6 +23,9 @@ The graph editor served as a process, for the VS Code editor (C-GRAPH-02)
 - new, open and save are the host's, refused with the reason;
 - a text that is not a graph is refused, and nothing is written over it;
 - a relative notebook path is compiled beside the graph, and named;
+- a fresh node's computed scene is written beside the graph as a scene file,
+  named once for the host to open; refused before a run and for a node with
+  no scene; a copy edited since is kept, and the next free name taken;
 - over standard input and output, in a real process: the chain runs, its
   trace sent to a worker process and followed by polls, and every node ends
   fresh, its values equal to the compiled script's.
@@ -100,6 +103,34 @@ def test_a_relative_notebook_is_compiled_beside_the_graph(server, tmp_path):
     s = server.request({"type": "compile", "path": "det" + NOTEBOOK})
     assert s["compiled"] == str(tmp_path / ("det" + NOTEBOOK)) and (tmp_path / ("det" + NOTEBOOK)).exists()
     assert server.request({"type": "refresh"})["compiled"] is None
+
+
+def _scene_graph():
+    doc = _det_graph()
+    doc["nodes"].append({"id": "scene", "block": "assemble", "at": [240, 40],
+                         "inputs": {"entries": [{"from": "det.entry"}]}})
+    return doc
+
+
+def test_a_computed_scene_is_written_for_the_scene_editor(server, tmp_path):
+    from ray_tracing_shapely.analysis.scene_file import load_scene
+    s = server.request({"type": "load_text", "text": graph_text(_scene_graph()), "path": str(tmp_path / "g.graph.json")})
+    assert s["can_open_scene"] and s["scene"] is None
+    s = server.request({"type": "open_scene", "id": "scene"})
+    assert "run the graph first" in s["error"] and s["scene"] is None
+    server.request({"type": "run"})
+    assert "no scene output" in server.request({"type": "open_scene", "id": "det"})["error"]
+
+    s = server.request({"type": "open_scene", "id": "scene"})
+    first = tmp_path / "g.scene.scene.json"
+    assert s["error"] is None and s["scene"] == str(first) and s["text"] is None    # the graph is not changed
+    assert [o.name for o in load_scene(first).objs] == ["det"]
+    assert server.request({"type": "refresh"})["scene"] is None                    # opened once
+    assert server.request({"type": "open_scene", "id": "scene"})["scene"] == str(first)   # the same copy again
+
+    first.write_text(first.read_text().replace('"det"', '"det_moved"'))           # edited in the scene editor
+    s = server.request({"type": "open_scene", "id": "scene"})
+    assert s["scene"] == str(tmp_path / "g.scene_2.scene.json") and "det_moved" in first.read_text()
 
 
 def test_the_chain_runs_in_the_served_process_its_trace_in_a_worker(tmp_path):

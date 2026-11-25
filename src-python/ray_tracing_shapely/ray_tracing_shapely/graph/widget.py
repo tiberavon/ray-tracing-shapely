@@ -383,6 +383,11 @@ function render({ model, el: root }) {
       n.error && el("div", { class: "rg-error" }, n.error),
       s.values && el("div", { class: "rg-values" }, el("div", { class: "rg-title" }, "Computed"),
         Object.entries(s.values).map(([k, v]) => el("div", {}, el("b", {}, k), " ", el("code", {}, v)))),
+      s.can_open_scene && n.status === "fresh" &&      // the host opens a copy in its scene editor
+        n.outputs.filter((p) => p.type.type === "scene").map((p) =>
+          el("button", { title: "write a copy of this scene beside the graph and open it in the scene builder",
+                         onclick: () => send({ type: "open_scene", id: n.id, output: p.name }) },
+             `Open ${p.name} in the scene builder`)),
       rows,
       el("button", { class: "rg-danger", onclick: () => send({ type: "delete", id: n.id }) }, "Delete the node"));
   }

@@ -28,7 +28,7 @@ process (`LocalProcessExecutor`, its records under ``--jobs``).
 Each request is ``{"id": n, "message": {...}}``; each reply ``{"id": n,
 "state": {...}}``, or ``{"id": n, "error": "..."}``. The messages are the
 editor's own (`GraphEditor.handle`), less ``new``, ``open`` and ``save``,
-which are the host's, plus three of the host's:
+which are the host's, plus four of the host's:
 
 - ``{"type": "hello"}``: the page's JavaScript module and CSS, and the
   package's version;
@@ -36,7 +36,13 @@ which are the host's, plus three of the host's:
   document's text (empty: a new graph). A text that is not a graph document
   leaves the editor empty and says why in ``state["error"]``; the host's
   document is then never written;
-- ``{"type": "refresh"}``: the state, unchanged.
+- ``{"type": "refresh"}``: the state, unchanged;
+- ``{"type": "open_scene", "id": node, "output": "scene"}``: a copy of a fresh
+  node's computed scene written to ``<graph>.<node>.scene.json`` beside the
+  graph, and named in ``state["scene"]`` for the host to open in the scene
+  editor. A copy, as the notebook widget's ``open_scene`` gives: an edit there
+  does not change the value the runner keeps. A file of that name with other
+  content (a copy edited since) is kept, and the next free name taken.
 
 A state carries ``"text"``, the graph document as the editor holds it, only
 when it changed since the document was loaded or last sent, so the host
@@ -52,6 +58,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -93,12 +100,15 @@ class GraphServer:
         self.runner = runner
         self.editor = GraphEditor(runner=runner)
         self.loaded = True
+        self.scene: Optional[str] = None
         self._sent = graph_text(self.editor.document())
 
     def _state(self) -> Dict[str, Any]:
         state = self.editor.state()
         state["host"] = self.host
         state["compiled"], self.editor.compiled = self.editor.compiled, None     # offered once
+        state["scene"], self.scene = self.scene, None                             # opened once
+        state["can_open_scene"] = True
         text = graph_text(self.editor.document())
         state["text"] = text if self.loaded and text != self._sent else None
         if state["text"] is not None:
@@ -123,6 +133,50 @@ class GraphServer:
             state["error"] = error
         return state
 
+    def _scene_path(self, node: str, text: str) -> Path:
+        """Where a node's scene is written: beside the graph (or in the jobs' temporary folder).
+
+        ``<graph>.<node>.scene.json``; a file there with other content (a copy edited since) is
+        kept, and the next free name taken.
+        """
+        if self.editor.path:
+            graph = Path(self.editor.path)
+            folder, stem = graph.parent, re.sub(r"(\.graph)?\.json$", "", graph.name)
+        else:
+            folder, stem = DEFAULT_JOBS.parent / "scenes", "graph"
+        k = 1
+        while True:
+            path = folder / f"{stem}.{node}{'' if k == 1 else f'_{k}'}.scene.json"
+            if not path.exists() or path.read_text(encoding="utf-8") == text:
+                return path
+            k += 1
+
+    def _open_scene(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """Write a copy of a fresh node's computed scene to a file, for the host to open in the scene editor."""
+        from ..analysis import scene_file as sf  # noqa: PLC0415
+        node, output = message.get("id"), message.get("output") or "scene"
+        status = {n["id"]: n for n in self.editor.state()["nodes"]}.get(node)
+        error = None
+        if not self.loaded:
+            error = "the document could not be read as a graph; fix its text first"
+        elif status is None:
+            error = f"no node {node!r}"
+        elif not any(p["name"] == output and p["type"]["type"] == "scene" for p in status["outputs"]):
+            error = f"{node} has no scene output {output!r}"
+        elif status["status"] != "fresh":
+            error = f"{node} is {status['status']}: run the graph first"
+        if error is None:
+            try:
+                text = json.dumps(sf.scene_to_dict(self.runner.outputs(node)[output]), indent=2) + "\n"
+                path = self._scene_path(node, text)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+                self.scene = str(path)
+            except (KeyError, OSError, sf.SceneFileError) as exc:
+                error = f"{node}.{output} could not be written as a scene file: {exc}"
+        self.editor.error, self.editor.notice = error, (None if error else f"a copy of {node}.{output} in {path.name}")
+        return self._state()
+
     def request(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """The reply to one host request's message (no ``id``)."""
         message = dict(message or {})
@@ -135,6 +189,8 @@ class GraphServer:
             return self._load_text(message)
         if kind == "refresh":
             return self._state()
+        if kind == "open_scene":
+            return self._open_scene(message)
         if kind in HOST_MESSAGES:
             state = self._state()
             state["error"] = f"{kind} is the editor's own here: use VS Code's File menu"

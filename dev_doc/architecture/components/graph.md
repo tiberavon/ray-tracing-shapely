@@ -89,6 +89,8 @@ messages to a `GraphEditor`:
   polls while it runs. The document is the file: an edit is written into it,
   a selection or a run is not, and an edit from elsewhere is loaded back. New,
   Open and Save are VS Code's; Compile offers to open the notebook it wrote;
+  a fresh node's computed scene opens in the scene builder's editor, as a
+  copy written beside the graph (`<graph>.<node>.scene.json`);
 - a solveit dialog: `web.Views.graph()`, the page served by HTTP routes in
   the kernel's app.
 
@@ -115,7 +117,7 @@ open; the compiled notebook is how they reach a notebook.
 | `graph/runner.py` | `GraphRunner` (start, advance, run; stale, estimate_s; outputs, values), `RunReport`, `NodeRun`, `RunnerError`, `ESTIMATES`, `run_node_job` (the executor's procedure). |
 | `graph/editor.py` | `GraphEditor` (the canvas's model: messages, undo, open, save, compile; the state the view draws), `EditorError`. |
 | `graph/widget.py` | `graph_editor`: the `anywidget` view (the `widgets` extra), its page module and style. |
-| `graph/server.py` | `python -m ray_tracing_shapely.graph.server`: one editor and its runner served on standard input and output, in JSON lines (`builder.server.serve_lines`), for the VS Code editor. The editor's messages less new, open and save, plus `hello` (the page), `load_text` (a document's text as the graph) and `refresh`. A reply carries the document's text only when the graph changed, and never after a text it could not read; `compiled`, the notebook a compile wrote, once. |
+| `graph/server.py` | `python -m ray_tracing_shapely.graph.server`: one editor and its runner served on standard input and output, in JSON lines (`builder.server.serve_lines`), for the VS Code editor. The editor's messages less new, open and save, plus `hello` (the page), `load_text` (a document's text as the graph) `refresh` and `open_scene` (a fresh node's scene written to a file for the scene editor). A reply carries the document's text only when the graph changed, and never after a text it could not read; `compiled`, the notebook a compile wrote, and `scene`, the scene file to open, once each. |
 
 ## What it needs from elsewhere
 
@@ -124,7 +126,7 @@ open; the compiled notebook is how they reach a notebook.
 - `flows`: `executors` (`Job`, an executor's five calls) and `budgets` (the
   trace's estimate) for long nodes, imported only when a node is long; the
   widget's `find_files`, the graph files the toolbar offers.
-- `builder`: the scene builder `open_scene` opens (the widget only), and
+- `builder`: the scene builder the widget's `open_scene` opens, and
   `serve_lines`, the JSON-lines loop both servers answer with.
 
 ## Promises this component makes and relies on
@@ -138,5 +140,5 @@ open; the compiled notebook is how they reach a notebook.
 ## How it is shipped
 
 In the core distribution, beside `blocks`, and needs what it needs (the
-`radiometry` extra); the widget needs the `widgets` extra too, imported only
-when one is made. The core never imports this package.
+`radiometry` extra); the widget needs the `widgets` extra, which brings
+`radiometry` with it, imported only when one is made (the `web` extra likewise). The core never imports this package.

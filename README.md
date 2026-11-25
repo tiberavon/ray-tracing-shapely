@@ -92,7 +92,7 @@ pip install "ray-tracing-shapely[all]"           # everything
 ```
 
 Python 3.11 or newer. The blocks and the graph editor read quantities with
-their units, so they need `radiometry` beside `widgets` or `web`.
+their units, so `widgets` and `web` bring `radiometry` with them.
 
 ## Thirty seconds
 

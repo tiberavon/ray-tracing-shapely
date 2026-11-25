@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ray-tracing-shapely"
-version = "0.3.1"
+version = "0.4.0"
 description = "Python ray tracing library using Shapely for computational geometry"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -81,16 +81,18 @@ agentic = [
 ]
 
 # A flow as a form, the scene builder and the graph editor in a notebook cell
-# (flows.widget, builder, graph): anywidget, on ipywidgets, imported only when one is made
-# (the graph editor's blocks also need radiometry). Checked on anywidget 0.11.
+# (flows.widget, builder, graph): anywidget, on ipywidgets, imported only when one is made.
+# radiometry comes with it: the graph editor's blocks read quantities with their units.
+# Checked on anywidget 0.11.
 widgets = [
-    "ray-tracing-shapely[flows]",
+    "ray-tracing-shapely[flows,radiometry]",
     "anywidget>=0.9",
 ]
 # The flow form, the scene builder and the graph editor as pages served by the kernel's own web
-# app, for hosts without notebook widgets (a solveit dialog's FastHTML app).
+# app, for hosts without notebook widgets (a solveit dialog's FastHTML app). radiometry
+# comes with it, as with widgets.
 web = [
-    "ray-tracing-shapely[flows]",
+    "ray-tracing-shapely[flows,radiometry]",
     "starlette>=0.37",
     "uvicorn>=0.23",
 ]
