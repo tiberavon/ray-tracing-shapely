@@ -60,8 +60,8 @@ class BlockTypeError(ValueError):
 
 def _refuse(where: str, expected: str, got: Any) -> BlockTypeError:
     shown = repr(got)
-    if len(shown) > 80:
-        shown = shown[:77] + "..."
+    if len(shown) > 80:                 # both ends kept: a path's file name is at its end
+        shown = shown[:37] + "..." + shown[-40:]
     return BlockTypeError(f"{where}: expected {expected}, got {shown}")
 
 
