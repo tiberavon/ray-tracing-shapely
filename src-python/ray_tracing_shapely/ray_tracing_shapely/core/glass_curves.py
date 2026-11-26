@@ -74,6 +74,9 @@ XY = Tuple[float, float]
 
 #: How close, relative to the curve's size, a path end point must lie to the curve.
 ENDPOINT_TOL = 1e-9
+#: A Bernstein coefficient within this of zero, relative to the largest, is zero: the same
+#: threshold for skipping a piece and for a root at a piece's end.
+_ZERO = 1e-15
 #: Intervals of the arc-length table.
 _TABLE_INTERVALS = 512
 #: Sub-intervals of an asphere edge searched for a line's meeting points.
@@ -660,7 +663,10 @@ class SplineCurve(Curve):
         for k in self._candidates(origin, nrm):
             a, b, c, d, bez = self._coef[k]
             g = [_dot(nrm, _sub(q, origin)) for q in bez]   # Bernstein coefficients of f(u)
-            if all(v > 0.0 for v in g) or all(v < 0.0 for v in g):
+            # One zero threshold with _bernstein_roots: a knot within round-off of the line is a
+            # root candidate of both pieces that meet there, never skipped by both.
+            tol = _ZERO * (max(abs(v) for v in g) or 1.0)
+            if all(v > tol for v in g) or all(v < -tol for v in g):
                 continue
             poly = (_dot(nrm, _sub(a, origin)), _dot(nrm, b), _dot(nrm, c), _dot(nrm, d))
             for u in _bernstein_roots(g, poly):
@@ -706,11 +712,14 @@ def _bernstein_roots(g: Sequence[float], poly: Sequence[float]) -> List[float]:
     stack = [(0.0, 1.0, list(g), 0)]
     while stack:
         lo, hi, cs, depth = stack.pop()
-        signs = [v for v in cs if abs(v) > 1e-15 * scale]
+        signs = [v for v in cs if abs(v) > _ZERO * scale]
         changes = sum(1 for a, b in zip(signs[:-1], signs[1:]) if (a > 0) != (b > 0))
         if changes == 0:
-            for u in (lo, hi):  # a root exactly at an end, where a coefficient is 0
-                if abs(f(u)) <= 1e-15 * scale and all(abs(u - r) > 1e-12 for r in roots):
+            # A root at an end, where a coefficient is 0 to round-off: the end coefficients are the
+            # cubic's values there, read as they are, not re-evaluated in the power basis (whose
+            # round-off can exceed the threshold).
+            for u, v in ((lo, cs[0]), (hi, cs[-1])):
+                if abs(v) <= _ZERO * scale and all(abs(u - r) > 1e-12 for r in roots):
                     roots.append(u)
             continue
         if changes == 1 or depth > 40:

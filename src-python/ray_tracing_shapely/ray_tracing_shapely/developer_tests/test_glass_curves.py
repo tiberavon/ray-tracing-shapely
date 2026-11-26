@@ -143,6 +143,23 @@ def test_a_spline_passes_its_points_with_its_tangents_and_meets_lines_exactly():
             assert math.dist(sp.point(p), (o[0] + t * d[0], o[1] + t * d[1])) < 1e-13
 
 
+def test_a_line_through_a_knot_to_round_off_meets_the_spline_once():
+    """KW-CORE-03: a line within round-off of an interior knot was missed by both pieces there."""
+    angles = [k * 0.2 for k in range(11)]
+    sp = SplineCurve([(math.cos(a), 0.3 * math.sin(a)) for a in angles],
+                     [(-math.sin(a), 0.3 * math.cos(a)) for a in angles], 0.0, 10.0)
+    simple = SplineCurve([(0, 0), (1, 0.2), (2, 0)], [(1, 0.3), (1, 0), (1, -0.3)], 0.0, 2.0)
+    for curve in (sp, simple):
+        for k in range(1, len(curve.points) - 1):
+            q = curve.points[k]
+            for j in range(-10, 11):
+                d = (math.sin(0.1 * j), -math.cos(0.1 * j))
+                for e in [s * 10.0 ** -p for p in range(12, 17) for s in (1, -1)] + [0.0]:
+                    o = (q[0] - d[0] - d[1] * e, q[1] - d[1] + d[0] * e)   # the line shifted across by e
+                    near = [p for _, p in curve.line_hits(o, d) if abs(p - k) < 1e-6]
+                    assert len(near) == 1, (k, j, e)
+
+
 def test_arc_length_and_sampling_along_a_curve():
     sp = SplineCurve([(math.cos(k * 0.2), math.sin(k * 0.2)) for k in range(11)],
                      [(-math.sin(k * 0.2), math.cos(k * 0.2)) for k in range(11)], 10.0, 0.0)

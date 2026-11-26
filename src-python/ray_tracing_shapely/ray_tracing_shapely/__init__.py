@@ -30,7 +30,7 @@ Quick start:
     from ray_tracing_shapely.core.simulator import Simulator
 """
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 # Convenience imports for common usage
 from .core.scene import Scene

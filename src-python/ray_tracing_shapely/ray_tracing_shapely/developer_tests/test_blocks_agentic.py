@@ -15,7 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ===============================================================================
-The agent's construction tools (24_p8d)
+The agent's construction tools
 ===============================================================================
 - the example chain built through the block tools alone, wired by handle,
   gives the numbers the blocks give run directly;

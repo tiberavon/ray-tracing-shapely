@@ -27,6 +27,9 @@ The scene builder, driven by messages, with no browser
   designed element placed from its arguments and moved by its placement only;
   properties set through key paths; a refused change leaves the scene as it
   was; ctrl leaves a copy; undo, redo, save and open; the state is JSON.
+- What the page needs beyond the drawing: a point object's position (picked
+  within the click extent, its dot being smaller), and each object's designed
+  element and recipe (the scene's tree).
 ===============================================================================
 """
 
@@ -318,3 +321,26 @@ def test_a_curved_mirror_without_hooks_is_grabbed_where_drawn_and_moved_by_its_v
     _send(e, "release", 3.5, 4.5)
     args = e._obj("CircularArcMirror1")._construction_args
     assert list(args["vertex"]) == pytest.approx([3, 4]) and list(args["axis"]) == [1, 0]
+
+
+def test_the_state_gives_point_objects_their_place_and_parts_their_element():
+    from ray_tracing_shapely.optical_elements.prisms.xr_concentrator import XRConcentrator
+    ed = SceneEditor()
+    for m in ({"type": "tool", "name": "PointSource"}, {"type": "press", "x": 3, "y": 4},
+              {"type": "release", "x": 3, "y": 4}, {"type": "tool", "name": "Mirror"},
+              {"type": "press", "x": 10, "y": 0}, {"type": "release", "x": 10, "y": 20}):
+        assert ed.handle(m)["error"] is None
+    xr = XRConcentrator(ed.scene, (39.5, 30.0), (40.5, 30.0), theta_deg=2.0, p0=(40.0, 26.0), n0=(0.0, -1.0), n=1.5)
+    ed.scene.add_object(xr)
+    for m in xr.primary:
+        ed.scene.add_object(m)
+    ed._name_all()
+    objects = {o["name"]: o for o in json.loads(json.dumps(ed.state()))["objects"]}
+    src = next(o for o in objects.values() if o["type"] == "PointSource")
+    assert src["at"] == [3, 4] and src["owner"] is None and src["recipe"] is None
+    assert all("at" not in o for o in objects.values() if o["type"] != "PointSource")
+    element = objects[xr.name]
+    parts = [o for o in objects.values() if o["owner"] == xr.name]
+    assert element["owner"] is None and element["recipe"] == "XRConcentrator"
+    assert parts and all(p["recipe"] == "XRConcentrator" and p["type"] == "SplineMirror" for p in parts)
+    assert ed.handle({"type": "select", "name": parts[0]["name"]})["selected"]["name"] == xr.name   # a part selects its element

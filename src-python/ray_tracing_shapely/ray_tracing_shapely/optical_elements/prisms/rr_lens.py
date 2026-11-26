@@ -68,6 +68,33 @@ def _sub(a: Point, b: Point) -> Point:
     return (a[0] - b[0], a[1] - b[1])
 
 
+#: How far from symmetric about one vertical line the edge points may be, in scene units.
+_SYMMETRY_TOL = 1e-9
+
+
+def _axis(e1: Point, e2: Point, r1: Point, r2: Point) -> float:
+    """The x of the vertical line E1/E2 and R1/R2 are mirror images about, or ValueError."""
+    x0 = (e1[0] + e2[0]) / 2
+    off = [abs(e1[1] - e2[1]), abs(r1[1] - r2[1]), abs((r1[0] + r2[0]) / 2 - x0)]
+    if max(off) > _SYMMETRY_TOL:
+        raise ValueError(
+            f"an RR lens is symmetric about a vertical line: E1 and E2 must be mirror images about it, and R1 "
+            f"and R2 about the same line (E1 {tuple(e1)}, E2 {tuple(e2)}, R1 {tuple(r1)}, R2 {tuple(r2)}: E1/E2 "
+            f"heights differ by {off[0]:.3g}, R1/R2 heights by {off[1]:.3g}, their midlines by {off[2]:.3g})")
+    return x0
+
+
+def _moved(entry: dict, x0: float) -> dict:
+    """A path entry moved by x0 along x: its vertex and, on a spline edge, its points (its
+    tangents unchanged)."""
+    out = dict(entry, x=entry['x'] + x0)
+    if entry.get('curve'):
+        curve = dict(entry['curve'])
+        curve['points'] = [[x + x0, y] for x, y in curve['points']]
+        out['curve'] = curve
+    return out
+
+
 class RRLens(BasePrism):
     """
     RR SMS lens (Chaves Ch. 9 §9.2): two refractive surfaces designed
@@ -129,6 +156,13 @@ class RRLens(BasePrism):
         edges: str = "spline",
     ) -> None:
         self.e1, self.e2, self.r1, self.r2 = e1, e2, r1, r2
+        # The lens is symmetric about the vertical line through the midpoint of E1 and E2: it is
+        # built in that line's frame (the chains stop at its axis, and the left half is the right
+        # half's mirror image), then moved back. Edge points that are not symmetric about one
+        # vertical line are refused: the construction would build another lens without a word.
+        x0 = _axis(e1, e2, r1, r2)
+        e1, e2, r1, r2 = ((p[0] - x0, p[1]) for p in (e1, e2, r1, r2))
+        self.axis_x = x0
         self.n_lens = n
         self.etendue = etendue
         self.seed_n_angle_deg = seed_n_angle_deg
@@ -136,12 +170,22 @@ class RRLens(BasePrism):
         self.n_points_per_section = n_points_per_section
 
         (
-            self.seed_N, self.seed_X, self.n_seed_N, self.n_seed_X,
-            self.S_NR1, self.S_XE1, self.CO_1, self.CO_2,
+            seed_N, seed_X, self.n_seed_N, self.n_seed_X,
+            self.S_NR1, self.S_XE1, CO_1, CO_2,
             n_surface_points, x_surface_points,
-        ) = self._build_profile()
+        ) = self._build_profile((e1, e2, r1, r2))
+        back = lambda q: (q[0] + x0, q[1])  # noqa: E731 -- the lens's frame to the scene's
+        local_n, local_x = n_surface_points, x_surface_points
+        self.seed_N, self.seed_X = back(seed_N), back(seed_X)
+        self.CO_1 = [SMSPoint(back(q.p), q.n) for q in CO_1]
+        self.CO_2 = [SMSPoint(back(q.p), q.n) for q in CO_2]
 
-        vertices = self._assemble_vertices(n_surface_points, x_surface_points)
+        # the outline and its labels are made in the lens's frame (both read the left half as the
+        # right half's mirror about x = 0), and the finished path moved back
+        vertices = self._assemble_vertices(local_n, local_x)
+        # the right half's points, in the scene's frame (as the chains computed them, moved back)
+        n_surface_points = [SMSPoint(back(q.p), q.n) for q in local_n]
+        x_surface_points = [SMSPoint(back(q.p), q.n) for q in local_x]
         self.n_surface_points, self.x_surface_points = n_surface_points, x_surface_points
 
         # Bypass BasePrism.__init__()'s size/position/rotation template --
@@ -158,14 +202,15 @@ class RRLens(BasePrism):
         if edges not in ("spline", "polyline"):
             raise ValueError(f"edges is 'spline' or 'polyline', got {edges!r}")
         self.edges = edges
-        self.polyline_vertices = vertices
+        self.polyline_vertices = [back(v) for v in vertices]
         if edges == "spline":
             from .sms_chain import spline_outline
             # each designed surface one spline through the chain's points, with the chain's normals
-            self.path = spline_outline(vertices, [n_surface_points, x_surface_points])
-            vertices = [(v['x'], v['y']) for v in self.path]
+            path = spline_outline(vertices, [local_n, local_x])
+            vertices = [(v['x'], v['y']) for v in path]
         else:
-            self.path = [{'x': x, 'y': y, 'arc': False} for x, y in vertices]
+            path = [{'x': x, 'y': y, 'arc': False} for x, y in vertices]
+        self.path = [_moved(entry, x0) for entry in path]
         from ..roles import Mechanism, Role
         from .sms_chain import SurfaceLabel, label_sms_edges
 
@@ -174,9 +219,9 @@ class RRLens(BasePrism):
         (self._functional_labels, self._edge_role_tags,
          self._edge_mechanisms) = label_sms_edges(vertices, [
             SurfaceLabel("N", "N surface (facing the emitter)", Role.ENTRANCE, Mechanism.REFRACT,
-                         [p.p for p in n_surface_points]),
+                         [p.p for p in local_n]),
             SurfaceLabel("X", "X surface (facing the receiver)", Role.EXIT, Mechanism.REFRACT,
-                         [p.p for p in x_surface_points]),
+                         [p.p for p in local_x]),
         ], rim=SurfaceLabel("RIM", "Rim", None, Mechanism.REFRACT, []))
         self._vertex_labels = {
             i: (str(i), f"Vertex {i}") for i in range(len(vertices))
@@ -185,7 +230,7 @@ class RRLens(BasePrism):
         if name is not None:
             self.name = name
 
-    def _build_profile(self):
+    def _build_profile(self, points):
         """
         Build the right half of both surfaces: seed hyperbola points N/X
         (eq. 9.13-9.14 via hyp()), the two short ccoptpt() fans CO_1/CO_2
@@ -193,7 +238,7 @@ class RRLens(BasePrism):
         from every fan point (the X13->N13 alternation, generalized via
         grow_sms_chains()).
         """
-        e1, e2, r1, r2, n = self.e1, self.e2, self.r1, self.r2, self.n_lens
+        (e1, e2, r1, r2), n = points, self.n_lens        # in the lens's own frame: its axis is x = 0
         Np = self.n_points_per_section
 
         h_E = hyp(e1, e2, self.etendue, 1.0)

@@ -136,9 +136,10 @@ class RXConcentrator(BasePrism):
             raise ValueError(f"edges is 'spline' or 'polyline', got {edges!r}")
         self.edges = edges
         self.polyline_vertices = vertices
+        cx = 0.5 * (r1[0] + r2[0])                 # the axis: the halves are mirror images about it
         if edges == "spline":
             from .sms_chain import spline_outline
-            self.path = spline_outline(vertices, [self.lens_points, self.mirror_points])
+            self.path = spline_outline(vertices, [self.lens_points, self.mirror_points], axis_x=cx)
             vertices = [(v['x'], v['y']) for v in self.path]
         else:
             self.path = [{'x': x, 'y': y, 'arc': False} for x, y in vertices]
@@ -151,7 +152,7 @@ class RXConcentrator(BasePrism):
                          [p.p for p in self.lens_points]),
             SurfaceLabel("X", "X surface (mirror-coated)", Role.WALL, Mechanism.REFLECT,
                          [p.p for p in self.mirror_points]),
-        ], rim=SurfaceLabel("RIM", "Rim", None, Mechanism.REFRACT, []))
+        ], rim=SurfaceLabel("RIM", "Rim", None, Mechanism.REFRACT, []), axis_x=cx)
         self._vertex_labels = {i: (str(i), f"Vertex {i}") for i in range(len(vertices))}
         self.auto_label_cardinal()
         if name is not None:

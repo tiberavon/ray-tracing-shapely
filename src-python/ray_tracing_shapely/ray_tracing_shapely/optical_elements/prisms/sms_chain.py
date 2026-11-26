@@ -737,11 +737,12 @@ class SurfaceLabel(NamedTuple):
     points: List[Point]
 
 
-def label_sms_edges(vertices, surfaces, rim: SurfaceLabel, tol: float = 1e-9):
+def label_sms_edges(vertices, surfaces, rim: SurfaceLabel, tol: float = 1e-9, axis_x: float = 0.0):
     """Label each edge of an SMS element's outline by the designed surface it lies on.
 
     Edge i runs from vertex i to vertex i + 1 (the last closes the outline). It belongs to a
-    surface when both its ends are among that surface's points, on either side of the y-axis;
+    surface when both its ends are among that surface's points, on either side of the axis (the
+    vertical line ``x = axis_x``);
     any other edge (one joining two surfaces) is ``rim``'s. A surface drawn as several edges
     numbers them from the axis outward (``N1``, ``N2``...), the same on both halves.
 
@@ -754,7 +755,7 @@ def label_sms_edges(vertices, surfaces, rim: SurfaceLabel, tol: float = 1e-9):
 
     members = []
     for surface in surfaces:
-        keys = {key(p) for p in surface.points} | {key((-p[0], p[1])) for p in surface.points}
+        keys = {key(p) for p in surface.points} | {key((2.0 * axis_x - p[0], p[1])) for p in surface.points}
         members.append((surface, keys))
     n = len(vertices)
     owners = []
@@ -764,7 +765,7 @@ def label_sms_edges(vertices, surfaces, rim: SurfaceLabel, tol: float = 1e-9):
     # A surface drawn as several edges numbers them outward from the axis, by the distance of
     # each edge's midpoint from it: the two halves share the numbers, and every edge of one half
     # has its own label, which a revolved half-section needs.
-    mid_r = [round(abs(vertices[i][0] + vertices[(i + 1) % n][0]) / 2.0 / tol) for i in range(n)]
+    mid_r = [round(abs((vertices[i][0] + vertices[(i + 1) % n][0]) / 2.0 - axis_x) / tol) for i in range(n)]
     labels, roles, mechanisms = {}, {}, {}
     for sf in {o.short: o for o in owners}.values():
         edges = [i for i in range(n) if owners[i] is sf]
@@ -778,7 +779,7 @@ def label_sms_edges(vertices, surfaces, rim: SurfaceLabel, tol: float = 1e-9):
     return labels, roles, mechanisms
 
 
-def spline_outline(vertices, surfaces, tol: float = 1e-9):
+def spline_outline(vertices, surfaces, tol: float = 1e-9, axis_x: float = 0.0):
     """An SMS element's polyline outline turned into a glass path whose designed surfaces are
     exact splines.
 
@@ -794,6 +795,7 @@ def spline_outline(vertices, surfaces, tol: float = 1e-9):
         vertices: The polyline outline, in order.
         surfaces: Per designed surface, its points: ``SMSPoint`` (with normals) or bare points.
         tol: How close a vertex must be to a surface point to be on it.
+        axis_x: The element's axis, the vertical line its halves are mirror images about.
 
     Returns:
         The path: ``{"x", "y", "arc": False}`` per vertex kept, with ``"curve"`` on a spline
@@ -809,7 +811,7 @@ def spline_outline(vertices, surfaces, tol: float = 1e-9):
         for q in surface:
             pt, nv = (q.p, q.n) if isinstance(q, SMSPoint) else (q, None)
             for mx in (1.0, -1.0):
-                kk = key((mx * pt[0], pt[1]))
+                kk = key((axis_x + mx * (pt[0] - axis_x), pt[1]))
                 member.setdefault(kk, k)
                 if nv is not None:
                     normal.setdefault(kk, (mx * nv[0], nv[1]))

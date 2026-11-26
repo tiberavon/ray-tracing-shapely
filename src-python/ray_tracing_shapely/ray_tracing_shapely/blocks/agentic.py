@@ -33,7 +33,7 @@ input given as ``{"ref": "v3"}``, alone or inside a list, is that kept value,
 checked by the wire rule (`wire_accepts`): a source entry of 600 rays never
 travels through the agent, and a trace not saved to a folder can still feed
 the next block. Every other input is JSON, parsed at the boundary (`KA9`).
-The store is the blocks' own (`24_p0` point 3): the named contexts are not
+The store is the blocks' own: the named contexts are not
 switched.
 
 **The store records each call** (the block, and its inputs as given, handles

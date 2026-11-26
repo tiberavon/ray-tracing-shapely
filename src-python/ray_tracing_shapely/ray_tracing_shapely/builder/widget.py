@@ -22,7 +22,7 @@ The scene builder in a notebook cell
 the editor renders, the selection's handles, a palette and a property form.
 It sends what the person does as the editor's own messages, and the editor's
 new state comes back as ``state``. Hovering and the drag preview are the
-page's; the drag itself is applied in Python, on release (24_p0 Decision 6).
+page's; the drag itself is applied in Python, on release.
 
 The editor is ``widget.editor``; its scene ``widget.scene``. ``handle(msg)``
 applies a message as the page would, so the widget is tested with no browser.
@@ -173,12 +173,76 @@ function render({ model, el: root }) {
     pt.x = evt.clientX; pt.y = evt.clientY; const p = pt.matrixTransform(m); return { x: p.x, y: -p.y }; };
   const toSceneNow = (evt) => toSceneWith(svgOf().getScreenCTM().inverse(), evt);
   const byUuid = () => Object.fromEntries((cur().objects || []).map((o) => [o.uuid, o]));
+  // The point object nearest the pointer within the click extent (10 screen pixels, as Python's
+  // hit test): its drawn dot is too small, and the rays leaving it, to be hit by the drawing alone.
+  const PICK_PX = 10;
+  const pickPoint = (s, p) => {
+    let best = null, bestD = PICK_PX / s.view.scale;
+    for (const o of s.objects || []) {
+      if (!o.at) continue;
+      const d = Math.hypot(o.at[0] - p.x, o.at[1] - p.y);
+      if (d <= bestD) { best = o; bestD = d; }
+    }
+    return best;
+  };
+  // In the sculpt mode: the handle nearest the pointer within the click extent.
+  const pickHandle = (s, p) => {
+    let best = null, bestD = PICK_PX / s.view.scale;
+    for (const h of (s.sculpt && s.sculpt.handles) || []) {
+      const d = Math.hypot(h.x - p.x, h.y - p.y);
+      if (d <= bestD) { best = h; bestD = d; }
+    }
+    return best;
+  };
+  // A sculpt drag's move: the pointer's travel along the handle's normal (a point moved), or
+  // across it over the shorter chord, in degrees (a tangent turned), scaled down by the fine-drag
+  // factor: at full scale one screen pixel is already past the first-order range.
+  const sculptDelta = (d, fine) => {
+    const h = d.sculpt, tx = d.now.x - d.start.x, ty = d.now.y - d.start.y;
+    const [nx, ny] = h.normal;
+    if (d.kind === "position") return (tx * nx + ty * ny) * fine;
+    return (tx * -ny + ty * nx) / h.chord * (180 / Math.PI) * fine;
+  };
+  const fmt = (v, n = 3) => (typeof v === "number" && Number.isFinite(v)) ? Number(v.toPrecision(n)) : "—";
+
+  // The scene as a tree: each top-level object, and each designed element with its parts.
+  const groups = (s) => {
+    const out = [], byName = {};
+    for (const o of s.objects || []) {
+      const key = o.owner || o.name;
+      if (!byName[key]) out.push(byName[key] = { name: key, recipe: o.recipe, type: o.type, parts: [] });
+      if (o.owner) byName[key].parts.push(o);
+      else Object.assign(byName[key], { recipe: o.recipe, type: o.type });     // the element itself, wherever it comes
+    }
+    return out;
+  };
+  const hoverOn = (names) => {
+    const svg = svgOf(); if (!svg) return;
+    for (const n of svg.querySelectorAll(".rsb-hover")) n.classList.remove("rsb-hover");
+    for (const o of cur().objects || [])
+      if (names.includes(o.name) || names.includes(o.owner))
+        for (const n of svg.querySelectorAll(`[data-uuid="${o.uuid}"]`)) n.classList.add("rsb-hover");
+  };
 
   function paint(s) {
     canvasBox.innerHTML = s.svg;
     const svg = svgOf();
     if (!svg) return;
     svg.removeAttribute("width"); svg.removeAttribute("height");
+    // Each object's grip: an invisible copy of what is drawn, its stroke the click extent wide
+    // (10 screen pixels each side), above the rays and the labels, so a press near an object
+    // takes it rather than panning; a 2 px line or a label over it is no longer a near miss.
+    const hits = svgEl("g", { class: "rsb-hits" });
+    svg.append(hits);
+    const known = byUuid(), toHits = hits.getCTM && hits.getCTM();
+    for (const n of svg.querySelectorAll("[data-uuid]")) {
+      if (!known[n.getAttribute("data-uuid")] || n.closest(".rsb-hits") || n.parentNode.closest("[data-uuid]")) continue;
+      const m = toHits && n.parentNode.getCTM ? toHits.inverse().multiply(n.parentNode.getCTM()) : null;
+      const c = n.cloneNode(true);
+      c.classList.add("rsb-grip");
+      if (m) c.setAttribute("transform", `matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f}) ${n.getAttribute("transform") || ""}`);
+      hits.append(c);
+    }
     const overlay = svgEl("g", { transform: "scale(1, -1)", class: "rsb-overlay" });
     svg.append(overlay);
     const sel = s.selected;
@@ -187,7 +251,14 @@ function render({ model, el: root }) {
       for (const h of sel.handles || [])
         overlay.append(svgEl("circle", { cx: h.x, cy: h.y, r: 4 / s.view.scale, class: "rsb-handle" }));
     }
-    if (drag && !drag.pan) preview(svg, overlay, s);
+    if (s.sculpt) {
+      const active = drag && drag.sculpt && drag.sculpt.handle_id;
+      for (const h of s.sculpt.handles)
+        overlay.append(svgEl("circle", { cx: h.x, cy: h.y, r: (h.handle_id === active ? 5 : 3) / s.view.scale,
+          class: "rsb-handle rsb-sculpt-handle" + (h.handle_id === active ? " rsb-sculpt-active" : ""),
+          "data-handle-id": h.handle_id }));
+    }
+    if (drag && !drag.pan && !drag.sculpt) preview(svg, overlay, s);
   }
 
   // While an object is built its own rule draws it: the pointer's moves go to Python one at a
@@ -211,24 +282,41 @@ function render({ model, el: root }) {
         svgOf().setAttribute("viewBox", `${vb[0] - drag.dx} ${-(vb[1] + vb[3]) + drag.dy} ${vb[2]} ${vb[3]}`);
         return;
       }
+      if (drag && drag.sculpt) {
+        drag.now = toSceneNow(evt);
+        drag.delta = sculptDelta(drag, cur().sculpt.fine);
+        pushMove({ type: "sculpt_preview", handle_id: drag.sculpt.handle_id, kind: drag.kind, delta: drag.delta });
+        return;
+      }
       if (building()) pushMove({ type: "move", ...toSceneNow(evt), ...keys(evt) });
       if (drag) {
         drag.now = toSceneNow(evt);
         const svg = svgOf(); preview(svg, svg.querySelector(".rsb-overlay"), cur());
         return;
       }
-      for (const n of box.querySelectorAll(".rsb-hover")) n.classList.remove("rsb-hover");
-      const hit = evt.target.closest && evt.target.closest("[data-uuid]");
-      if (hit && byUuid()[hit.getAttribute("data-uuid")]) hit.classList.add("rsb-hover");
+      const hit = !memo.panMode && evt.target.closest && evt.target.closest("[data-uuid]");
+      const o = hit && byUuid()[hit.getAttribute("data-uuid")];
+      hoverOn(o ? [o.name] : []);
     });
     box.addEventListener("pointerdown", (evt) => {
       if (evt.button !== 0 || !svgOf()) return;
-      box.setPointerCapture(evt.pointerId);
+      try { box.setPointerCapture(evt.pointerId); } catch (e) { /* a pointer the browser does not track */ }
       const s = cur(), p = toSceneNow(evt);
+      if (s.sculpt && !memo.panMode) {                    // sculpting: a handle, or the view panned
+        const h = pickHandle(s, p);
+        if (h) { drag = { start: p, now: p, sculpt: h, kind: evt.shiftKey ? "normal" : "position", delta: 0 }; redraw(); return; }
+        drag = { start: p, now: p, pan: true, m0: svgOf().getScreenCTM().inverse(), vb: s.view.viewbox, dx: 0, dy: 0 };
+        return;
+      }
       const hit = evt.target.closest && evt.target.closest("[data-uuid]");
-      const uuid = hit ? hit.getAttribute("data-uuid") : null, o = uuid && byUuid()[uuid];
+      let uuid = hit ? hit.getAttribute("data-uuid") : null, o = uuid && byUuid()[uuid];
+      if (!o && !s.tool && !s.constructing) {              // a point source is a dot: picked within the click extent
+        const near = pickPoint(s, p);
+        if (near) { o = near; uuid = near.uuid; }
+      }
       drag = { start: p, now: p, uuid };
-      if (!o && !s.tool && !s.constructing) {              // empty canvas: pan the view
+      if (memo.panMode || (!o && !s.tool && !s.constructing)) {   // the Pan button, or empty canvas: pan the view
+        if (memo.panMode) box.classList.add("rsb-grabbing");
         Object.assign(drag, { pan: true, m0: svgOf().getScreenCTM().inverse(), vb: s.view.viewbox, dx: 0, dy: 0 });
         return;
       }
@@ -237,9 +325,16 @@ function render({ model, el: root }) {
     box.addEventListener("pointerup", (evt) => {
       if (!drag || !svgOf()) return;
       const s = cur();
+      if (drag.sculpt) {                                // release applies: the edit recorded, the light re-traced
+        const d = drag; drag = null; moveNext = null;
+        if (d.delta) send({ type: "sculpt_apply", handle_id: d.sculpt.handle_id, kind: d.kind, delta: d.delta });
+        else send({ type: "sculpt_preview", clear: true });
+        return;
+      }
       if (drag.pan) {
         const d = drag; drag = null;
-        if (Math.hypot(d.dx, d.dy) * s.view.scale < 3) send({ type: "select", name: null });
+        box.classList.remove("rsb-grabbing");
+        if (Math.hypot(d.dx, d.dy) * s.view.scale < 3) { if (!memo.panMode && !s.sculpt) send({ type: "select", name: null }); }
         else send({ type: "view", pan: [-d.dx, -d.dy] });
         return;
       }
@@ -250,6 +345,8 @@ function render({ model, el: root }) {
       if (still && o && !s.tool && (!s.selected || s.selected.name !== (o.owner || o.name)))
         send({ type: "select", name: o.name });
     });
+    box.tabIndex = 0;                                   // Esc leaves the Pan mode
+    box.addEventListener("keydown", (evt) => { if (evt.key === "Escape" && memo.panMode) { memo.panMode = false; redraw(); } });
     box.addEventListener("wheel", (evt) => {
       if (!svgOf()) return;
       evt.preventDefault();
@@ -311,6 +408,27 @@ function render({ model, el: root }) {
     return out;
   }
 
+  function tree(s) {
+    const open = memo.open || (memo.open = new Set());
+    const selected = s.selected && s.selected.name;
+    const row = (label, type, name, depth, toggle) => el("div", {
+        class: "rsb-node" + (name === selected ? " rsb-on" : ""), style: `padding-left: ${4 + depth * 14}px`,
+        title: name, onclick: () => send({ type: "select", name }),
+        onmouseenter: () => hoverOn([name]), onmouseleave: () => hoverOn([]) },
+      toggle || el("span", { class: "rsb-twisty" }), label, el("span", { class: "rsb-type" }, ` ${type}`));
+    const items = groups(s).map((g) => {
+      if (!g.parts.length) return row(g.name, g.type, g.name, 0);
+      const isOpen = open.has(g.name);
+      const twisty = el("span", { class: "rsb-twisty", title: isOpen ? "hide its parts" : "show its parts",
+        onclick: (e) => { e.stopPropagation(); isOpen ? open.delete(g.name) : open.add(g.name); redraw(); } },
+        isOpen ? "▾" : "▸");
+      return [row(g.name, g.recipe || "designed", g.name, 0, twisty),
+              isOpen && g.parts.map((p) => row(p.name, p.type, g.name, 1))];
+    });
+    return el("div", { class: "rsb-tree" }, el("div", { class: "rsb-title" }, "Scene"),
+      items.length ? items : el("div", { class: "rsb-hint" }, "No objects yet"));
+  }
+
   function inspector(s) {
     const sel = s.selected;
     if (!sel) return el("div", { class: "rsb-hint" }, s.tool ? `Placing ${s.tool.name}: click and drag on the canvas`
@@ -326,6 +444,44 @@ function render({ model, el: root }) {
       el("button", { class: "rsb-danger", onclick: () => send({ type: "delete", name: sel.name }) }, "Delete"));
   }
 
+  function sculptPanel(s) {
+    const sc = s.sculpt, p = sc.preview;
+    const num = (value, title, done) => el("input", { type: "number", step: "any", class: "rsb-small", value: fmt(value), title,
+                                                       onchange: (e) => done(Number(e.target.value)) });
+    const rows = [];
+    if (p) rows.push(el("div", { class: "rsb-sculpt-preview" + (p.trusted ? "" : " rsb-error") },
+      `${p.handle_id} ${p.kind === "normal" ? "turned" : "moved"} ${fmt(p.delta)}${p.kind === "normal" ? "°" : ""}: ` +
+      `${fmt(p.ratio, 2)} of its span (limit ${fmt(p.limit, 2)})`,
+      p.trusted ? null : el("div", {}, "past the first-order range: release to re-trace")));
+    if (sc.bundles) rows.push(el("div", { class: "rsb-title" }, "Map A: S spread per bundle"),
+      sc.bundles.map((b) => el("div", { class: "rsb-sculpt-row", "data-bundle-id": b.bundle_id },
+        `${b.bundle_id}: ${fmt(b.spread)}`,
+        p && p.bundles && p.bundles[b.bundle_id] ? ` → ${fmt(p.bundles[b.bundle_id].spread_after)}` : "",
+        `, miss ≤ ${fmt(b.max_miss, 2)}`)));
+    if (sc.tubes) rows.push(el("div", { class: "rsb-title" }, "Map B: delivered per tube"),
+      el("div", { class: "rsb-sculpt-row" }, sc.tubes.map((t) => `${t.tube_id.split("/").pop()} ${fmt(t.delivered_fraction, 3)}`).join(" · ")));
+    if (sc.events && sc.events.length) rows.push(el("div", { class: "rsb-title" }, "Events"),
+      sc.events.map((e) => el("div", { class: "rsb-sculpt-event", "data-kind": e.kind },
+        `${e.kind.replace(/_/g, " ")}${e.tube_id ? " " + e.tube_id : e.bundle_id ? " " + e.bundle_id : ""}: ${e.detail}`)));
+    return el("div", { class: "rsb-sculpt" },
+      el("div", { class: "rsb-title" }, `Sculpting ${sc.glass}`),
+      el("div", { class: "rsb-hint" }, "Drag a handle along its normal to move its point; shift-drag to turn its tangent. " +
+                                        "The drag previews at first order; release records the edit and traces again."),
+      el("label", { class: "rsb-param" }, "Show",
+        (() => { const m = el("select", { onchange: (e) => send({ type: "sculpt_settings", map: e.target.value }) },
+          [["A", "Map A (bundles)"], ["B", "Map B (tubes)"], ["both", "both"]].map(([v, t]) => el("option", { value: v, selected: sc.map === v }, t)));
+          return m; })()),
+      el("label", { class: "rsb-param" }, "Fine drag (move per unit of pointer travel)",
+        num(sc.fine, "fine-drag scale", (v) => send({ type: "sculpt_settings", fine: v }))),
+      sc.opl_scale ? el("label", { class: "rsb-param" }, "Map A scale (± S)",
+        num(sc.opl_scale, "Map A colour scale, kept for the session", (v) => send({ type: "sculpt_settings", opl_scale: v }))) : null,
+      rows,
+      el("div", { class: "rsb-row" },
+        el("button", { disabled: !s.can_undo, onclick: () => send({ type: "sculpt_undo" }) }, "Undo edit"),
+        sc.tubes ? el("button", { title: "cut the tubes again on the scene as it is", onclick: () => send({ type: "sculpt_repartition" }) }, "Re-cut tubes") : null,
+        el("button", { onclick: () => send({ type: "sculpt_stop" }) }, "Stop sculpting")));
+  }
+
   function toolbar(s) {
     const hosted = s.host === "vscode";              // the host saves and opens the file itself
     const path = hosted ? null : el("input", { type: "text", list: "rsb-files", value: memo.path ?? s.path ?? "scene.scene.json",
@@ -334,6 +490,12 @@ function render({ model, el: root }) {
       el("button", { disabled: !s.can_undo, onclick: () => send({ type: "undo" }) }, "Undo"),
       el("button", { disabled: !s.can_redo, onclick: () => send({ type: "redo" }) }, "Redo"),
       el("button", { onclick: () => send({ type: "view", fit: true }) }, "Fit"),
+      el("button", { class: memo.panMode ? "rsb-on" : "", title: "drag anywhere on the canvas to move the view (Esc leaves)",
+                     onclick: () => { memo.panMode = !memo.panMode; redraw(); } }, "Pan"),
+      s.sculpt ? el("button", { class: "rsb-on", onclick: () => send({ type: "sculpt_stop" }) }, "Sculpting")
+        : el("button", { disabled: !(s.selected && s.selected.kind === "recipe"),
+                         title: "edit the selected designed glass by its handles, its light in view",
+                         onclick: () => send({ type: "sculpt_start", glass: s.selected.name }) }, "Sculpt"),
       el("button", { onclick: () => send({ type: "view", zoom: 1.25 }) }, "+"),
       el("button", { onclick: () => send({ type: "view", zoom: 0.8 }) }, "−"),
       el("label", {}, (() => { const c = el("input", { type: "checkbox" }); c.checked = s.settings.snap_to_grid;
@@ -352,8 +514,13 @@ function render({ model, el: root }) {
     const s = model.get("state");
     if (!s || !s.svg) { root.replaceChildren(el("div", {}, "…")); return; }
     canvas();
+    canvasBox.classList.toggle("rsb-panmode", !!memo.panMode);
     paint(s);
-    if (drag) return;                                  // mid-drag: only the drawing changes
+    if (drag) {                                        // mid-drag: only the drawing changes,
+      const right = drag.sculpt && root.querySelector(".rsb-right");   // and a sculpt drag's numbers
+      if (right && s.sculpt) right.replaceChildren(sculptPanel(s));
+      return;
+    }
     const status = [s.error && el("span", { class: "rsb-error" }, s.error),
                     el("span", {}, `${s.objects.length} objects · ${s.trace.segments} ray segments`),
                     s.trace.note && el("span", { class: "rsb-note" }, s.trace.note),
@@ -362,9 +529,9 @@ function render({ model, el: root }) {
     root.replaceChildren(el("div", { class: "rsb" + (s.host === "vscode" ? " rsb-vscode" : "") },
       toolbar(s),
       el("div", { class: "rsb-main" },
-        el("div", { class: "rsb-left" }, palette(s)),
+        el("div", { class: "rsb-left" }, palette(s), tree(s)),
         canvasBox,
-        el("div", { class: "rsb-right" }, inspector(s))),
+        el("div", { class: "rsb-right" }, s.sculpt ? sculptPanel(s) : inspector(s))),
       el("div", { class: "rsb-status" }, status)));
   }
   model.on("change:state", redraw);
@@ -379,12 +546,36 @@ _CSS = r"""
 .rsb-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .rsb-bar input[type=text] { width: 16em; }
 .rsb-small { width: 4.5em; }
-.rsb-main { display: grid; grid-template-columns: 12em 1fr 16em; gap: 8px; align-items: start; }
+.rsb-main { display: grid; grid-template-columns: 14em 1fr 16em; gap: 8px; align-items: start; }
 .rsb-left .rsb-row { flex-direction: column; align-items: stretch; }
 .rsb-tool { text-align: left; }
 .rsb-on { background: #2b6cb0; color: white; border-color: #2b6cb0; }
 .rsb-canvas { border: 1px solid #ccc; background: white; min-height: 300px; }
 .rsb-canvas svg { width: 100%; height: auto; display: block; touch-action: none; cursor: crosshair; }
+.rsb-canvas.rsb-panmode svg { cursor: grab; }
+.rsb-canvas.rsb-panmode.rsb-grabbing svg { cursor: grabbing; }
+.rsb-canvas.rsb-panmode .rsb-hover { filter: none; }
+.rsb-canvas:focus { outline: none; }
+.rsb-canvas .rsb-overlay { pointer-events: none; }   /* handles show where to grab; Python finds the part */
+.rsb-canvas .rsb-grip, .rsb-canvas .rsb-grip * { fill: none !important; stroke: transparent !important;
+  stroke-width: 20px !important; vector-effect: non-scaling-stroke; pointer-events: stroke; filter: none !important; }
+.rsb-canvas .rsb-grip text { pointer-events: none; }
+.rsb-canvas #layer-rays, .rsb-canvas #layer-graphic-symb, .rsb-canvas #layer-sculpt { pointer-events: none; }
+.rsb-canvas .sculpt-untrusted { opacity: 0.35; }
+.rsb-sculpt-handle { fill: white; stroke: #2d3748; }
+.rsb-sculpt-active { fill: #d69e2e; }
+.rsb-sculpt-row, .rsb-sculpt-event { font-size: 12px; margin: 2px 0; }
+.rsb-sculpt-event { color: #9c4221; }
+.rsb-sculpt-preview { margin: 4px 0; }
+.rsb-tree { border-top: 1px solid #ddd; margin-top: 8px; padding-top: 4px; max-height: 24em; overflow-y: auto; }
+.rsb-node { cursor: pointer; padding: 2px 4px; border-radius: 3px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+.rsb-node:hover { background: #ebf4ff; }
+.rsb-twisty { display: inline-block; width: 1em; color: #666; }
+.rsb-node.rsb-on .rsb-type, .rsb-node.rsb-on .rsb-twisty { color: inherit; opacity: 0.8; }
+.rsb-vscode .rsb-node:hover { background: var(--vscode-list-hoverBackground); }
+.rsb-vscode .rsb-node.rsb-on { background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground); }
 .rsb-canvas .rsb-hover { filter: drop-shadow(0 0 2px #2b6cb0); }
 .rsb-canvas .rsb-selected { filter: drop-shadow(0 0 3px #d69e2e); }
 .rsb-handle { fill: white; stroke: #d69e2e; stroke-width: 0.4; vector-effect: non-scaling-stroke; }

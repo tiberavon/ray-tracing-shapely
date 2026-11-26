@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ray-tracing-shapely"
-version = "0.4.0"
+version = "0.4.1"
 description = "Python ray tracing library using Shapely for computational geometry"
 readme = "README.md"
 requires-python = ">=3.11"

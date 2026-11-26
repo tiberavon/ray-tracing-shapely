@@ -145,10 +145,11 @@ class XRConcentrator(BasePrism):
         self.refIndex = n
         self.edges = edges
         self.polyline_vertices = vertices
+        cx = 0.5 * (r1[0] + r2[0])                 # the axis: the halves are mirror images about it
         from ..roles import Mechanism, Role
         if edges == "spline":
             from .sms_chain import spline_outline
-            self.path = self._split_where_r_turns(spline_outline(vertices, [self.lens_points]))
+            self.path = self._split_where_r_turns(spline_outline(vertices, [self.lens_points], axis_x=cx))
             vertices = [(v['x'], v['y']) for v in self.path]
         else:
             self.path = [{'x': x, 'y': y, 'arc': False} for x, y in vertices]
@@ -158,7 +159,7 @@ class XRConcentrator(BasePrism):
          self._edge_mechanisms) = label_sms_edges(vertices, [
             SurfaceLabel("R", "R surface (refracting)", Role.ENTRANCE, Mechanism.REFRACT,
                          [p.p for p in self.lens_points]),
-        ], rim=SurfaceLabel("TOP", "Top, at the receiver's level", None, Mechanism.REFRACT, []))
+        ], rim=SurfaceLabel("TOP", "Top, at the receiver's level", None, Mechanism.REFRACT, []), axis_x=cx)
         if edges == "spline" and len(self.path) == 4:
             # R in three pieces of one spline: the cap through the axis, and the zone either side
             # beyond the turn, where the lens curls back toward the axis

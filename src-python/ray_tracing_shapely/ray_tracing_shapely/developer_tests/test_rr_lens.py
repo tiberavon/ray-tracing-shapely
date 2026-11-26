@@ -194,6 +194,45 @@ def test_rr_lens_real_ray_trace_smoke():
     return True
 
 
+def test_rr_lens_moved_is_the_lens_moved():
+    """KW-SMS-01: edge points shifted together build the same lens, shifted; whatever the shift."""
+    from ray_tracing_shapely.core.scene import Scene
+    from ray_tracing_shapely.optical_elements.prisms.rr_lens import RRLens
+
+    _, lens = _build_example_9_1_lens()
+    for dx, dy in [(0.0, 1.0), (0.3, 0.0), (2.0, 1.0), (-7.25, 3.5)]:
+        sh = lambda p: (p[0] + dx, p[1] + dy)  # noqa: E731
+        moved = RRLens(Scene(), sh(E1), sh(E2), sh(R1), sh(R2), seed_n_angle_deg=303.3, seed_x_angle_deg=42.7,
+                       n=1.5, etendue=1.0, n_points_per_section=5)
+        assert len(moved.path) == len(lens.path) == 4
+        assert moved._functional_labels == lens._functional_labels
+        assert abs(moved.axis_x - dx) < 1e-12
+        for u, v in zip(lens.path, moved.path):
+            assert_point_close((v["x"], v["y"]), sh((u["x"], u["y"])), 1e-12, f"vertex, shift {(dx, dy)}")
+            if u.get("curve"):
+                for p, q in zip(u["curve"]["points"], v["curve"]["points"]):
+                    assert_point_close(q, sh(p), 1e-12, f"spline point, shift {(dx, dy)}")
+                for p, q in zip(u["curve"]["tangents"], v["curve"]["tangents"]):
+                    assert_point_close(q, p, 1e-12, f"spline tangent, shift {(dx, dy)}")
+        assert abs(moved.S_XE1 - lens.S_XE1) < 1e-12 and abs(moved.S_NR1 - lens.S_NR1) < 1e-12
+        assert_point_close(moved.seed_X, sh(lens.seed_X), 1e-12, "seed X")
+
+
+def test_rr_lens_refuses_edge_points_not_symmetric_about_one_line():
+    from ray_tracing_shapely.core.scene import Scene
+    from ray_tracing_shapely.optical_elements.prisms.rr_lens import RRLens
+
+    for e1, e2, r1, r2, what in [((-1.0, 2.0), (1.2, 2.0), R1, R2, "midlines by 0.1"),
+                                 (E1, (1.0, 2.5), R1, R2, "E1/E2 heights differ by 0.5"),
+                                 (E1, E2, R1, (0.5, -2.2), "R1/R2 heights by 0.2")]:
+        try:
+            RRLens(Scene(), e1, e2, r1, r2, seed_n_angle_deg=303.3, seed_x_angle_deg=42.7)
+        except ValueError as exc:
+            assert "symmetric about a vertical line" in str(exc) and what in str(exc), str(exc)
+        else:
+            raise AssertionError(f"not refused: {e1}, {e2}, {r1}, {r2}")
+
+
 def run_all_tests():
     tests = [
         ("RRLens matches Example 9.1's seed points and OPLs", test_rr_lens_matches_example_9_1_seed_and_opl),
@@ -203,6 +242,8 @@ def run_all_tests():
         ("RRLens chain reaches the axis", test_rr_lens_chain_reaches_axis),
         ("RRLens edge rays land on receiver (crossed condition)", test_rr_lens_edge_rays_land_on_receiver),
         ("RRLens real ray trace smoke test", test_rr_lens_real_ray_trace_smoke),
+        ("RRLens moved is the lens moved", test_rr_lens_moved_is_the_lens_moved),
+        ("RRLens refuses asymmetric edge points", test_rr_lens_refuses_edge_points_not_symmetric_about_one_line),
     ]
 
     passed = 0

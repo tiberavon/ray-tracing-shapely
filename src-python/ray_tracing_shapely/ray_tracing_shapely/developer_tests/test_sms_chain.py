@@ -351,8 +351,40 @@ def test_build_sms_chain_raises_on_max_steps():
     return True
 
 
+def test_rx_and_xr_moved_sideways_are_the_elements_moved():
+    """KW-SMS-02: the outline and its labels mirror each half about the element's own axis, so an
+    RX or an XR built with its placement points shifted is the element shifted."""
+    from ray_tracing_shapely.core.scene import Scene
+    from ray_tracing_shapely.optical_elements.prisms.rx_concentrator import RXConcentrator
+    from ray_tracing_shapely.optical_elements.prisms.xr_concentrator import XRConcentrator
+
+    def sh(p, d):
+        return (p[0] + d[0], p[1] + d[1])
+
+    makers = {
+        "RX": lambda d: RXConcentrator(Scene(), sh((-0.5, 0.0), d), sh((0.5, 0.0), d), theta_deg=2.0),
+        "XR": lambda d: XRConcentrator(Scene(), sh((-0.5, 0.0), d), sh((0.5, 0.0), d), theta_deg=2.0,
+                                       p0=sh((0.0, -4.0), d), n0=(0.0, -1.0), n=1.5),
+    }
+    for name, make in makers.items():
+        base = make((0.0, 0.0))
+        for d in [(0.0, 1.0), (0.3, 0.0), (2.0, 1.0), (-7.25, 3.5)]:
+            moved = make(d)
+            assert len(moved.path) == len(base.path) == 4, f"{name} {d}: {len(moved.path)} path entries"
+            assert moved._functional_labels == base._functional_labels, f"{name} {d}"
+            for u, v in zip(base.path, moved.path):
+                assert_point_close((v["x"], v["y"]), sh((u["x"], u["y"]), d), 1e-10, f"{name} {d} vertex")
+                if u.get("curve"):
+                    for p, q in zip(u["curve"]["points"], v["curve"]["points"]):
+                        assert_point_close(q, sh(p, d), 1e-10, f"{name} {d} spline point")
+            if name == "XR":
+                for p, q in zip(base.primary[0].points, moved.primary[0].points):
+                    assert_point_close(q, sh(p, d), 1e-10, f"XR {d} primary")
+
+
 def run_all_tests():
     tests = [
+        ("RX and XR moved sideways are the elements moved", test_rx_and_xr_moved_sideways_are_the_elements_moved),
         ("reflect matches Example 9.2 eq. 9.73", test_reflect_matches_example_9_2_eq_9_73),
         ("sms_chain_step matches Example 9.1's ping-pong step", test_sms_chain_step_matches_example_9_1_ping_pong),
         ("sms_chain_step matches Example 9.2's reflect-refract chain", test_sms_chain_step_matches_example_9_2_reflect_refract_chain),

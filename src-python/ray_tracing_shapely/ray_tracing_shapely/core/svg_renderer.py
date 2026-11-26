@@ -720,7 +720,7 @@ class SVGRenderer:
         )
 
     def draw_point(self, point, color='black', radius=3, label=None, scene_obj=None,
-                   label_font_size='8px'):
+                   label_font_size='8px', label_gap=2):
         """
         Draw a point (circle).
 
@@ -728,6 +728,8 @@ class SVGRenderer:
             point (dict): Point with 'x' and 'y' keys
             color (str): Fill color (default: 'black')
             radius (float): Circle radius in pixels (default: 3)
+            label_gap (float): The label's distance from the circle, in the
+                drawing's units (default: 2).
             label (str or None): Optional text label to show near point
             scene_obj: Optional scene object for simulation metadata.
             label_font_size (str): CSS font size for the label (default: '8px').
@@ -751,8 +753,8 @@ class SVGRenderer:
 
             text = self.dwg.text(
                 label,
-                insert=(point['x'] + radius + 2,
-                        -(point['y'] - radius - 2) + vertical_offset),
+                insert=(point['x'] + radius + label_gap,
+                        -(point['y'] - radius - label_gap) + vertical_offset),
                 fill=color,
                 font_size=font_size,
                 font_family='sans-serif',
@@ -1500,7 +1502,8 @@ class SVGRenderer:
                    draw_edge_overlays: bool = True, ray_subsample: int = 1,
                    ray_subsample_seed=None, ray_stroke_width: float = 1.5,
                    edge_stroke_width: float = 2.0, object_label_font_size: str = '8px',
-                   edge_label_font_size: str = '6px', **ray_kwargs) -> bool:
+                   edge_label_font_size: str = '6px', point_radius: float = 4,
+                   **ray_kwargs) -> bool:
         """
         Draw all objects and rays from a scene with full metadata.
 
@@ -1552,6 +1555,9 @@ class SVGRenderer:
                 segments (e.g. DTIRCPrism's wall_segments) gets one label
                 per edge -- shrinking this declutters without hiding labels
                 entirely (see draw_edge_labels for that).
+            point_radius (float): The radius of a point source's marker, in
+                the drawing's units (default: 4). A view zoomed far in passes
+                a few screen pixels' worth, as it does for the strokes.
             **ray_kwargs: Additional keyword arguments passed to
                 draw_ray_with_scene_settings (e.g. base_color).
 
@@ -1580,7 +1586,7 @@ class SVGRenderer:
                 elif hasattr(obj, 'x') and hasattr(obj, 'y') and not hasattr(obj, 'p2'):
                     display_name = getattr(obj, 'get_display_name', lambda: None)() if draw_obj_labels else None
                     self.draw_point({'x': obj.x, 'y': obj.y},
-                                    color='orange', radius=4,
+                                    color='orange', radius=point_radius, label_gap=point_radius / 2,
                                     label=display_name, scene_obj=obj,
                                     label_font_size=object_label_font_size)
                 # Curved objects that draw themselves as a sampled curve

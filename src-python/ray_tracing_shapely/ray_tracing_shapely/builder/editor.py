@@ -49,6 +49,16 @@ Messages (JSON; positions in scene coordinates, y up):
   "pan": [dx, dy]}`` (scene units), ``{"type": "view", "fit": true}``.
 - ``{"type": "settings", "grid_size", "snap_to_grid", "ray_density",
   "quick_max_rays"}``.
+- The sculpt mode (`builder.sculpt`): ``{"type": "sculpt_start", "glass"?,
+  "receiver"?, "tubes"?, "bundles"?}`` (the glass becomes a `SculptedGlass`;
+  its light is cut into tubes at the receiver, its edge bundles aimed);
+  ``{"type": "sculpt_preview", "handle_id", "kind", "delta"}`` (the
+  first-order estimate, nothing traced, nothing changed; ``"clear": true``
+  drops it);
+  ``{"type": "sculpt_apply", ...}`` (the same move, recorded as an edit, the
+  light traced again, events reported); ``{"type": "sculpt_undo"}``;
+  ``{"type": "sculpt_repartition"}``; ``{"type": "sculpt_settings", "map",
+  "opl_scale", "fine"}``; ``{"type": "sculpt_stop"}``.
 
 A designed element is moved by its placement only: a drag anywhere on it
 moves its ``position`` (or the arguments its class names as
@@ -73,6 +83,7 @@ from ..core.mouse import Mouse, MousePoint
 from ..core.scene import Scene
 from ..core.simulator import Simulator
 from ..core.svg_renderer import SVGRenderer
+from .sculpt import SculptError, SculptSession, sculptable
 
 #: The primitives the palette offers, in its order: the JavaScript
 #: simulator's, then this package's.
@@ -139,6 +150,7 @@ class SceneEditor:
         self._redo: List[Dict[str, Any]] = []
         self._segments: List[Any] = []
         self._trace_note: Optional[str] = None
+        self.sculpt: Optional[SculptSession] = None
         self.center = MousePoint(0.0, 0.0)
         if path is not None:
             self.scene = self._read(path)
@@ -219,8 +231,8 @@ class SceneEditor:
 
     def _trace(self) -> None:
         self._segments, self._trace_note = [], None
-        if not self.quick_max_rays:
-            return
+        if not self.quick_max_rays or getattr(self, "sculpt", None) is not None:
+            return                                   # sculpting draws the tubes and bundles, not the rays
         try:
             sim = Simulator(self.scene, max_rays=self.quick_max_rays)
             self._segments = sim.run()
@@ -237,10 +249,27 @@ class SceneEditor:
     def svg(self) -> str:
         renderer = SVGRenderer(width=self.width, height=self.height, viewbox=tuple(self.viewbox()))
         px = 1.0 / self.scene.scale                 # one screen pixel, in scene units
-        renderer.draw_scene(self.scene, self._segments, draw_rays=bool(self._segments),
+        renderer.draw_scene(self.scene, self._segments, draw_rays=bool(self._segments) and self.sculpt is None,
                             draw_edge_labels=False, edge_stroke_width=2 * px, ray_stroke_width=1.2 * px,
-                            object_label_font_size=f"{11 * px:.6g}px")
+                            object_label_font_size=f"{11 * px:.6g}px", point_radius=5 * px)
+        if self.sculpt is not None:
+            self._draw_sculpt(renderer, px)
         return renderer.to_string()
+
+    def _draw_sculpt(self, renderer: SVGRenderer, px: float) -> None:
+        from ..analysis import first_order as fo  # noqa: PLC0415
+        from ..analysis.glass_geometry import outline_coords  # noqa: PLC0415
+        from ..analysis.sculpt_layer import draw_sculpt_layer  # noqa: PLC0415
+        s, p = self.sculpt, self.sculpt.preview
+        outline, changes = None, None
+        if p is not None:
+            handle = s.handle(self.scene, p["handle_id"], p["kind"])
+            outline = outline_coords(fo.edited_path(self.scene, handle, p["delta"]))
+            changes = p.get("bundle_changes")
+        draw_sculpt_layer(renderer, self.scene, tubes=s.tubes if s.map in ("B", "both") else None,
+                          bundles=s.bundles if s.map in ("A", "both") else None, handles_of=s.glass,
+                          opl_scale=s.opl_scale, preview=changes, pixel=px, preview_outline=outline,
+                          trusted=p is None or p["trusted"])
 
     def _points(self, obj: Any) -> List[MousePoint]:
         out: List[MousePoint] = []
@@ -304,14 +333,23 @@ class SceneEditor:
                                  if e["key"] != ""]
         return out
 
-    def state(self) -> Dict[str, Any]:
-        """Everything a view draws: the drawing, the objects, the selection, the palette."""
+    def state(self, draw: bool = True) -> Dict[str, Any]:
+        """Everything a view draws: the drawing, the objects, the selection, the palette.
+
+        ``draw=False`` leaves the drawing out (``"svg"`` is None): for a caller with no view, such
+        as an agent's tools, which read the numbers.
+        """
         objects = []
         for obj in self.scene.objs:
             owner = self._owner(obj)
-            objects.append({"name": obj.name, "uuid": obj.uuid, "type": type(obj).type,
-                            "kind": "recipe" if self._recipe(owner) else "primitive",
-                            "owner": owner.name if owner is not obj else None})
+            entry = {"name": obj.name, "uuid": obj.uuid, "type": type(obj).type,
+                     "kind": "recipe" if self._recipe(owner) else "primitive",
+                     "owner": owner.name if owner is not obj else None,
+                     "recipe": self._recipe(owner)}
+            x, y = getattr(obj, "x", None), getattr(obj, "y", None)
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)) and not hasattr(obj, "p1"):
+                entry["at"] = [x, y]                  # a point object: the page picks it within a click extent
+            objects.append(entry)
         drag = None
         if self._pending is not None and self._pending.get("obj") is not None:
             ctx = self._pending["context"]
@@ -321,7 +359,7 @@ class SceneEditor:
                     "point": None if tp is None else {"x": _xy(tp)[0], "y": _xy(tp)[1]},
                     "whole": ctx.get("part") == 0 or self._pending.get("recipe") is not None}
         return {
-            "svg": self.svg(),
+            "svg": self.svg() if draw else None,
             "view": {"viewbox": self.viewbox(), "scale": self.scene.scale,
                      "width": self.width, "height": self.height},
             "objects": objects,
@@ -340,13 +378,15 @@ class SceneEditor:
             "can_undo": bool(self._undo), "can_redo": bool(self._redo),
             "error": self.error,
             "notice": self.notice,
+            "sculpt": None if self.sculpt is None else self.sculpt.state(self.scene),
         }
 
     # --- messages -------------------------------------------------------------
 
-    def handle(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    def handle(self, message: Dict[str, Any], draw: bool = True) -> Dict[str, Any]:
         """Apply one message from a view; the new state. A refused message leaves the
-        scene as it was and says why in ``state()["error"]``."""
+        scene as it was and says why in ``state()["error"]``. ``draw=False``: the state without
+        its drawing."""
         self.error, self.notice = None, None
         kind = message.get("type")
         try:
@@ -355,9 +395,9 @@ class SceneEditor:
                 raise EditorError(f"unknown message type {kind!r}")
             handler(message)
         except (EditorError, sf.SceneFileError, ValueError, TypeError, KeyError) as exc:
-            self.error = str(exc) if isinstance(exc, (EditorError, sf.SceneFileError)) \
+            self.error = str(exc) if isinstance(exc, (EditorError, sf.SceneFileError, SculptError)) \
                 else f"{type(exc).__name__}: {exc}"
-        return self.state()
+        return self.state(draw)
 
     def _mouse(self, m: Dict[str, Any]) -> Mouse:
         return Mouse(MousePoint(float(m["x"]), float(m["y"])), self.scene,
@@ -463,26 +503,10 @@ class SceneEditor:
 
     def _move_recipe(self, owner: Any, dx: float, dy: float) -> None:
         name = owner.name
-        params = {p["name"]: p for p in sf.recipe_parameters(self._recipe(owner))}
 
         def change(data):
             entry = next(e for e in data["objects"] if e.get("name") == name)
-            args = entry["args"]
-            if "position" in params:
-                x, y = args.get("position") or params["position"]["default"] or [0.0, 0.0]
-                args["position"] = [x + dx, y + dy]
-                return
-            points = [k for k in getattr(type(owner), "placement_points", ()) if args.get(k) is not None]
-            if not points:
-                raise EditorError(f"{name}: a {self._recipe(owner)} has no position to move; "
-                                  "change its arguments instead")
-            for k in points:                         # a point, or a sequence of points
-                value = args[k]
-                if value and isinstance(value[0], (list, tuple)):
-                    args[k] = [[x + dx, y + dy] for x, y in value]
-                else:
-                    x, y = value
-                    args[k] = [x + dx, y + dy]
+            _shift_args(name, entry["recipe"], entry["args"], dx, dy)
 
         self._rebuild(change)
 
@@ -555,6 +579,7 @@ class SceneEditor:
         self._redo.append(self._dump())
         self._load(self._undo.pop())
         self._trace()
+        self._sculpt_follow()
 
     def _on_redo(self, m: Dict[str, Any]) -> None:
         if not self._redo:
@@ -562,6 +587,7 @@ class SceneEditor:
         self._undo.append(self._dump())
         self._load(self._redo.pop())
         self._trace()
+        self._sculpt_follow()
 
     def _on_save(self, m: Dict[str, Any]) -> None:
         path = m.get("path") or self.path
@@ -576,6 +602,7 @@ class SceneEditor:
         self.path = str(m["path"])
         self._name_all()
         self.selected, self.tool, self._constructing, self._pending = None, None, None, None
+        self.sculpt = None
         self._undo.clear()
         self._redo.clear()
         self.fit()
@@ -629,6 +656,125 @@ class SceneEditor:
         self._trace()
 
 
+    # the sculpt mode --------------------------------------------------------------
+
+    def _session(self) -> SculptSession:
+        if self.sculpt is None:
+            raise EditorError("not sculpting: send sculpt_start first")
+        return self.sculpt
+
+    def _sculpt_follow(self) -> None:
+        """After an undo or redo: the light traced again on the scene as it now is, or the mode left
+        if the glass is no longer a sculpted glass (the undo went back past the start)."""
+        s = self.sculpt
+        if s is None:
+            return
+        obj = next((o for o in self.scene.objs if o.name == s.glass), None)
+        if obj is None or self._recipe(obj) != "SculptedGlass":
+            self.sculpt = None
+            self._trace()
+            return
+        s.preview, s.events = None, []
+        s.retrace(self.scene)
+
+    def _on_sculpt_start(self, m: Dict[str, Any]) -> None:
+        from ..core.scene_objs.other.detector import Detector  # noqa: PLC0415
+        name = m.get("glass") or self.selected
+        if not name:
+            raise EditorError("sculpt_start needs a glass: select one, or name it")
+        recipe = sculptable(self.scene, name)
+        receiver = m.get("receiver")
+        if receiver is None:
+            detectors = [o.name for o in self.scene.objs if isinstance(o, Detector)]
+            receiver = detectors[0] if len(detectors) == 1 else None
+        session = SculptSession(name, receiver, int(m.get("tubes", 8)), bool(m.get("bundles", True)))
+        before, converted = self._dump(), recipe != "SculptedGlass"
+        if converted:
+            def change(data):
+                entry = next(e for e in data["objects"] if e.get("name") == name)
+                entry["args"] = {"base": {"recipe": entry["recipe"], "args": entry.get("args", {})}, "edits": []}
+                entry["recipe"] = "SculptedGlass"
+            self._rebuild(change)
+        try:
+            session.cut_tubes(self.scene)
+            session.aim_bundles(self.scene)
+            if session.cut is None and session.aimed is None:
+                raise SculptError(f"nothing to sculpt by: no receiver (a detector; the scene has "
+                                  f"{'none' if receiver is None else 'several'} to choose from, name one) "
+                                  f"and no edge bundles (written for an RR lens only)")
+        except Exception:
+            if converted:                                 # all or nothing: the glass as it was
+                self._load(before)
+                self._undo.pop()
+                self._trace()
+            raise
+        self.sculpt, self.selected, self.tool = session, name, None
+        self._trace()                                    # no rays drawn while sculpting
+
+    def _sculpt_move(self, m: Dict[str, Any]):
+        s = self._session()
+        if "handle_id" not in m or "delta" not in m:
+            raise EditorError("a sculpt move needs handle_id and delta")
+        delta = float(m["delta"])
+        if not math.isfinite(delta):
+            raise EditorError(f"delta must be finite, got {delta}")
+        return s, s.handle(self.scene, m["handle_id"], m.get("kind", "position")), delta
+
+    def _on_sculpt_preview(self, m: Dict[str, Any]) -> None:
+        if m.get("clear"):
+            self._session().preview = None
+            return
+        s, handle, delta = self._sculpt_move(m)
+        s.preview = s.estimate(self.scene, handle, delta)
+
+    def _on_sculpt_apply(self, m: Dict[str, Any]) -> None:
+        s, handle, delta = self._sculpt_move(m)
+        estimate = s.estimate(self.scene, handle, delta)
+        old_tubes, old_bundles = s.tubes, s.bundles
+        edit = {"edge": handle.label or handle.edge, "index": handle.index, "kind": handle.kind, "delta": delta}
+
+        def change(data):
+            entry = next(e for e in data["objects"] if e.get("name") == s.glass)
+            entry["args"]["edits"] = list(entry["args"].get("edits") or []) + [edit]
+        s.preview = None
+        try:
+            self._rebuild(change)
+        except Exception as exc:
+            s.events = [{"kind": "outline_refused", "handle_id": handle.handle_id, "detail": str(exc)}]
+            raise
+        s.retrace(self.scene)
+        s.events = s.events_between(old_tubes, old_bundles)
+        s.learn(estimate, old_bundles, old_tubes, handle)
+
+    def _on_sculpt_undo(self, m: Dict[str, Any]) -> None:
+        self._session()
+        self._on_undo(m)
+
+    def _on_sculpt_repartition(self, m: Dict[str, Any]) -> None:
+        s = self._session()
+        s.cut_tubes(self.scene)
+        s.preview, s.events = None, []
+
+    def _on_sculpt_settings(self, m: Dict[str, Any]) -> None:
+        s = self._session()
+        if "map" in m:
+            if m["map"] not in ("A", "B", "both"):
+                raise EditorError(f"map is 'A', 'B' or 'both', got {m['map']!r}")
+            s.map = m["map"]
+        if "opl_scale" in m:
+            if not float(m["opl_scale"]) > 0:
+                raise EditorError("opl_scale must be positive")
+            s.opl_scale = float(m["opl_scale"])
+        if "fine" in m:
+            if not float(m["fine"]) > 0:
+                raise EditorError("fine must be positive")
+            s.fine = float(m["fine"])
+
+    def _on_sculpt_stop(self, m: Dict[str, Any]) -> None:
+        self.sculpt = None
+        self._trace()
+
+
 def _web_notice(what: str, report: Dict[str, Any]) -> str:
     left = [f"{x.get('name') or x['type']} ({x['reason']})" for x in report.get("skipped", [])]
     ignored = report.get("ignored_settings") or []
@@ -642,6 +788,34 @@ def _web_notice(what: str, report: Dict[str, Any]) -> str:
 
 def _xy(p: Any):
     return (p["x"], p["y"]) if isinstance(p, dict) else (p.x, p.y)
+
+
+
+def _shift_args(name: str, recipe: str, args: Dict[str, Any], dx: float, dy: float) -> None:
+    """A recipe's arguments moved by (dx, dy): its ``position``, or its placement points.
+
+    A sculpted glass moves by its base: its edits are along its own normals and turns of its own
+    tangents, so they move with it unchanged.
+    """
+    if recipe == "SculptedGlass":
+        base = args.get("base") or {}
+        _shift_args(name, base.get("recipe", ""), base.setdefault("args", {}), dx, dy)
+        return
+    params = {p["name"]: p for p in sf.recipe_parameters(recipe)}
+    if "position" in params:
+        x, y = args.get("position") or params["position"]["default"] or [0.0, 0.0]
+        args["position"] = [x + dx, y + dy]
+        return
+    points = [k for k in getattr(sf.recipe_class(recipe), "placement_points", ()) if args.get(k) is not None]
+    if not points:
+        raise EditorError(f"{name}: a {recipe} has no position to move; change its arguments instead")
+    for k in points:                                 # a point, or a sequence of points
+        value = args[k]
+        if value and isinstance(value[0], (list, tuple)):
+            args[k] = [[x + dx, y + dy] for x, y in value]
+        else:
+            x, y = value
+            args[k] = [x + dx, y + dy]
 
 
 __all__ = ["EditorError", "PALETTE_PRIMITIVES", "SceneEditor"]

@@ -30,6 +30,7 @@ Post-hoc, over a completed run. Reads the core; never modifies it.
 | `analysis_bidirectional` | `KB2` `KB1` | Forward and backward passes joined at shared surfaces, and path auditing. |
 | `analysis_signature` | `KB3` `KA1` | Path signatures and the spectra two runs are compared by. |
 | `analysis_run_registry` | `KB8` `KC3` `KD8` | Persisting a run, and comparing runs across a sweep. |
+| `analysis_flux_tubes` | `KB3` `KC3` `KD5` | A source's light cut into tubes of equal delivered power, each kept as replayable seeds with its routes and arrivals, and traced again on an edited scene; the first-order change of a small edit of a designed surface, untraced; an SMS design's edge bundles and Map A, the spread of their optical path lengths to the target; a sculpted glass, a designed recipe and the edits made to it, kept as one recipe; all of it drawn as a sculpt layer. |
 
 ## The agentic layer
 
@@ -60,7 +61,7 @@ Above the simulator. Turns dimensionless brightness into physical quantity.
 | Component | Realises | What it is |
 |---|---|---|
 | `svg_renderer` | `KB6` `KA1` `KC7` | The scene as an addressable SVG, including the annotation layer. |
-| `builder` | `KB6` `KC2` `KC7` | The scene builder: a scene drawn and edited with the pointer in a notebook cell, every rule in Python, saved as a scene file. |
+| `builder` | `KB6` `KC2` `KC7` | The scene builder: a scene drawn and edited with the pointer in a notebook cell, every rule in Python, saved as a scene file; a designed glass sculpted by its handles, its light in view, by a person or by an agent's tools. |
 | `web` | `KC7` `KD7` | The flow form and the scene builder as pages served by routes in the kernel's web app, for hosts without notebook widgets (a solveit dialog). |
 | `optiland_scene_bridge` | `KB7` `KC7` `KD3` `KD5` `KD13` | A 2D profile into placed 3D solids, mirrors and plates, and back, aspheres of revolution included; sources and measured LEDs in 3D; the same rays compared in 2D and 3D; irradiance maps; a collimator in Optiland's sequential engine; static 3D pictures. |
 | `optiland_sms_plugin` | `KB7` `KC2` | A profile's spline span as an Optiland sequential surface, differentiable: the `optiland-sms` distribution. |

@@ -86,7 +86,7 @@ pip install "ray-tracing-shapely[eye-safety]"    # IEC 60825-1 / IEC 62471
 pip install "ray-tracing-shapely[agentic]"       # the MCP tool surface
 pip install "ray-tracing-shapely[modal]"         # flows' jobs on Modal (the Modal client)
 pip install "ray-tracing-shapely[widgets]"       # a flow's form, the scene builder and the graph editor in a notebook cell (anywidget)
-pip install "ray-tracing-shapely[web]"           # the same three, as pages for hosts without widgets (experimental)
+pip install "ray-tracing-shapely[web]"           # the same three, as pages for hosts without widgets (solveit)
 pip install "ray-tracing-shapely[notebook]"      # running the example notebooks (jupyterlab, papermill)
 pip install "ray-tracing-shapely[all]"           # everything
 ```
@@ -144,7 +144,9 @@ The scene builder places primitives from a palette and designed elements
 from a form of their arguments, edits by dragging, as the web Ray Optics
 Simulation does, and traces after every change. It saves a scene file, which a
 parameter study or an agent reads, and opens and exports the web simulator's
-own files. Every rule runs in Python; the page only draws.
+own files. The scene's elements are listed as a tree beside the canvas, and
+**Pan** makes every drag move the view. Every rule runs in Python; the page
+only draws.
 
 ```python
 from ray_tracing_shapely.graph import graph_editor
@@ -172,10 +174,24 @@ next block as `{"ref": "v3"}`), read or list the kept values, and
 `block_graph`, which writes the agent's work as a graph file. The person opens
 that file in the graph editor, or compiles it.
 
-### In solveit (experimental)
+### In solveit
 
-solveit runs Jupyter "except for ipywidgets", so the widgets above do not show
-there. With the `web` extra, the same views are served as pages from a
+[solveit](https://solve.it.com) is Answer.AI's web environment for working
+on code alongside an AI. You work in *dialogs*: one page that mixes code
+cells, notes and prompts, where the AI sees what came before and runs code
+in the same Python process you do. Each instance is a persistent server of
+your own, with a terminal, files and git, and an app run there can be served
+at the instance's public URL. To reach it, sign up at
+[solve.it.com](https://solve.it.com): joining is free, and use (compute and
+the AI's tokens) is billed as you go. Then open a dialog and install the
+package in a code cell:
+
+```python
+!pip install "ray-tracing-shapely[web]"
+```
+
+A dialog runs Jupyter "except for ipywidgets", so the widgets above do not
+show there. With the `web` extra, the same views are served as pages from a
 FastHTML app in the dialog, and shown in an iframe:
 
 ```python
@@ -193,12 +209,12 @@ views.embed(views.flow(flow))                       # a flow's form
 views.embed(views.graph(path="design.graph.json"))  # the graph editor
 ```
 
-**Experimental.** The pages and their routes are tested in a browser against
-a local server, not yet inside a solveit dialog. The step most likely to need
-adjusting is the iframe's address: `base_url` is assumed to be the instance's
-public URL for port 8000, which solveit's reference manual describes; check it
-there, and pass whatever address reaches the app from the dialog. Outside
-solveit, `views.serve()` runs the pages on a local server for any browser.
+`base_url` is the address at which the instance serves the app on port 8000,
+the public URL solveit gives the instance; the iframe loads the pages from
+there. The pages and their routes are tested in a browser against a local
+server, and the scene builder has been used by hand in a solveit dialog.
+Outside solveit, `views.serve()` runs the pages on a local server for any
+browser.
 
 ## Documentation
 
@@ -238,8 +254,8 @@ This project began as a translation of the
 [doi:10.5281/zenodo.6386611](https://doi.org/10.5281/zenodo.6386611)), and has grown a
 great deal of new work on top of it.
 
-Of this distribution's 269 source files, **37 are translations** of
-that project — the ray-tracing engine and its scene objects — and **232
+Of this distribution's 283 source files, **37 are translations** of
+that project — the ray-tracing engine and its scene objects — and **246
 were written for this project**: the analysis layer, the nonimaging design
 methods, the radiometric and photobiological layers, the agentic surface,
 and the tests and examples. Every file says which it is in its own header,

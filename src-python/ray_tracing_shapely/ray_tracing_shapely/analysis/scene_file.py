@@ -124,6 +124,7 @@ _RECIPES: Dict[str, str] = {
     "RXConcentrator": "ray_tracing_shapely.optical_elements.prisms.rx_concentrator:RXConcentrator",
     "RXIOptic": "ray_tracing_shapely.optical_elements.prisms.rxi:RXIOptic",
     "RXIOpticDirect": "ray_tracing_shapely.optical_elements.prisms.rxi_direct:RXIOpticDirect",
+    "SculptedGlass": "ray_tracing_shapely.analysis.sculpted_glass:SculptedGlass",
     "RefractometerPrism": "ray_tracing_shapely.optical_elements.prisms.refractometer:RefractometerPrism",
     "RightAnglePrism": "ray_tracing_shapely.optical_elements.prisms.right_angle:RightAnglePrism",
     "SingletLens": "ray_tracing_shapely.optical_elements.lenses.singlet:SingletLens",

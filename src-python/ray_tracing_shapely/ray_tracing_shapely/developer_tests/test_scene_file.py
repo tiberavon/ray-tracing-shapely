@@ -78,6 +78,11 @@ def _every_recipe(scene):
         "RXConcentrator": R("RXConcentrator")(scene, (-0.5, 0.0), (0.5, 0.0), theta_deg=2.0),
         "XRConcentrator": R("XRConcentrator")(scene, (-0.5, 0.0), (0.5, 0.0), theta_deg=2.0,
                                               p0=(0.0, -4.0), n0=(0.0, -1.0), n=1.5),
+        "SculptedGlass": R("SculptedGlass")(
+            scene, {"recipe": "RRLens", "args": {"e1": [-1.0, 2.0], "e2": [1.0, 2.0], "r1": [-0.5, -2.0],
+                                                 "r2": [0.5, -2.0], "seed_n_angle_deg": 303.3,
+                                                 "seed_x_angle_deg": 42.7}},
+            [{"edge": "N", "index": 26, "kind": "position", "delta": 0.002}]),
         "TIRCollimator": R("TIRCollimator")(scene),
         "FresnelLens": R("FresnelLens")(scene, focal_distance=20.0, semi_diameter=10.0, zones=4, thickness=2.0),
     }
